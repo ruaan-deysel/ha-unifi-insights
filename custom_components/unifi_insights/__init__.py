@@ -1,4 +1,5 @@
 """The UniFi Insights integration."""
+
 from __future__ import annotations
 
 import logging
@@ -17,6 +18,8 @@ from .unifi_network_api import (
 from .const import (
     DOMAIN,
     DEFAULT_API_HOST,
+    CONF_ENABLE_NETWORK,
+    CONF_ENABLE_PROTECT,
 )
 from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .services import async_setup_services, async_unload_services
@@ -61,47 +64,69 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     try:
+        # Check which applications are enabled
+        network_enabled = entry.data.get(CONF_ENABLE_NETWORK, True)
+        protect_enabled = entry.data.get(CONF_ENABLE_PROTECT, True)
+
         _LOGGER.debug(
-            "Initializing UniFi Insights API client with host: %s",
-            entry.data.get(CONF_HOST, DEFAULT_API_HOST)
+            "Setting up UniFi Insights with Network: %s, Protect: %s",
+            network_enabled,
+            protect_enabled,
         )
 
-        api = UnifiInsightsClient(
-            hass=hass,
-            api_key=entry.data[CONF_API_KEY],
-            host=entry.data.get(CONF_HOST, DEFAULT_API_HOST),
-            verify_ssl=False,
-        )
+        api = None
+        protect_api = None
 
-        # Verify we can authenticate
-        _LOGGER.debug("Validating API key")
-        if not await api.async_validate_api_key():
-            _LOGGER.error("Invalid API key")
-            raise ConfigEntryAuthFailed("Invalid API key")
-
-        # Initialize Unifi Protect API client
-        _LOGGER.debug("Initializing Unifi Protect API client")
-        protect_api = UnifiProtectClient(
-            hass=hass,
-            api_key=entry.data[CONF_API_KEY],
-            host=entry.data.get(CONF_HOST, DEFAULT_API_HOST),
-            verify_ssl=False,
-        )
-
-        # Verify Unifi Protect API key
-        _LOGGER.debug("Validating Unifi Protect API key")
-        try:
-            if await protect_api.async_validate_api_key():
-                _LOGGER.info("Unifi Protect API key validation successful")
-            else:
-                _LOGGER.warning("Unifi Protect API key validation failed, continuing without Protect support")
-                protect_api = None
-        except Exception as err:
-            _LOGGER.warning(
-                "Error validating Unifi Protect API key, continuing without Protect support: %s",
-                err
+        # Initialize Network API client if enabled
+        if network_enabled:
+            _LOGGER.debug(
+                "Initializing UniFi Network API client with host: %s",
+                entry.data.get(CONF_HOST, DEFAULT_API_HOST),
             )
-            protect_api = None
+
+            api = UnifiInsightsClient(
+                hass=hass,
+                api_key=entry.data[CONF_API_KEY],
+                host=entry.data.get(CONF_HOST, DEFAULT_API_HOST),
+                verify_ssl=False,
+            )
+
+            # Verify we can authenticate
+            _LOGGER.debug("Validating Network API key")
+            if not await api.async_validate_api_key():
+                _LOGGER.error("Invalid API key for Network")
+                raise ConfigEntryAuthFailed("Invalid API key")
+
+        # Initialize Unifi Protect API client if enabled
+        if protect_enabled:
+            _LOGGER.debug("Initializing Unifi Protect API client")
+            protect_api = UnifiProtectClient(
+                hass=hass,
+                api_key=entry.data[CONF_API_KEY],
+                host=entry.data.get(CONF_HOST, DEFAULT_API_HOST),
+                verify_ssl=False,
+            )
+
+            # Verify Unifi Protect API key
+            _LOGGER.debug("Validating Unifi Protect API key")
+            try:
+                if await protect_api.async_validate_api_key():
+                    _LOGGER.info("Unifi Protect API key validation successful")
+                else:
+                    _LOGGER.warning(
+                        "Unifi Protect API key validation failed, continuing without Protect support"
+                    )
+                    protect_api = None
+            except Exception as err:
+                _LOGGER.warning(
+                    "Error validating Unifi Protect API key, continuing without Protect support: %s",
+                    err,
+                )
+                protect_api = None
+
+        # Ensure at least one API is available
+        if api is None and protect_api is None:
+            raise ConfigEntryNotReady("No UniFi applications are enabled or available")
 
     except UnifiInsightsAuthError as err:
         _LOGGER.error("Authentication error: %s", err)

@@ -20,11 +20,42 @@
         "error": {
             "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]",
             "invalid_auth": "[%key:common::config_flow::error::invalid_auth%]",
+            "no_devices_found": "No UniFi devices found. Please ensure your UniFi Network or Protect applications have devices configured.",
             "unknown": "[%key:common::config_flow::error::unknown%]"
         },
         "abort": {
             "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
             "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+        }
+    },
+    "issues": {
+        "api_key_invalid": {
+            "title": "UniFi Insights API Key Invalid",
+            "description": "The API key for UniFi Insights integration on host {host} is invalid or has expired. Error: {error}. Please update your API key to restore functionality."
+        },
+        "host_unreachable": {
+            "title": "UniFi Host Unreachable",
+            "description": "The UniFi host {host} is unreachable. Error: {error}. Please check your network connection and host configuration."
+        },
+        "no_devices_found": {
+            "title": "No UniFi Devices Found",
+            "description": "No UniFi devices were found on host {host}. Please ensure your UniFi Network or Protect applications have devices configured and are accessible."
+        },
+        "network_api_failed": {
+            "title": "UniFi Network API Failed",
+            "description": "The UniFi Network API on host {host} is not responding properly. Error: {error}. Network devices may not be available."
+        },
+        "protect_api_failed": {
+            "title": "UniFi Protect API Failed",
+            "description": "The UniFi Protect API on host {host} is not responding properly. Error: {error}. Protect devices may not be available."
+        },
+        "websocket_connection_failed": {
+            "title": "WebSocket Connection Failed",
+            "description": "The WebSocket connection to UniFi Protect on host {host} failed. Error: {error}. Real-time updates may not work properly."
+        },
+        "firmware_outdated": {
+            "title": "Device Firmware Outdated",
+            "description": "Device {device_name} is running firmware version {current_version}. Consider updating to {recommended_version} for optimal performance and security."
         }
     },
     "services": {

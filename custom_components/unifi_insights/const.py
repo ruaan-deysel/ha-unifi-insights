@@ -1,4 +1,5 @@
 """Constants for the UniFi Insights integration."""
+
 from datetime import timedelta
 from typing import Final
 
@@ -9,11 +10,15 @@ MANUFACTURER: Final = "Ubiquiti Inc."
 DEFAULT_API_HOST = "https://192.168.10.1"
 SCAN_INTERVAL_NORMAL = timedelta(seconds=30)
 
-UNIFI_API_HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json"
-}
+UNIFI_API_HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 
+# Configuration options
+CONF_ENABLE_NETWORK: Final = "enable_network"
+CONF_ENABLE_PROTECT: Final = "enable_protect"
+
+# UniFi application types
+UNIFI_APP_NETWORK: Final = "network"
+UNIFI_APP_PROTECT: Final = "protect"
 
 
 # Device types
@@ -80,7 +85,9 @@ API_PATH_PTZ_MOVE: Final = "/proxy/protect/integration/v1/cameras/{id}/ptz/goto/
 API_PATH_PTZ_PATROL_START: Final = (
     "/proxy/protect/integration/v1/cameras/{id}/ptz/patrol/start/{slot}"
 )
-API_PATH_PTZ_PATROL_STOP: Final = "/proxy/protect/integration/v1/cameras/{id}/ptz/patrol/stop"
+API_PATH_PTZ_PATROL_STOP: Final = (
+    "/proxy/protect/integration/v1/cameras/{id}/ptz/patrol/stop"
+)
 
 # WebSocket endpoints
 API_PATH_WEBSOCKET_DEVICES: Final = "/proxy/protect/integration/v1/subscribe/devices"
@@ -122,7 +129,9 @@ WS_RECONNECT_JITTER: Final = 0.2  # 20% jitter
 WS_MAX_CONSECUTIVE_ERRORS: Final = 15  # Allow more errors before giving up
 
 # Connection Health
-WS_STALE_CONNECTION_THRESHOLD: Final = 60.0  # Force reconnect if no messages for 60 seconds
+WS_STALE_CONNECTION_THRESHOLD: Final = (
+    60.0  # Force reconnect if no messages for 60 seconds
+)
 
 # WebSocket connection states
 WS_STATE_DISCONNECTED: Final = "disconnected"

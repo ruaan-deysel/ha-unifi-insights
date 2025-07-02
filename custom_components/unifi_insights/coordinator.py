@@ -1,4 +1,5 @@
 """Data update coordinator for UniFi Insights."""
+
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +29,8 @@ from .const import (
     DEVICE_TYPE_CHIME,
     DOMAIN,
     SCAN_INTERVAL_NORMAL,
+    CONF_ENABLE_NETWORK,
+    CONF_ENABLE_PROTECT,
 )
 from .unifi_protect_api import (
     UnifiProtectClient,
@@ -44,9 +47,9 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(
         self,
         hass: HomeAssistant,
-        api: UnifiInsightsClient,
+        api: Optional[UnifiInsightsClient] = None,
         protect_api: Optional[UnifiProtectClient] = None,
-        entry: ConfigEntry = None,
+        entry: Optional[ConfigEntry] = None,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(
@@ -76,16 +79,27 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_update": None,
         }
 
-        # Register WebSocket callbacks if Protect API is available
-        if self.protect_api:
-            self.protect_api.register_device_update_callback(self._handle_device_update)
-            self.protect_api.register_event_update_callback(self._handle_event_update)
+    @property
+    def network_enabled(self) -> bool:
+        """Return True if UniFi Network is enabled."""
+        if not self.config_entry:
+            return True  # Default to enabled if no config entry
+        return self.config_entry.data.get(CONF_ENABLE_NETWORK, True)
+
+    @property
+    def protect_enabled(self) -> bool:
+        """Return True if UniFi Protect is enabled."""
+        if not self.config_entry:
+            return True  # Default to enabled if no config entry
+        return self.config_entry.data.get(CONF_ENABLE_PROTECT, True)
 
     def get_site(self, site_id: str) -> dict[str, Any] | None:
         """Get site data by site ID."""
         return self.data.get("sites", {}).get(site_id)
 
-    def _handle_device_update(self, model_key: str, device_data: dict[str, Any]) -> None:
+    def _handle_device_update(
+        self, model_key: str, device_data: dict[str, Any]
+    ) -> None:
         """Handle device update from WebSocket."""
         device_id = device_data.get("id")
         if not device_id:
@@ -127,31 +141,55 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if device_id:
             # Check if this is a camera motion event
             if event_type == "motion" and device_id in self.data["protect"]["cameras"]:
-                self.data["protect"]["cameras"][device_id]["lastMotion"] = event_data.get("start")
+                self.data["protect"]["cameras"][device_id]["lastMotion"] = (
+                    event_data.get("start")
+                )
                 # Clear smart detect types for basic motion
                 self.data["protect"]["cameras"][device_id]["lastSmartDetectTypes"] = []
-                _LOGGER.debug("Updated motion for camera %s at %s", device_id, event_data.get("start"))
+                _LOGGER.debug(
+                    "Updated motion for camera %s at %s",
+                    device_id,
+                    event_data.get("start"),
+                )
 
             # Check if this is a light motion event
             elif event_type == "motion" and device_id in self.data["protect"]["lights"]:
-                self.data["protect"]["lights"][device_id]["lastMotion"] = event_data.get("start")
+                self.data["protect"]["lights"][device_id]["lastMotion"] = (
+                    event_data.get("start")
+                )
 
             # Check if this is a smart detection event (per API documentation)
-            elif event_type == "smartDetectZone" and device_id in self.data["protect"]["cameras"]:
+            elif (
+                event_type == "smartDetectZone"
+                and device_id in self.data["protect"]["cameras"]
+            ):
                 # Extract smart detection types from event data
                 smart_detect_types = event_data.get("smartDetectTypes", [])
                 event_start = event_data.get("start", 0)
 
                 # Update camera with smart detection information
                 self.data["protect"]["cameras"][device_id]["lastMotion"] = event_start
-                self.data["protect"]["cameras"][device_id]["lastSmartDetectTypes"] = smart_detect_types
+                self.data["protect"]["cameras"][device_id]["lastSmartDetectTypes"] = (
+                    smart_detect_types
+                )
 
-                _LOGGER.info("Smart detection event for camera %s: %s at %s", device_id, smart_detect_types, event_start)
+                _LOGGER.info(
+                    "Smart detection event for camera %s: %s at %s",
+                    device_id,
+                    smart_detect_types,
+                    event_start,
+                )
 
             # Check if this is a doorbell ring event
             elif event_type == "ring" and device_id in self.data["protect"]["cameras"]:
-                self.data["protect"]["cameras"][device_id]["lastRing"] = event_data.get("start")
-                _LOGGER.info("Doorbell ring for camera %s at %s", device_id, event_data.get("start"))
+                self.data["protect"]["cameras"][device_id]["lastRing"] = event_data.get(
+                    "start"
+                )
+                _LOGGER.info(
+                    "Doorbell ring for camera %s at %s",
+                    device_id,
+                    event_data.get("start"),
+                )
 
         self.async_update_listeners()
 
@@ -167,14 +205,46 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, site_id: str, device: dict[str, Any], clients: list[dict[str, Any]]
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """Process a single device and its stats."""
-        device_id = device["id"]
+        # Handle devices that may not have an 'id' field (e.g., UDM Pro SE, UCG Fiber)
+        device_id = device.get("id")
+        if not device_id:
+            # Use alternative identifiers for devices without 'id' field
+            device_id = (
+                device.get("mac")
+                or device.get("macAddress")
+                or device.get("serialNumber")
+            )
+            if not device_id:
+                _LOGGER.warning(
+                    "Device in site %s has no usable identifier: %s",
+                    site_id,
+                    {
+                        k: v
+                        for k, v in device.items()
+                        if k
+                        in [
+                            "name",
+                            "model",
+                            "type",
+                            "mac",
+                            "macAddress",
+                            "serialNumber",
+                        ]
+                    },
+                )
+                # Generate a fallback ID based on available data
+                device_id = f"unknown_{device.get('name', 'device')}_{hash(str(device)) % 10000}"
+
         device_name = device.get("name", device_id)
 
         try:
-            # Get device info and stats in parallel
-            info_task = self.api.async_get_device_info(site_id, device_id)
-            stats_task = self.api.async_get_device_stats(site_id, device_id)
-            device_info, stats = await asyncio.gather(info_task, stats_task)
+            # Get device info and stats in parallel (only if API is available)
+            if self.api:
+                info_task = self.api.async_get_device_info(site_id, device_id)
+                stats_task = self.api.async_get_device_stats(site_id, device_id)
+                device_info, stats = await asyncio.gather(info_task, stats_task)
+            else:
+                device_info, stats = {}, {}
 
             # Update device info
             device.update(device_info)
@@ -192,15 +262,17 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         except Exception as err:
             _LOGGER.error(
-                "Error processing device %s (%s): %s",
-                device_name,
-                device_id,
-                err
+                "Error processing device %s (%s): %s", device_name, device_id, err
             )
             return device_id, device, {}
 
-    async def _process_site(self, site_id: str) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
+    async def _process_site(
+        self, site_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
         """Process a single site's devices and clients."""
+        if not self.api:
+            return None
+
         try:
             # Get devices and clients in parallel
             devices_task = self.api.async_get_devices(site_id)
@@ -209,8 +281,7 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Process devices in parallel
             tasks = [
-                self._process_device(site_id, device, clients)
-                for device in devices
+                self._process_device(site_id, device, clients) for device in devices
             ]
             results = await asyncio.gather(*tasks)
 
@@ -226,44 +297,46 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return devices_dict, stats_dict, clients_dict
 
         except Exception as err:
-            _LOGGER.error(
-                "Error processing site %s: %s",
-                site_id,
-                err,
-                exc_info=True
-            )
+            _LOGGER.error("Error processing site %s: %s", site_id, err, exc_info=True)
             return None
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API."""
         try:
-            # Get all sites first
-            sites = await self.api.async_get_sites()
-            self.data["sites"] = {site["id"]: site for site in sites}
+            # Only fetch Network data if enabled and API is available
+            if self.network_enabled and self.api:
+                # Get all sites first
+                sites = await self.api.async_get_sites()
+                self.data["sites"] = {site["id"]: site for site in sites}
+            else:
+                # Clear Network data if disabled
+                self.data["sites"] = {}
+                self.data["devices"] = {}
+                self.data["clients"] = {}
+                self.data["stats"] = {}
 
-            # Process all sites in parallel
-            tasks = [
-                self._process_site(site_id) for site_id in self.data["sites"]
-            ]
-            results = await asyncio.gather(*tasks)
+            # Process all sites in parallel (only if Network is enabled and API is available)
+            if self.network_enabled and self.api and self.data["sites"]:
+                tasks = [self._process_site(site_id) for site_id in self.data["sites"]]
+                results = await asyncio.gather(*tasks)
 
-            # Update data structure with results
-            for site_id, result in zip(self.data["sites"], results):
-                if result is not None:
-                    devices_dict, stats_dict, clients_dict = result
-                    self.data["devices"][site_id] = devices_dict
-                    self.data["stats"][site_id] = stats_dict
-                    self.data["clients"][site_id] = clients_dict
+                # Update data structure with results
+                for site_id, result in zip(self.data["sites"], results):
+                    if result is not None:
+                        devices_dict, stats_dict, clients_dict = result
+                        self.data["devices"][site_id] = devices_dict
+                        self.data["stats"][site_id] = stats_dict
+                        self.data["clients"][site_id] = clients_dict
 
-                    _LOGGER.debug(
-                        "Successfully processed site %s with %d devices and %d clients",
-                        site_id,
-                        len(devices_dict),
-                        len(clients_dict)
-                    )
+                        _LOGGER.debug(
+                            "Successfully processed site %s with %d devices and %d clients",
+                            site_id,
+                            len(devices_dict),
+                            len(clients_dict),
+                        )
 
-            # Fetch Unifi Protect data if API is available
-            if self.protect_api:
+            # Fetch Unifi Protect data if API is available and enabled
+            if self.protect_api and self.protect_enabled:
                 try:
                     _LOGGER.debug("Fetching Unifi Protect data")
 
@@ -323,14 +396,23 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             try:
                                 nvr_id = nvrs.strip()
                                 if nvr_id:
-                                    nvr_details = await self.protect_api.async_get_nvr(nvr_id)
+                                    nvr_details = await self.protect_api.async_get_nvr(
+                                        nvr_id
+                                    )
                                     if isinstance(nvr_details, dict):
-                                        self.data["protect"]["nvrs"][nvr_id] = nvr_details
-                                        _LOGGER.debug("Successfully fetched NVR details for %s", nvr_id)
+                                        self.data["protect"]["nvrs"][nvr_id] = (
+                                            nvr_details
+                                        )
+                                        _LOGGER.debug(
+                                            "Successfully fetched NVR details for %s",
+                                            nvr_id,
+                                        )
                             except Exception as nvr_err:
                                 _LOGGER.debug("Error fetching NVR details: %s", nvr_err)
                         else:
-                            _LOGGER.debug("Unexpected NVR API response type: %s", type(nvrs))
+                            _LOGGER.debug(
+                                "Unexpected NVR API response type: %s", type(nvrs)
+                            )
                     except Exception as err:
                         _LOGGER.debug("Error fetching NVRs: %s", err)
 
@@ -355,11 +437,22 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         len(self.data["protect"]["lights"]),
                         len(self.data["protect"]["sensors"]),
                         len(self.data["protect"]["nvrs"]),
-                        len(self.data["protect"]["chimes"])
+                        len(self.data["protect"]["chimes"]),
                     )
 
                 except Exception as err:
                     _LOGGER.error("Error fetching Unifi Protect data: %s", err)
+            elif not self.protect_enabled:
+                # Clear Protect data if disabled
+                self.data["protect"] = {
+                    "cameras": {},
+                    "lights": {},
+                    "sensors": {},
+                    "nvrs": {},
+                    "viewers": {},
+                    "chimes": {},
+                    "events": {},
+                }
 
             self._available = True
             self.data["last_update"] = datetime.now()

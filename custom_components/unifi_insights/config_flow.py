@@ -8,8 +8,12 @@ import voluptuous as vol
 from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 
-from .unifi_network_api import UnifiInsightsClient, UnifiInsightsAuthError, UnifiInsightsConnectionError
 from .const import DEFAULT_API_HOST, DOMAIN
+from .unifi_network_api import (
+    UnifiInsightsAuthError,
+    UnifiInsightsClient,
+    UnifiInsightsConnectionError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
@@ -10,27 +10,28 @@ from homeassistant.components.light import (
     LightEntity,
     LightEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    ATTR_LIGHT_DARK,
     ATTR_LIGHT_ID,
+    ATTR_LIGHT_LEVEL,
+    ATTR_LIGHT_MODE,
+    ATTR_LIGHT_MOTION,
     ATTR_LIGHT_NAME,
     ATTR_LIGHT_STATE,
-    ATTR_LIGHT_MODE,
-    ATTR_LIGHT_LEVEL,
-    ATTR_LIGHT_MOTION,
-    ATTR_LIGHT_DARK,
     DEVICE_TYPE_LIGHT,
     DOMAIN,
     LIGHT_MODE_ALWAYS,
-    LIGHT_MODE_MOTION,
     LIGHT_MODE_OFF,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

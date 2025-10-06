@@ -1,27 +1,33 @@
 """Support for UniFi Insights buttons."""
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ATTR_CHIME_ID,
     ATTR_CHIME_NAME,
     ATTR_CHIME_RINGTONE_ID,
     CHIME_RINGTONE_DEFAULT,
+    DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
     DOMAIN,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiInsightsEntity, UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,7 +53,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up buttons for UniFi Insights integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ]
     entities = []
 
     _LOGGER.debug("Setting up buttons for UniFi Insights")
@@ -55,17 +63,18 @@ async def async_setup_entry(
     # Add buttons for each device in each site
     for site_id, devices in coordinator.data["devices"].items():
         site_data = coordinator.get_site(site_id)
-        site_name = site_data.get("meta", {}).get("name", site_id) if site_data else site_id
+        site_name = (
+            site_data.get("meta", {}).get("name", site_id) if site_data else site_id
+        )
 
         _LOGGER.debug(
-            "Processing site %s (%s) with %d devices",
-            site_id,
-            site_name,
-            len(devices)
+            "Processing site %s (%s) with %d devices", site_id, site_name, len(devices)
         )
 
         for device_id in devices:
-            device_data = coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
+            device_data = (
+                coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
+            )
             device_name = device_data.get("name", device_id)
 
             _LOGGER.debug(
@@ -73,7 +82,7 @@ async def async_setup_entry(
                 device_id,
                 device_name,
                 site_id,
-                site_name
+                site_name,
             )
 
             for description in BUTTON_TYPES:
@@ -85,6 +94,28 @@ async def async_setup_entry(
                         device_id=device_id,
                     )
                 )
+
+    # Add port power cycle buttons for PoE-capable switch ports
+    for site_id, devices in coordinator.data["devices"].items():
+        for device_id in devices:
+            device_data = (
+                coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
+            )
+
+            # Check if device has PoE ports
+            port_table = device_data.get("port_table", [])
+            for port in port_table:
+                # Only add power cycle button for ports that support PoE
+                if port.get("poe_enable"):
+                    port_idx = port.get("port_idx")
+                    entities.append(
+                        UnifiPortPowerCycleButton(
+                            coordinator=coordinator,
+                            site_id=site_id,
+                            device_id=device_id,
+                            port_idx=port_idx,
+                        )
+                    )
 
     # Add UniFi Protect chime play buttons
     if coordinator.protect_api:
@@ -101,6 +132,31 @@ async def async_setup_entry(
                     chime_id=chime_id,
                 )
             )
+
+        # Add PTZ patrol start/stop buttons for cameras with PTZ support
+        for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
+            # Check if camera has PTZ support
+            feature_flags = camera_data.get("featureFlags", {})
+            if feature_flags.get("hasPtz"):
+                camera_name = camera_data.get("name", f"Camera {camera_id}")
+
+                _LOGGER.debug("Adding PTZ patrol buttons for camera %s", camera_name)
+
+                # Add start patrol button
+                entities.append(
+                    UnifiProtectPTZPatrolStartButton(
+                        coordinator=coordinator,
+                        camera_id=camera_id,
+                    )
+                )
+
+                # Add stop patrol button
+                entities.append(
+                    UnifiProtectPTZPatrolStopButton(
+                        coordinator=coordinator,
+                        camera_id=camera_id,
+                    )
+                )
 
     _LOGGER.info("Adding %d UniFi Insights buttons", len(entities))
     async_add_entities(entities)
@@ -125,7 +181,7 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):
             "Initializing button %s for device %s in site %s",
             description.key,
             device_id,
-            site_id
+            site_id,
         )
 
     async def async_press(self) -> None:
@@ -133,8 +189,10 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):
         _LOGGER.debug(
             "Restarting device %s (%s) in site %s",
             self._device_id,
-            self.device_data.get("name", self._device_id) if self.device_data else self._device_id,
-            self._site_id
+            self.device_data.get("name", self._device_id)
+            if self.device_data
+            else self._device_id,
+            self._site_id,
         )
 
         try:
@@ -145,26 +203,28 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):
                 _LOGGER.info(
                     "Successfully initiated restart for device %s in site %s",
                     self._device_id,
-                    self._site_id
+                    self._site_id,
                 )
             else:
                 _LOGGER.error(
                     "Failed to restart device %s in site %s",
                     self._device_id,
-                    self._site_id
+                    self._site_id,
                 )
         except Exception as err:
-            _LOGGER.error(
+            _LOGGER.exception(
                 "Error restarting device %s in site %s: %s",
                 self._device_id,
                 self._site_id,
-                err
+                err,
             )
 
     @property
     def available(self) -> bool:
         """Return if the device is available."""
-        device_data = self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        device_data = (
+            self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        )
         if not device_data:
             return False
         return device_data.get("state") == "ONLINE"
@@ -218,11 +278,7 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):
         if ring_settings:
             ringtone_id = ring_settings[0].get("ringtoneId", CHIME_RINGTONE_DEFAULT)
 
-        _LOGGER.debug(
-            "Playing ringtone %s on chime %s",
-            ringtone_id,
-            self._device_id
-        )
+        _LOGGER.debug("Playing ringtone %s on chime %s", ringtone_id, self._device_id)
 
         try:
             await self.coordinator.protect_api.async_play_chime_ringtone(
@@ -230,4 +286,149 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):
                 ringtone_id=ringtone_id,
             )
         except Exception as err:
-            _LOGGER.error("Error playing chime ringtone: %s", err)
+            _LOGGER.exception("Error playing chime ringtone: %s", err)
+
+
+class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):
+    """Button to power cycle a PoE port on a UniFi switch."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:power-cycle"
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        site_id: str,
+        device_id: str,
+        port_idx: int,
+    ) -> None:
+        """Initialize the button."""
+        # Create a fake description for the base class
+        description = UnifiInsightsButtonEntityDescription(
+            key=f"port_{port_idx}_power_cycle",
+            name=f"Port {port_idx} Power Cycle",
+            icon="mdi:power-cycle",
+        )
+        super().__init__(coordinator, description, site_id, device_id)
+        self._port_idx = port_idx
+
+        # Override unique ID to include port index
+        self._attr_unique_id = f"{site_id}_{device_id}_port_{port_idx}_power_cycle"
+        self._attr_name = f"Port {port_idx} Power Cycle"
+
+    async def async_press(self) -> None:
+        """Power cycle the port."""
+        _LOGGER.debug(
+            "Power cycling port %s on device %s in site %s",
+            self._port_idx,
+            self._device_id,
+            self._site_id,
+        )
+
+        try:
+            await self.coordinator.api.async_power_cycle_port(
+                site_id=self._site_id,
+                device_id=self._device_id,
+                port_idx=self._port_idx,
+            )
+            _LOGGER.info(
+                "Successfully power cycled port %s on device %s in site %s",
+                self._port_idx,
+                self._device_id,
+                self._site_id,
+            )
+        except Exception as err:
+            _LOGGER.exception(
+                "Error power cycling port %s on device %s in site %s: %s",
+                self._port_idx,
+                self._device_id,
+                self._site_id,
+                err,
+            )
+
+    @property
+    def available(self) -> bool:
+        """Return if the port is available."""
+        device_data = (
+            self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        )
+        if not device_data:
+            return False
+
+        # Check if device is online
+        if device_data.get("state") != "ONLINE":
+            return False
+
+        # Check if port exists and has PoE enabled
+        port_table = device_data.get("port_table", [])
+        for port in port_table:
+            if port.get("port_idx") == self._port_idx:
+                return port.get("poe_enable", False)
+
+        return False
+
+
+class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):
+    """Button to start PTZ patrol on a UniFi Protect camera."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cctv"
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        camera_id: str,
+    ) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "ptz_patrol_start")
+        self._attr_name = "Start PTZ Patrol"
+
+    async def async_press(self) -> None:
+        """Start PTZ patrol."""
+        _LOGGER.debug("Starting PTZ patrol for camera %s", self._device_id)
+
+        try:
+            # Start patrol on slot 0 by default
+            await self.coordinator.protect_api.async_ptz_patrol_start(
+                camera_id=self._device_id,
+                slot=0,
+            )
+            _LOGGER.info(
+                "Successfully started PTZ patrol for camera %s", self._device_id
+            )
+        except Exception as err:
+            _LOGGER.exception(
+                "Error starting PTZ patrol for camera %s: %s", self._device_id, err
+            )
+
+
+class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):
+    """Button to stop PTZ patrol on a UniFi Protect camera."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:stop-circle-outline"
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        camera_id: str,
+    ) -> None:
+        """Initialize the button."""
+        super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "ptz_patrol_stop")
+        self._attr_name = "Stop PTZ Patrol"
+
+    async def async_press(self) -> None:
+        """Stop PTZ patrol."""
+        _LOGGER.debug("Stopping PTZ patrol for camera %s", self._device_id)
+
+        try:
+            await self.coordinator.protect_api.async_ptz_patrol_stop(
+                camera_id=self._device_id,
+            )
+            _LOGGER.info(
+                "Successfully stopped PTZ patrol for camera %s", self._device_id
+            )
+        except Exception as err:
+            _LOGGER.exception(
+                "Error stopping PTZ patrol for camera %s: %s", self._device_id, err
+            )

@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ATTR_CAMERA_ID,
@@ -17,8 +14,14 @@ from .const import (
     DEVICE_TYPE_CAMERA,
     DOMAIN,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -100,7 +103,7 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
             self._attr_is_on = True
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error turning on microphone: %s", err)
+            _LOGGER.exception("Error turning on microphone: %s", err)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the microphone off."""
@@ -114,4 +117,4 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
             self._attr_is_on = False
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error turning off microphone: %s", err)
+            _LOGGER.exception("Error turning off microphone: %s", err)

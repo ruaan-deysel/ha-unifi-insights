@@ -2,33 +2,35 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING
 
 from homeassistant.components.number import NumberEntity, NumberMode
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ATTR_CAMERA_ID,
     ATTR_CAMERA_NAME,
-    ATTR_MIC_ENABLED,
-    ATTR_LIGHT_ID,
-    ATTR_LIGHT_NAME,
-    ATTR_LIGHT_LEVEL,
     ATTR_CHIME_ID,
     ATTR_CHIME_NAME,
-    ATTR_CHIME_VOLUME,
     ATTR_CHIME_REPEAT_TIMES,
-    ATTR_CHIME_RINGTONE_ID,
+    ATTR_CHIME_VOLUME,
+    ATTR_LIGHT_ID,
+    ATTR_LIGHT_LEVEL,
+    ATTR_LIGHT_NAME,
+    ATTR_MIC_ENABLED,
     DEVICE_TYPE_CAMERA,
-    DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_CHIME,
+    DEVICE_TYPE_LIGHT,
     DOMAIN,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -143,7 +145,7 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
             self._attr_native_value = value
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting microphone volume: %s", err)
+            _LOGGER.exception("Error setting microphone volume: %s", err)
 
 
 class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
@@ -198,7 +200,7 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
             self._attr_native_value = value
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting light level: %s", err)
+            _LOGGER.exception("Error setting light level: %s", err)
 
 
 class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):
@@ -262,7 +264,7 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):
             self._attr_native_value = value
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting chime volume: %s", err)
+            _LOGGER.exception("Error setting chime volume: %s", err)
 
 
 class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):
@@ -326,4 +328,4 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):
             self._attr_native_value = value
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting chime repeat times: %s", err)
+            _LOGGER.exception("Error setting chime repeat times: %s", err)

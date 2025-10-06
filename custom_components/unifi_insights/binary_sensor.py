@@ -1,19 +1,16 @@
 """Support for UniFi Insights binary sensors."""
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
@@ -21,26 +18,31 @@ from .const import (
     ATTR_CAMERA_NAME,
     ATTR_LAST_MOTION,
     ATTR_SENSOR_ID,
-    ATTR_SENSOR_NAME,
+    ATTR_SENSOR_IS_OPENED,
     ATTR_SENSOR_MOTION_DETECTED,
     ATTR_SENSOR_MOTION_DETECTED_AT,
-    ATTR_SENSOR_IS_OPENED,
+    ATTR_SENSOR_NAME,
     ATTR_SENSOR_OPEN_STATUS_CHANGED_AT,
     CAMERA_TYPE_DOORBELL,
-    CAMERA_TYPE_DOORBELL_WITH_PACKAGE_DETECTION,
     CAMERA_TYPE_DOORBELL_MAIN,
     CAMERA_TYPE_DOORBELL_PACKAGE,
-    DOMAIN,
+    CAMERA_TYPE_DOORBELL_WITH_PACKAGE_DETECTION,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_SENSOR,
-    MANUFACTURER,
-    SMART_DETECT_PERSON,
-    SMART_DETECT_VEHICLE,
+    DOMAIN,
     SMART_DETECT_ANIMAL,
     SMART_DETECT_PACKAGE,
+    SMART_DETECT_PERSON,
+    SMART_DETECT_VEHICLE,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiInsightsEntity, UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,24 +61,32 @@ def _is_doorbell_camera(camera_data: dict[str, Any]) -> bool:
 
     # Fallback: Check camera type field from API
     api_camera_type = camera_data.get("type", "").lower()
-    if any(doorbell_type in api_camera_type for doorbell_type in [
-        "doorbell", "g4-doorbell", "ai-doorbell", "g4doorbell", "aidoorbell"
-    ]):
+    if any(
+        doorbell_type in api_camera_type
+        for doorbell_type in [
+            "doorbell",
+            "g4-doorbell",
+            "ai-doorbell",
+            "g4doorbell",
+            "aidoorbell",
+        ]
+    ):
         return True
 
     # Fallback: Check camera name for doorbell indicators
     camera_name = camera_data.get("name", "").lower()
-    if any(doorbell_name in camera_name for doorbell_name in [
-        "doorbell", "door bell", "front door", "entrance"
-    ]):
-        return True
-
-    return False
+    return bool(
+        any(
+            doorbell_name in camera_name
+            for doorbell_name in ["doorbell", "door bell", "front door", "entrance"]
+        )
+    )
 
 
 @dataclass
 class UnifiInsightsBinarySensorEntityDescription(BinarySensorEntityDescription):
     """Class describing UniFi Insights binary sensor entities."""
+
     value_fn: callable[[dict[str, Any]], bool] = None
     device_type: str = None
     entity_type: str = "device"  # "device" or "protect"
@@ -92,18 +102,30 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         value_fn=lambda device: device.get("state") == "ONLINE",
         entity_type="device",
     ),
-
+    # WAN status (gateway devices only)
+    UnifiInsightsBinarySensorEntityDescription(
+        key="wan_status",
+        translation_key="wan_status",
+        name="WAN Status",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:wan",
+        value_fn=lambda device: device.get("state") == "ONLINE",
+        entity_type="device",
+    ),
     # Camera motion detection
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_motion",
         translation_key="camera_motion",
         name="Motion Detection",
         device_class=BinarySensorDeviceClass.MOTION,
-        value_fn=lambda device: device.get("lastMotion", 0) > 0,
+        value_fn=lambda device: (
+            device.get("lastMotionStart") is not None
+            and device.get("lastMotionEnd") is None
+        ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-
     # Camera person detection
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_person_detection",
@@ -111,13 +133,14 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         name="Person Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: (
-            SMART_DETECT_PERSON in device.get("smartDetectTypes", []) and
-            SMART_DETECT_PERSON in device.get("lastSmartDetectTypes", [])
+            SMART_DETECT_PERSON in device.get("smartDetectTypes", [])
+            and SMART_DETECT_PERSON in device.get("lastSmartDetectTypes", [])
+            and device.get("lastMotionStart") is not None
+            and device.get("lastMotionEnd") is None
         ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-
     # Camera vehicle detection
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_vehicle_detection",
@@ -125,13 +148,14 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         name="Vehicle Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: (
-            SMART_DETECT_VEHICLE in device.get("smartDetectTypes", []) and
-            SMART_DETECT_VEHICLE in device.get("lastSmartDetectTypes", [])
+            SMART_DETECT_VEHICLE in device.get("smartDetectTypes", [])
+            and SMART_DETECT_VEHICLE in device.get("lastSmartDetectTypes", [])
+            and device.get("lastMotionStart") is not None
+            and device.get("lastMotionEnd") is None
         ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-
     # Camera animal detection
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_animal_detection",
@@ -139,13 +163,14 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         name="Animal Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: (
-            SMART_DETECT_ANIMAL in device.get("smartDetectTypes", []) and
-            SMART_DETECT_ANIMAL in device.get("lastSmartDetectTypes", [])
+            SMART_DETECT_ANIMAL in device.get("smartDetectTypes", [])
+            and SMART_DETECT_ANIMAL in device.get("lastSmartDetectTypes", [])
+            and device.get("lastMotionStart") is not None
+            and device.get("lastMotionEnd") is None
         ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-
     # Camera package detection
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_package_detection",
@@ -153,24 +178,27 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         name="Package Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: (
-            SMART_DETECT_PACKAGE in device.get("smartDetectTypes", []) and
-            SMART_DETECT_PACKAGE in device.get("lastSmartDetectTypes", [])
+            SMART_DETECT_PACKAGE in device.get("smartDetectTypes", [])
+            and SMART_DETECT_PACKAGE in device.get("lastSmartDetectTypes", [])
+            and device.get("lastMotionStart") is not None
+            and device.get("lastMotionEnd") is None
         ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-
     # Camera doorbell ring
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_doorbell_ring",
         translation_key="camera_doorbell_ring",
         name="Ring",
         device_class=BinarySensorDeviceClass.OCCUPANCY,
-        value_fn=lambda device: device.get("lastRing", 0) > 0,
+        value_fn=lambda device: (
+            device.get("lastRingStart") is not None
+            and device.get("lastRingEnd") is None
+        ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-
     # Sensor motion detection
     UnifiInsightsBinarySensorEntityDescription(
         key="sensor_motion",
@@ -181,7 +209,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         device_type=DEVICE_TYPE_SENSOR,
         entity_type="protect",
     ),
-
     # Sensor door/window status
     UnifiInsightsBinarySensorEntityDescription(
         key="sensor_door",
@@ -201,7 +228,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary sensors for UniFi Insights integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ]
     entities = []
 
     _LOGGER.debug("Setting up binary sensors for UniFi Insights")
@@ -209,17 +238,18 @@ async def async_setup_entry(
     # Add binary sensors for each device in each site
     for site_id, devices in coordinator.data["devices"].items():
         site_data = coordinator.get_site(site_id)
-        site_name = site_data.get("meta", {}).get("name", site_id) if site_data else site_id
+        site_name = (
+            site_data.get("meta", {}).get("name", site_id) if site_data else site_id
+        )
 
         _LOGGER.debug(
-            "Processing site %s (%s) with %d devices",
-            site_id,
-            site_name,
-            len(devices)
+            "Processing site %s (%s) with %d devices", site_id, site_name, len(devices)
         )
 
         for device_id in devices:
-            device_data = coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
+            device_data = (
+                coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
+            )
             device_name = device_data.get("name", device_id)
 
             _LOGGER.debug(
@@ -227,11 +257,22 @@ async def async_setup_entry(
                 device_id,
                 device_name,
                 site_id,
-                site_name
+                site_name,
             )
 
             for description in BINARY_SENSOR_TYPES:
                 if description.entity_type == "device":
+                    # Skip WAN status sensor for non-gateway devices
+                    if description.key == "wan_status" and not device_data.get(
+                        "model", ""
+                    ).startswith("UDM"):
+                        _LOGGER.debug(
+                            "Skipping WAN status sensor for non-gateway device %s (%s)",
+                            device_id,
+                            device_name,
+                        )
+                        continue
+
                     entities.append(
                         UnifiInsightsBinarySensor(
                             coordinator=coordinator,
@@ -248,23 +289,24 @@ async def async_setup_entry(
             camera_name = camera_data.get("name", camera_id)
 
             _LOGGER.debug(
-                "Creating binary sensors for camera %s (%s)",
-                camera_id,
-                camera_name
+                "Creating binary sensors for camera %s (%s)", camera_id, camera_name
             )
 
             for description in BINARY_SENSOR_TYPES:
-                if (description.entity_type == "protect" and
-                    description.device_type == DEVICE_TYPE_CAMERA):
-
+                if (
+                    description.entity_type == "protect"
+                    and description.device_type == DEVICE_TYPE_CAMERA
+                ):
                     # Skip package detection and doorbell ring for non-doorbell cameras
-                    if (description.key in ["camera_package_detection", "camera_doorbell_ring"] and
-                        not _is_doorbell_camera(camera_data)):
+                    if description.key in [
+                        "camera_package_detection",
+                        "camera_doorbell_ring",
+                    ] and not _is_doorbell_camera(camera_data):
                         _LOGGER.debug(
                             "Skipping %s sensor for non-doorbell camera %s (%s)",
                             description.key,
                             camera_id,
-                            camera_name
+                            camera_name,
                         )
                         continue
 
@@ -281,14 +323,14 @@ async def async_setup_entry(
             sensor_name = sensor_data.get("name", sensor_id)
 
             _LOGGER.debug(
-                "Creating binary sensors for sensor %s (%s)",
-                sensor_id,
-                sensor_name
+                "Creating binary sensors for sensor %s (%s)", sensor_id, sensor_name
             )
 
             for description in BINARY_SENSOR_TYPES:
-                if (description.entity_type == "protect" and
-                    description.device_type == DEVICE_TYPE_SENSOR):
+                if (
+                    description.entity_type == "protect"
+                    and description.device_type == DEVICE_TYPE_SENSOR
+                ):
                     entities.append(
                         UnifiProtectBinarySensor(
                             coordinator=coordinator,
@@ -320,7 +362,7 @@ class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):
             "Initializing binary sensor %s for device %s in site %s",
             description.key,
             device_id,
-            site_id
+            site_id,
         )
 
         # Mark binary sensors as "Diagnostic" entities
@@ -329,12 +371,16 @@ class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
-        if not self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id):
+        if (
+            not self.coordinator.data["devices"]
+            .get(self._site_id, {})
+            .get(self._device_id)
+        ):
             _LOGGER.debug(
                 "No device data for binary sensor %s (device %s in site %s)",
                 self.entity_description.key,
                 self._device_id,
-                self._site_id
+                self._site_id,
             )
             return None
 
@@ -354,7 +400,9 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):
         device_id: str,
     ) -> None:
         """Initialize the binary sensor."""
-        super().__init__(coordinator, description.device_type, device_id, description.key)
+        super().__init__(
+            coordinator, description.device_type, device_id, description.key
+        )
         self.entity_description = description
 
         # Set name
@@ -364,7 +412,7 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):
             "Initializing %s binary sensor %s for device %s",
             description.device_type,
             description.key,
-            device_id
+            device_id,
         )
 
         # Update initial state
@@ -386,7 +434,10 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):
             return
 
         # Get device name for attributes
-        device_name = device_data.get("name", f"UniFi {self.entity_description.device_type.capitalize()} {self._device_id}")
+        device_name = device_data.get(
+            "name",
+            f"UniFi {self.entity_description.device_type.capitalize()} {self._device_id}",
+        )
 
         if self.entity_description.device_type == DEVICE_TYPE_CAMERA:
             self._attr_extra_state_attributes = {
@@ -401,5 +452,7 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):
                 ATTR_SENSOR_MOTION_DETECTED: device_data.get("isMotionDetected", False),
                 ATTR_SENSOR_MOTION_DETECTED_AT: device_data.get("motionDetectedAt", 0),
                 ATTR_SENSOR_IS_OPENED: device_data.get("isOpened", False),
-                ATTR_SENSOR_OPEN_STATUS_CHANGED_AT: device_data.get("openStatusChangedAt", 0),
+                ATTR_SENSOR_OPEN_STATUS_CHANGED_AT: device_data.get(
+                    "openStatusChangedAt", 0
+                ),
             }

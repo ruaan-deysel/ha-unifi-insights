@@ -1,28 +1,30 @@
 """The UniFi Insights integration."""
+
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_API_KEY, CONF_HOST, Platform
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 import homeassistant.helpers.config_validation as cv
+from homeassistant.const import CONF_API_KEY, CONF_HOST, Platform
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 
-from .unifi_network_api import (
-    UnifiInsightsClient,
-    UnifiInsightsAuthError,
-    UnifiInsightsConnectionError,
-)
 from .const import (
-    DOMAIN,
     DEFAULT_API_HOST,
+    DOMAIN,
 )
 from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .services import async_setup_services, async_unload_services
-from .unifi_protect_api import (
-    UnifiProtectClient,
+from .unifi_network_api import (
+    UnifiInsightsAuthError,
+    UnifiInsightsClient,
+    UnifiInsightsConnectionError,
 )
+from .unifi_protect_api import UnifiProtectClient
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -41,7 +43,7 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:  # noqa: ARG001
     """Set up the UniFi Insights component."""
     _LOGGER.debug("Setting up UniFi Insights component")
 
@@ -63,7 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         _LOGGER.debug(
             "Initializing UniFi Insights API client with host: %s",
-            entry.data.get(CONF_HOST, DEFAULT_API_HOST)
+            entry.data.get(CONF_HOST, DEFAULT_API_HOST),
         )
 
         api = UnifiInsightsClient(
@@ -76,8 +78,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Verify we can authenticate
         _LOGGER.debug("Validating API key")
         if not await api.async_validate_api_key():
-            _LOGGER.error("Invalid API key")
-            raise ConfigEntryAuthFailed("Invalid API key")
+            msg = "Invalid API key"
+            _LOGGER.error(msg)
+            raise ConfigEntryAuthFailed(msg)
 
         # Initialize Unifi Protect API client
         _LOGGER.debug("Initializing Unifi Protect API client")
@@ -94,23 +97,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if await protect_api.async_validate_api_key():
                 _LOGGER.info("Unifi Protect API key validation successful")
             else:
-                _LOGGER.warning("Unifi Protect API key validation failed, continuing without Protect support")
+                _LOGGER.warning(
+                    "Unifi Protect API key validation failed, "
+                    "continuing without Protect support"
+                )
                 protect_api = None
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001
             _LOGGER.warning(
-                "Error validating Unifi Protect API key, continuing without Protect support: %s",
-                err
+                "Error validating Unifi Protect API key, "
+                "continuing without Protect support: %s",
+                err,
             )
             protect_api = None
 
     except UnifiInsightsAuthError as err:
-        _LOGGER.error("Authentication error: %s", err)
+        _LOGGER.exception("Authentication error")
         raise ConfigEntryAuthFailed from err
     except UnifiInsightsConnectionError as err:
-        _LOGGER.error("Connection error: %s", err)
-        raise ConfigEntryNotReady(
-            f"Error communicating with UniFi Insights API: {err}"
-        ) from err
+        _LOGGER.exception("Connection error")
+        msg = f"Error communicating with UniFi Insights API: {err}"
+        raise ConfigEntryNotReady(msg) from err
 
     _LOGGER.debug("Creating data update coordinator")
     coordinator = UnifiInsightsDataUpdateCoordinator(

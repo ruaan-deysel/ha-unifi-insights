@@ -1,18 +1,19 @@
 """UniFi Protect API client."""
+
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 import async_timeout
 from aiohttp import ClientSession, ClientWebSocketResponse, WSMsgType
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .const import (
@@ -35,30 +36,9 @@ from .const import (
     API_PATH_SENSORS,
     API_PATH_WEBSOCKET_DEVICES,
     API_PATH_WEBSOCKET_EVENTS,
-    CAMERA_STATE_CONNECTED,
-    CAMERA_STATE_CONNECTING,
-    CAMERA_STATE_DISCONNECTED,
-    DEVICE_TYPE_CAMERA,
-    DEVICE_TYPE_CHIME,
-    DEVICE_TYPE_LIGHT,
-    DEVICE_TYPE_NVR,
-    DEVICE_TYPE_SENSOR,
-    DEVICE_TYPE_VIEWER,
-    HDR_MODE_AUTO,
-    HDR_MODE_OFF,
-    HDR_MODE_ON,
-    LIGHT_MODE_ALWAYS,
-    LIGHT_MODE_MOTION,
-    LIGHT_MODE_OFF,
     UNIFI_API_HEADERS,
-    VIDEO_MODE_DEFAULT,
-    VIDEO_MODE_HIGH_FPS,
-    VIDEO_MODE_SLOW_SHUTTER,
-    VIDEO_MODE_SPORT,
-    WS_CONNECTION_TIMEOUT,
-    WS_INITIAL_CONNECTION_TIMEOUT,
     WS_ADAPTIVE_TIMEOUT_MULTIPLIER,
-    WS_MAX_CONNECTION_TIMEOUT,
+    WS_CONNECTION_TIMEOUT,
     WS_DEVICE_UPDATE_TYPES,
     WS_ERROR_AUTHENTICATION,
     WS_ERROR_NETWORK,
@@ -68,7 +48,8 @@ from .const import (
     WS_EVENT_UPDATE_TYPES,
     WS_HEARTBEAT_INTERVAL,
     WS_HEARTBEAT_TIMEOUT,
-    WS_HEALTH_CHECK_INTERVAL,
+    WS_INITIAL_CONNECTION_TIMEOUT,
+    WS_MAX_CONNECTION_TIMEOUT,
     WS_MAX_CONSECUTIVE_ERRORS,
     WS_RECONNECT_BASE_DELAY,
     WS_RECONNECT_JITTER,
@@ -80,6 +61,11 @@ from .const import (
     WS_STATE_FAILED,
     WS_STATE_RECONNECTING,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -101,21 +87,21 @@ class WebSocketConnectionStats:
     """WebSocket connection statistics."""
 
     state: str = WS_STATE_DISCONNECTED
-    last_connected: Optional[datetime] = None
-    last_disconnected: Optional[datetime] = None
-    last_error: Optional[str] = None
-    last_error_time: Optional[datetime] = None
+    last_connected: datetime | None = None
+    last_disconnected: datetime | None = None
+    last_error: str | None = None
+    last_error_time: datetime | None = None
     connection_attempts: int = 0
     successful_connections: int = 0
     failed_connections: int = 0
     consecutive_errors: int = 0
     messages_received: int = 0
-    last_message_time: Optional[datetime] = None
-    last_heartbeat_time: Optional[datetime] = None
-    heartbeat_response_time: Optional[float] = None
+    last_message_time: datetime | None = None
+    last_heartbeat_time: datetime | None = None
+    heartbeat_response_time: float | None = None
     reconnect_delay: float = WS_RECONNECT_BASE_DELAY
-    buffered_messages: List[Dict[str, Any]] = field(default_factory=list)
-    processed_message_ids: Set[str] = field(default_factory=set)
+    buffered_messages: list[dict[str, Any]] = field(default_factory=list)
+    processed_message_ids: set[str] = field(default_factory=set)
 
     def update_state(self, new_state: str) -> None:
         """Update connection state with timestamp."""
@@ -172,8 +158,9 @@ class WebSocketConnectionStats:
         # Increase timeout for subsequent attempts
         if self.connection_attempts > 1:
             timeout = min(
-                base_timeout * (WS_ADAPTIVE_TIMEOUT_MULTIPLIER ** (self.connection_attempts - 1)),
-                WS_MAX_CONNECTION_TIMEOUT
+                base_timeout
+                * (WS_ADAPTIVE_TIMEOUT_MULTIPLIER ** (self.connection_attempts - 1)),
+                WS_MAX_CONNECTION_TIMEOUT,
             )
         else:
             timeout = WS_INITIAL_CONNECTION_TIMEOUT
@@ -191,16 +178,16 @@ class WebSocketConnectionStats:
     def should_force_reconnect(self) -> bool:
         """Determine if we should force a reconnection."""
         return (
-            self.state == WS_STATE_CONNECTED and
-            self.is_connection_stale() and
-            self.consecutive_errors < WS_MAX_CONSECUTIVE_ERRORS
+            self.state == WS_STATE_CONNECTED
+            and self.is_connection_stale()
+            and self.consecutive_errors < WS_MAX_CONSECUTIVE_ERRORS
         )
 
-    def buffer_message(self, message: Dict[str, Any]) -> None:
+    def buffer_message(self, message: dict[str, Any]) -> None:
         """Buffer a message for later processing."""
         self.buffered_messages.append(message)
 
-    def get_buffered_messages(self) -> List[Dict[str, Any]]:
+    def get_buffered_messages(self) -> list[dict[str, Any]]:
         """Get and clear buffered messages."""
         messages = self.buffered_messages.copy()
         self.buffered_messages.clear()
@@ -247,20 +234,20 @@ class UnifiProtectClient:
             )
 
         self._request_lock = asyncio.Lock()
-        self._ws_devices: Optional[ClientWebSocketResponse] = None
-        self._ws_events: Optional[ClientWebSocketResponse] = None
-        self._ws_devices_task: Optional[asyncio.Task] = None
-        self._ws_events_task: Optional[asyncio.Task] = None
-        self._device_update_callbacks: List[Callable[[str, Dict[str, Any]], None]] = []
-        self._event_update_callbacks: List[Callable[[str, Dict[str, Any]], None]] = []
+        self._ws_devices: ClientWebSocketResponse | None = None
+        self._ws_events: ClientWebSocketResponse | None = None
+        self._ws_devices_task: asyncio.Task | None = None
+        self._ws_events_task: asyncio.Task | None = None
+        self._device_update_callbacks: list[Callable[[str, dict[str, Any]], None]] = []
+        self._event_update_callbacks: list[Callable[[str, dict[str, Any]], None]] = []
 
         # WebSocket connection stats
         self._ws_devices_stats = WebSocketConnectionStats()
         self._ws_events_stats = WebSocketConnectionStats()
 
         # Heartbeat tasks
-        self._ws_devices_heartbeat_task: Optional[asyncio.Task] = None
-        self._ws_events_heartbeat_task: Optional[asyncio.Task] = None
+        self._ws_devices_heartbeat_task: asyncio.Task | None = None
+        self._ws_events_heartbeat_task: asyncio.Task | None = None
 
         _LOGGER.info("UniFi Protect API client initialized")
 
@@ -272,25 +259,27 @@ class UnifiProtectClient:
     @property
     def is_local_network(self) -> bool:
         """Check if we're connecting to a local network."""
-        return any(local in self._host for local in ['192.168.', '10.', '172.', 'localhost', '127.0.0.1'])
+        return any(
+            local in self._host
+            for local in ["192.168.", "10.", "172.", "localhost", "127.0.0.1"]
+        )
 
     def get_network_optimized_config(self) -> dict:
         """Get WebSocket configuration optimized for network conditions."""
         if self.is_local_network:
             return {
-                'connection_timeout': 15.0,
-                'heartbeat_interval': 30.0,
-                'health_check_interval': 10.0,
-                'max_errors': 10,
+                "connection_timeout": 15.0,
+                "heartbeat_interval": 30.0,
+                "health_check_interval": 10.0,
+                "max_errors": 10,
             }
-        else:
-            # WAN connection - be more patient
-            return {
-                'connection_timeout': 30.0,
-                'heartbeat_interval': 45.0,
-                'health_check_interval': 15.0,
-                'max_errors': 15,
-            }
+        # WAN connection - be more patient
+        return {
+            "connection_timeout": 30.0,
+            "heartbeat_interval": 45.0,
+            "health_check_interval": 15.0,
+            "max_errors": 15,
+        }
 
     async def _request(
         self,
@@ -322,11 +311,13 @@ class UnifiProtectClient:
 
                     if response.status == 401:
                         _LOGGER.error("Authentication error: Invalid API key")
-                        raise UnifiProtectAuthError("Invalid API key")
+                        msg = "Invalid API key"
+                        raise UnifiProtectAuthError(msg)
 
                     if response.status == 403:
                         _LOGGER.error("Authentication error: Forbidden")
-                        raise UnifiProtectAuthError("Forbidden")
+                        msg = "Forbidden"
+                        raise UnifiProtectAuthError(msg)
 
                     if response.status >= 400:
                         text = await response.text()
@@ -335,8 +326,9 @@ class UnifiProtectClient:
                             response.status,
                             text,
                         )
+                        msg = f"Request failed with status {response.status}: {text}"
                         raise UnifiProtectApiError(
-                            f"Request failed with status {response.status}: {text}"
+                            msg
                         )
 
                     if response.status == 204:
@@ -344,15 +336,18 @@ class UnifiProtectClient:
 
                     return await response.json()
 
-            except asyncio.TimeoutError as err:
-                _LOGGER.error("Request timeout: %s", err)
-                raise UnifiProtectConnectionError("Request timeout") from err
+            except TimeoutError as err:
+                _LOGGER.exception("Request timeout: %s", err)
+                msg = "Request timeout"
+                raise UnifiProtectConnectionError(msg) from err
             except aiohttp.ClientError as err:
-                _LOGGER.error("Connection error: %s", err)
-                raise UnifiProtectConnectionError(f"Connection error: {err}") from err
+                _LOGGER.exception("Connection error: %s", err)
+                msg = f"Connection error: {err}"
+                raise UnifiProtectConnectionError(msg) from err
             except Exception as err:
-                _LOGGER.error("Unexpected error: %s", err)
-                raise UnifiProtectApiError(f"Unexpected error: {err}") from err
+                _LOGGER.exception("Unexpected error: %s", err)
+                msg = f"Unexpected error: {err}"
+                raise UnifiProtectApiError(msg) from err
 
     async def async_get_api_info(self) -> dict[str, Any]:
         """Get API information."""
@@ -367,10 +362,10 @@ class UnifiProtectClient:
             _LOGGER.info("API key validation successful")
             return True
         except UnifiProtectAuthError:
-            _LOGGER.error("API key validation failed")
+            _LOGGER.exception("API key validation failed")
             return False
         except Exception as err:
-            _LOGGER.error("Unexpected error during API key validation: %s", err)
+            _LOGGER.exception("Unexpected error during API key validation: %s", err)
             return False
 
     async def async_get_cameras(self) -> list[dict[str, Any]]:
@@ -378,18 +373,32 @@ class UnifiProtectClient:
         _LOGGER.debug("Getting all cameras")
         response = await self._request("GET", API_PATH_CAMERAS)
 
+        # Extract camera list from API response
+        # API returns dict with 'data' key containing list
+        if isinstance(response, dict) and "data" in response:
+            cameras = response["data"]
+        elif isinstance(response, list):
+            cameras = response
+        else:
+            _LOGGER.warning("Unexpected cameras response format: %s", type(response))
+            cameras = []
+
         # First, check if we have pre-existing dual-camera entities (per API documentation)
-        processed_cameras = self._process_existing_dual_camera_entities(response)
+        processed_cameras = self._process_existing_dual_camera_entities(cameras)
 
         # If no pre-existing dual cameras found, use our synthetic approach
-        if len(processed_cameras) == len(response):
+        if len(processed_cameras) == len(cameras):
             # No dual-camera grouping occurred, process for synthetic dual-camera support
             final_cameras = []
             for camera in processed_cameras:
                 final_cameras.extend(self._process_camera_for_dual_support(camera))
             processed_cameras = final_cameras
 
-        _LOGGER.debug("Processed %d cameras into %d camera entities", len(response), len(processed_cameras))
+        _LOGGER.debug(
+            "Processed %d cameras into %d camera entities",
+            len(cameras),
+            len(processed_cameras),
+        )
         return processed_cameras
 
     async def async_get_camera(self, camera_id: str) -> dict[str, Any]:
@@ -406,32 +415,44 @@ class UnifiProtectClient:
         endpoint = API_PATH_CAMERA.format(id=camera_id)
         return await self._request("PATCH", endpoint, json=data)
 
-    async def async_set_camera_hdr_mode(self, camera_id: str, mode: str) -> dict[str, Any]:
+    async def async_set_camera_hdr_mode(
+        self, camera_id: str, mode: str
+    ) -> dict[str, Any]:
         """Set camera HDR mode."""
         _LOGGER.debug("Setting HDR mode to %s for camera %s", mode, camera_id)
         return await self.async_update_camera(camera_id, {"hdrType": mode})
 
-    async def async_set_camera_video_mode(self, camera_id: str, mode: str) -> dict[str, Any]:
+    async def async_set_camera_video_mode(
+        self, camera_id: str, mode: str
+    ) -> dict[str, Any]:
         """Set camera video mode."""
         _LOGGER.debug("Setting video mode to %s for camera %s", mode, camera_id)
         return await self.async_update_camera(camera_id, {"videoMode": mode})
 
-    async def async_set_camera_mic_volume(self, camera_id: str, volume: int) -> dict[str, Any]:
+    async def async_set_camera_mic_volume(
+        self, camera_id: str, volume: int
+    ) -> dict[str, Any]:
         """Set camera microphone volume."""
-        _LOGGER.debug("Setting microphone volume to %s for camera %s", volume, camera_id)
+        _LOGGER.debug(
+            "Setting microphone volume to %s for camera %s", volume, camera_id
+        )
         return await self.async_update_camera(camera_id, {"micVolume": volume})
 
     async def async_set_light_level(self, light_id: str, level: int) -> dict[str, Any]:
         """Set light brightness level."""
         _LOGGER.debug("Setting light level to %s for light %s", level, light_id)
         endpoint = API_PATH_LIGHT.format(id=light_id)
-        return await self._request("PATCH", endpoint, json={"lightDeviceSettings": {"ledLevel": level}})
+        return await self._request(
+            "PATCH", endpoint, json={"lightDeviceSettings": {"ledLevel": level}}
+        )
 
     async def async_get_camera_snapshot(
         self, camera_id: str, high_quality: bool = False
     ) -> bytes:
         """Get camera snapshot."""
-        _LOGGER.debug("Getting camera snapshot for %s (high_quality=%s)", camera_id, high_quality)
+        _LOGGER.debug(
+            "Getting camera snapshot for %s (high_quality=%s)", camera_id, high_quality
+        )
 
         # Handle dual-camera IDs by extracting the original camera ID
         original_camera_id = self._get_original_camera_id(camera_id)
@@ -457,11 +478,13 @@ class UnifiProtectClient:
 
                     if response.status == 401:
                         _LOGGER.error("Authentication error: Invalid API key")
-                        raise UnifiProtectAuthError("Invalid API key")
+                        msg = "Invalid API key"
+                        raise UnifiProtectAuthError(msg)
 
                     if response.status == 403:
                         _LOGGER.error("Authentication error: Forbidden")
-                        raise UnifiProtectAuthError("Forbidden")
+                        msg = "Forbidden"
+                        raise UnifiProtectAuthError(msg)
 
                     if response.status == 400:
                         text = await response.text()
@@ -471,18 +494,19 @@ class UnifiProtectClient:
                                 camera_id,
                             )
                             # This is a specific error we want to handle gracefully
+                            msg = f"Camera does not support full HD snapshot: {text}"
                             raise UnifiProtectApiError(
-                                f"Camera does not support full HD snapshot: {text}"
+                                msg
                             )
-                        else:
-                            _LOGGER.error(
-                                "Request failed with status %s: %s",
-                                response.status,
-                                text,
-                            )
-                            raise UnifiProtectApiError(
-                                f"Request failed with status {response.status}: {text}"
-                            )
+                        _LOGGER.error(
+                            "Request failed with status %s: %s",
+                            response.status,
+                            text,
+                        )
+                        msg = f"Request failed with status {response.status}: {text}"
+                        raise UnifiProtectApiError(
+                            msg
+                        )
 
                     if response.status >= 400:
                         text = await response.text()
@@ -491,24 +515,28 @@ class UnifiProtectClient:
                             response.status,
                             text,
                         )
+                        msg = f"Request failed with status {response.status}: {text}"
                         raise UnifiProtectApiError(
-                            f"Request failed with status {response.status}: {text}"
+                            msg
                         )
 
                     return await response.read()
 
-            except asyncio.TimeoutError as err:
-                _LOGGER.error("Request timeout: %s", err)
-                raise UnifiProtectConnectionError("Request timeout") from err
+            except TimeoutError as err:
+                _LOGGER.exception("Request timeout: %s", err)
+                msg = "Request timeout"
+                raise UnifiProtectConnectionError(msg) from err
             except aiohttp.ClientError as err:
-                _LOGGER.error("Connection error: %s", err)
-                raise UnifiProtectConnectionError(f"Connection error: {err}") from err
+                _LOGGER.exception("Connection error: %s", err)
+                msg = f"Connection error: {err}"
+                raise UnifiProtectConnectionError(msg) from err
             except UnifiProtectApiError:
                 # Re-raise API errors without wrapping them
                 raise
             except Exception as err:
-                _LOGGER.error("Unexpected error: %s", err)
-                raise UnifiProtectApiError(f"Unexpected error: {err}") from err
+                _LOGGER.exception("Unexpected error: %s", err)
+                msg = f"Unexpected error: {err}"
+                raise UnifiProtectApiError(msg) from err
 
     async def async_get_camera_rtsps_stream(
         self, camera_id: str, qualities: list[str]
@@ -522,7 +550,9 @@ class UnifiProtectClient:
         data = {"qualities": qualities}
         return await self._request("POST", endpoint, json=data)
 
-    def _process_existing_dual_camera_entities(self, cameras: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _process_existing_dual_camera_entities(
+        self, cameras: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Process cameras to detect pre-existing dual-camera doorbell entities (per API documentation)."""
         _LOGGER.debug("Checking for pre-existing dual-camera doorbell entities")
 
@@ -543,19 +573,25 @@ class UnifiProtectClient:
                 base_id = camera_id
 
                 # Remove potential suffixes as suggested in documentation
-                if camera_id.endswith("_main") or camera_id.endswith("_package"):
+                if camera_id.endswith(("_main", "_package")):
                     base_id = camera_id.rsplit("_", 1)[0]
                 elif "Main" in camera_name or "Package" in camera_name:
                     # Use a normalized base ID based on name pattern
-                    base_name = camera_name.replace(" Main Camera", "").replace(" Package Camera", "")
+                    base_name = camera_name.replace(" Main Camera", "").replace(
+                        " Package Camera", ""
+                    )
                     base_id = f"doorbell_{hash(base_name) % 10000}"  # Create consistent base ID
 
                 if base_id not in potential_doorbells:
                     potential_doorbells[base_id] = []
                 potential_doorbells[base_id].append(camera)
 
-                _LOGGER.debug("Camera %s (%s) supports package detection, grouped under base ID %s",
-                             camera_name, camera_id, base_id)
+                _LOGGER.debug(
+                    "Camera %s (%s) supports package detection, grouped under base ID %s",
+                    camera_name,
+                    camera_id,
+                    base_id,
+                )
             else:
                 # Regular camera without package detection
                 regular_cameras.append(camera)
@@ -579,12 +615,11 @@ class UnifiProtectClient:
                         main_camera = camera
                     elif "Package" in camera_name or camera_id.endswith("_package"):
                         package_camera = camera
+                    # Fallback: first camera is main, second is package
+                    elif main_camera is None:
+                        main_camera = camera
                     else:
-                        # Fallback: first camera is main, second is package
-                        if main_camera is None:
-                            main_camera = camera
-                        else:
-                            package_camera = camera
+                        package_camera = camera
 
                 if main_camera and package_camera:
                     # Mark cameras with dual-camera metadata
@@ -601,8 +636,12 @@ class UnifiProtectClient:
                     processed_cameras.extend([main_camera, package_camera])
                     dual_camera_count += 1
 
-                    _LOGGER.info("Detected pre-existing dual-camera doorbell: %s (main: %s, package: %s)",
-                                base_id, main_camera.get("name"), package_camera.get("name"))
+                    _LOGGER.info(
+                        "Detected pre-existing dual-camera doorbell: %s (main: %s, package: %s)",
+                        base_id,
+                        main_camera.get("name"),
+                        package_camera.get("name"),
+                    )
                 else:
                     # Couldn't identify main/package, treat as regular cameras
                     processed_cameras.extend(doorbell_cameras)
@@ -615,11 +654,16 @@ class UnifiProtectClient:
                     processed_cameras.append(camera)
 
         if dual_camera_count > 0:
-            _LOGGER.info("Found %d pre-existing dual-camera doorbell(s) with separate entities", dual_camera_count)
+            _LOGGER.info(
+                "Found %d pre-existing dual-camera doorbell(s) with separate entities",
+                dual_camera_count,
+            )
 
         return processed_cameras
 
-    def _process_camera_for_dual_support(self, camera: dict[str, Any]) -> list[dict[str, Any]]:
+    def _process_camera_for_dual_support(
+        self, camera: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Process a camera to detect and create dual-camera doorbell entities."""
         camera_id = camera.get("id")
         camera_name = camera.get("name", "Unknown Camera")
@@ -629,14 +673,25 @@ class UnifiProtectClient:
         has_package_detection = self._detect_package_camera_support(camera)
 
         # Check if this is a doorbell camera
-        is_doorbell = any(doorbell_type in camera_type for doorbell_type in [
-            "doorbell", "g4-doorbell", "ai-doorbell", "g4doorbell", "aidoorbell"
-        ])
+        is_doorbell = any(
+            doorbell_type in camera_type
+            for doorbell_type in [
+                "doorbell",
+                "g4-doorbell",
+                "ai-doorbell",
+                "g4doorbell",
+                "aidoorbell",
+            ]
+        )
 
         # NOTE: Dual-camera creation is only for cameras that appear as separate entities in the API
         # Single cameras with package detection should remain as single entities with package detection capability
         if has_package_detection:
-            _LOGGER.debug("Camera %s (%s) supports package detection but appears as single camera - keeping as single entity with package detection", camera_name, camera_id)
+            _LOGGER.debug(
+                "Camera %s (%s) supports package detection but appears as single camera - keeping as single entity with package detection",
+                camera_name,
+                camera_id,
+            )
 
         # Set camera type based on doorbell status and package detection
         if is_doorbell:
@@ -644,11 +699,10 @@ class UnifiProtectClient:
                 camera["_camera_type"] = "doorbell_with_package_detection"
             else:
                 camera["_camera_type"] = "doorbell"
+        elif has_package_detection:
+            camera["_camera_type"] = "camera_with_package_detection"
         else:
-            if has_package_detection:
-                camera["_camera_type"] = "camera_with_package_detection"
-            else:
-                camera["_camera_type"] = "regular"
+            camera["_camera_type"] = "regular"
 
         camera["_is_package_camera"] = False
         camera["_parent_camera_id"] = None
@@ -665,7 +719,10 @@ class UnifiProtectClient:
         smart_detect_types = feature_flags.get("smartDetectTypes", [])
 
         if "package" in smart_detect_types:
-            _LOGGER.debug("Found 'package' in smartDetectTypes for camera %s - primary dual-camera indicator", camera_name)
+            _LOGGER.debug(
+                "Found 'package' in smartDetectTypes for camera %s - primary dual-camera indicator",
+                camera_name,
+            )
             return True
 
         # SECONDARY INDICATOR: Check smartDetectSettings.objectTypes for package detection
@@ -673,7 +730,10 @@ class UnifiProtectClient:
         object_types = smart_detect_settings.get("objectTypes", [])
 
         if "package" in object_types:
-            _LOGGER.debug("Found 'package' in smartDetectSettings.objectTypes for camera %s", camera_name)
+            _LOGGER.debug(
+                "Found 'package' in smartDetectSettings.objectTypes for camera %s",
+                camera_name,
+            )
             return True
 
         # TERTIARY INDICATORS: Check other feature flags for dual-camera support
@@ -683,12 +743,16 @@ class UnifiProtectClient:
             "dualCamera",
             "secondaryCamera",
             "packageCameraSupport",
-            "multiCamera"
+            "multiCamera",
         ]
 
         for indicator in package_indicators:
             if feature_flags.get(indicator, False):
-                _LOGGER.debug("Found package camera indicator '%s' for camera %s", indicator, camera_name)
+                _LOGGER.debug(
+                    "Found package camera indicator '%s' for camera %s",
+                    indicator,
+                    camera_name,
+                )
                 return True
 
         # Check for multiple video channels/streams
@@ -697,13 +761,18 @@ class UnifiProtectClient:
         streams = camera.get("streams", [])
 
         if len(channels) > 1 or len(video_channels) > 1 or len(streams) > 1:
-            _LOGGER.debug("Found multiple video channels/streams for camera %s, indicating dual-camera support", camera_name)
+            _LOGGER.debug(
+                "Found multiple video channels/streams for camera %s, indicating dual-camera support",
+                camera_name,
+            )
             return True
 
         # Check for package-related settings in video configuration
         video_settings = camera.get("videoSettings", {})
-        if any("package" in str(key).lower() for key in video_settings.keys()):
-            _LOGGER.debug("Found package-related video settings for camera %s", camera_name)
+        if any("package" in str(key).lower() for key in video_settings):
+            _LOGGER.debug(
+                "Found package-related video settings for camera %s", camera_name
+            )
             return True
 
         # Check model name for known dual-camera models
@@ -712,11 +781,15 @@ class UnifiProtectClient:
             "g4-doorbell-pro",
             "ai-doorbell",
             "g4doorbell-pro",
-            "aidoorbell"
+            "aidoorbell",
         ]
 
         if any(dual_model in model for dual_model in dual_camera_models):
-            _LOGGER.debug("Camera model %s indicates dual-camera support for camera %s", model, camera_name)
+            _LOGGER.debug(
+                "Camera model %s indicates dual-camera support for camera %s",
+                model,
+                camera_name,
+            )
             return True
 
         return False
@@ -740,7 +813,9 @@ class UnifiProtectClient:
             _LOGGER.debug("Package camera %s configured to use channel 1", camera_name)
         else:
             package_camera["_preferred_channel"] = 0  # Use same channel as main camera
-            _LOGGER.debug("Package camera %s using same channel as main camera", camera_name)
+            _LOGGER.debug(
+                "Package camera %s using same channel as main camera", camera_name
+            )
 
         video_channels = package_camera.get("videoChannels", [])
         if len(video_channels) > 1:
@@ -764,12 +839,15 @@ class UnifiProtectClient:
             object_types_copy.append("package")
             package_camera["smartDetectSettings"] = smart_detect_settings.copy()
             package_camera["smartDetectSettings"]["objectTypes"] = object_types_copy
-            _LOGGER.debug("Added package detection to smartDetectSettings for package camera %s", camera_name)
+            _LOGGER.debug(
+                "Added package detection to smartDetectSettings for package camera %s",
+                camera_name,
+            )
 
     def _get_original_camera_id(self, camera_id: str) -> str:
         """Extract the original camera ID from a dual-camera ID."""
         # If this is a dual-camera ID (ends with _main or _package), extract the original ID
-        if camera_id.endswith("_main") or camera_id.endswith("_package"):
+        if camera_id.endswith(("_main", "_package")):
             return camera_id.rsplit("_", 1)[0]
         return camera_id
 
@@ -795,13 +873,19 @@ class UnifiProtectClient:
         """Get all lights."""
         _LOGGER.debug("Getting all lights")
         response = await self._request("GET", API_PATH_LIGHTS)
-        return response
+        # API returns dict with 'data' key containing list
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+        return response if isinstance(response, list) else []
 
     async def async_get_sensors(self) -> list[dict[str, Any]]:
         """Get all sensors."""
         _LOGGER.debug("Getting all sensors")
         response = await self._request("GET", API_PATH_SENSORS)
-        return response
+        # API returns dict with 'data' key containing list
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+        return response if isinstance(response, list) else []
 
     async def async_get_sensor(self, sensor_id: str) -> dict[str, Any]:
         """Get sensor details."""
@@ -809,7 +893,9 @@ class UnifiProtectClient:
         endpoint = API_PATH_SENSOR.format(id=sensor_id)
         return await self._request("GET", endpoint)
 
-    async def async_update_sensor(self, sensor_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def async_update_sensor(
+        self, sensor_id: str, data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Update sensor settings."""
         _LOGGER.debug("Updating sensor settings for %s", sensor_id)
         endpoint = API_PATH_SENSOR.format(id=sensor_id)
@@ -819,7 +905,10 @@ class UnifiProtectClient:
         """Get all NVRs."""
         _LOGGER.debug("Getting all NVRs")
         response = await self._request("GET", API_PATH_NVRS)
-        return response
+        # API returns dict with 'data' key containing list
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+        return response if isinstance(response, list) else []
 
     async def async_get_nvr(self, nvr_id: str) -> dict[str, Any]:
         """Get NVR details."""
@@ -831,7 +920,10 @@ class UnifiProtectClient:
         """Get all chimes."""
         _LOGGER.debug("Getting all chimes")
         response = await self._request("GET", API_PATH_CHIMES)
-        return response
+        # API returns dict with 'data' key containing list
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+        return response if isinstance(response, list) else []
 
     async def async_get_chime(self, chime_id: str) -> dict[str, Any]:
         """Get chime details."""
@@ -839,13 +931,17 @@ class UnifiProtectClient:
         endpoint = API_PATH_CHIME.format(id=chime_id)
         return await self._request("GET", endpoint)
 
-    async def async_update_chime(self, chime_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    async def async_update_chime(
+        self, chime_id: str, data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Update chime settings."""
         _LOGGER.debug("Updating chime settings for %s", chime_id)
         endpoint = API_PATH_CHIME.format(id=chime_id)
         return await self._request("PATCH", endpoint, json=data)
 
-    async def async_set_chime_volume(self, chime_id: str, volume: int, camera_id: str = None) -> dict[str, Any]:
+    async def async_set_chime_volume(
+        self, chime_id: str, volume: int, camera_id: str | None = None
+    ) -> dict[str, Any]:
         """Set chime volume level."""
         _LOGGER.debug("Setting chime %s volume to %s", chime_id, volume)
 
@@ -864,12 +960,14 @@ class UnifiProtectClient:
 
             # If camera not found in settings, add it
             if not updated and camera_id in chime_data.get("cameraIds", []):
-                ring_settings.append({
-                    "cameraId": camera_id,
-                    "volume": volume,
-                    "repeatTimes": 3,  # Default value
-                    "ringtoneId": "default"  # Default value
-                })
+                ring_settings.append(
+                    {
+                        "cameraId": camera_id,
+                        "volume": volume,
+                        "repeatTimes": 3,  # Default value
+                        "ringtoneId": "default",  # Default value
+                    }
+                )
         # Otherwise update all cameras
         else:
             for setting in ring_settings:
@@ -879,7 +977,9 @@ class UnifiProtectClient:
         data = {"ringSettings": ring_settings}
         return await self.async_update_chime(chime_id, data)
 
-    async def async_set_chime_ringtone(self, chime_id: str, ringtone_id: str, camera_id: str = None) -> dict[str, Any]:
+    async def async_set_chime_ringtone(
+        self, chime_id: str, ringtone_id: str, camera_id: str | None = None
+    ) -> dict[str, Any]:
         """Set chime ringtone."""
         _LOGGER.debug("Setting chime %s ringtone to %s", chime_id, ringtone_id)
 
@@ -898,12 +998,14 @@ class UnifiProtectClient:
 
             # If camera not found in settings, add it
             if not updated and camera_id in chime_data.get("cameraIds", []):
-                ring_settings.append({
-                    "cameraId": camera_id,
-                    "volume": 80,  # Default value
-                    "repeatTimes": 3,  # Default value
-                    "ringtoneId": ringtone_id
-                })
+                ring_settings.append(
+                    {
+                        "cameraId": camera_id,
+                        "volume": 80,  # Default value
+                        "repeatTimes": 3,  # Default value
+                        "ringtoneId": ringtone_id,
+                    }
+                )
         # Otherwise update all cameras
         else:
             for setting in ring_settings:
@@ -913,7 +1015,9 @@ class UnifiProtectClient:
         data = {"ringSettings": ring_settings}
         return await self.async_update_chime(chime_id, data)
 
-    async def async_set_chime_repeat_times(self, chime_id: str, repeat_times: int, camera_id: str = None) -> dict[str, Any]:
+    async def async_set_chime_repeat_times(
+        self, chime_id: str, repeat_times: int, camera_id: str | None = None
+    ) -> dict[str, Any]:
         """Set chime repeat times."""
         _LOGGER.debug("Setting chime %s repeat times to %s", chime_id, repeat_times)
 
@@ -932,12 +1036,14 @@ class UnifiProtectClient:
 
             # If camera not found in settings, add it
             if not updated and camera_id in chime_data.get("cameraIds", []):
-                ring_settings.append({
-                    "cameraId": camera_id,
-                    "volume": 80,  # Default value
-                    "repeatTimes": repeat_times,
-                    "ringtoneId": "default"  # Default value
-                })
+                ring_settings.append(
+                    {
+                        "cameraId": camera_id,
+                        "volume": 80,  # Default value
+                        "repeatTimes": repeat_times,
+                        "ringtoneId": "default",  # Default value
+                    }
+                )
         # Otherwise update all cameras
         else:
             for setting in ring_settings:
@@ -947,7 +1053,9 @@ class UnifiProtectClient:
         data = {"ringSettings": ring_settings}
         return await self.async_update_chime(chime_id, data)
 
-    async def async_play_chime_ringtone(self, chime_id: str, ringtone_id: str = None) -> None:
+    async def async_play_chime_ringtone(
+        self, chime_id: str, ringtone_id: str | None = None
+    ) -> None:
         """Play a ringtone on the chime."""
         _LOGGER.debug("Playing ringtone %s on chime %s", ringtone_id, chime_id)
 
@@ -987,39 +1095,83 @@ class UnifiProtectClient:
         }
         return await self.async_update_light(light_id, data)
 
-    async def async_set_light_level(self, light_id: str, level: int) -> dict[str, Any]:
-        """Set light brightness level."""
-        _LOGGER.debug("Setting light %s level to %s", light_id, level)
-        data = {
-            "lightDeviceSettings": {
-                "ledLevel": level,
-            }
-        }
-        return await self.async_update_light(light_id, data)
+    async def async_get_viewers(self) -> list[dict[str, Any]]:
+        """Get all viewers."""
+        _LOGGER.debug("Getting all viewers")
+        response = await self._request("GET", "/proxy/protect/integration/v1/viewers")
+        return response if isinstance(response, list) else []
 
-    async def async_set_camera_mic_volume(
-        self, camera_id: str, volume: int
-    ) -> dict[str, Any]:
-        """Set camera microphone volume."""
-        _LOGGER.debug("Setting camera %s mic volume to %s", camera_id, volume)
-        data = {"micVolume": volume}
-        return await self.async_update_camera(camera_id, data)
+    async def async_get_viewer(self, viewer_id: str) -> dict[str, Any]:
+        """Get viewer details."""
+        _LOGGER.debug("Getting viewer details for %s", viewer_id)
+        endpoint = f"/proxy/protect/integration/v1/viewers/{viewer_id}"
+        return await self._request("GET", endpoint)
 
-    async def async_set_camera_hdr_mode(
-        self, camera_id: str, mode: str
+    async def async_update_viewer(
+        self, viewer_id: str, data: dict[str, Any]
     ) -> dict[str, Any]:
-        """Set camera HDR mode."""
-        _LOGGER.debug("Setting camera %s HDR mode to %s", camera_id, mode)
-        data = {"hdrType": mode}
-        return await self.async_update_camera(camera_id, data)
+        """Update viewer settings."""
+        _LOGGER.debug("Updating viewer settings for %s", viewer_id)
+        endpoint = f"/proxy/protect/integration/v1/viewers/{viewer_id}"
+        return await self._request("PATCH", endpoint, json=data)
 
-    async def async_set_camera_video_mode(
-        self, camera_id: str, mode: str
+    async def async_get_liveviews(self) -> list[dict[str, Any]]:
+        """Get all live views."""
+        _LOGGER.debug("Getting all live views")
+        response = await self._request("GET", "/proxy/protect/integration/v1/liveviews")
+        return response if isinstance(response, list) else []
+
+    async def async_get_liveview(self, liveview_id: str) -> dict[str, Any]:
+        """Get live view details."""
+        _LOGGER.debug("Getting live view details for %s", liveview_id)
+        endpoint = f"/proxy/protect/integration/v1/liveviews/{liveview_id}"
+        return await self._request("GET", endpoint)
+
+    async def async_create_liveview(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Create a new live view."""
+        _LOGGER.debug("Creating new live view")
+        return await self._request(
+            "POST", "/proxy/protect/integration/v1/liveviews", json=data
+        )
+
+    async def async_update_liveview(
+        self, liveview_id: str, data: dict[str, Any]
     ) -> dict[str, Any]:
-        """Set camera video mode."""
-        _LOGGER.debug("Setting camera %s video mode to %s", camera_id, mode)
-        data = {"videoMode": mode}
-        return await self.async_update_camera(camera_id, data)
+        """Update live view settings."""
+        _LOGGER.debug("Updating live view settings for %s", liveview_id)
+        endpoint = f"/proxy/protect/integration/v1/liveviews/{liveview_id}"
+        return await self._request("PATCH", endpoint, json=data)
+
+    async def async_trigger_alarm(self, alarm_id: str) -> None:
+        """Trigger an alarm via webhook."""
+        _LOGGER.debug("Triggering alarm %s", alarm_id)
+        endpoint = f"/proxy/protect/integration/v1/alarm-manager/webhook/{alarm_id}"
+        await self._request("POST", endpoint)
+
+    async def async_create_talkback_session(self, camera_id: str) -> dict[str, Any]:
+        """Create a talkback session for a camera."""
+        _LOGGER.debug("Creating talkback session for camera %s", camera_id)
+        endpoint = f"/proxy/protect/integration/v1/cameras/{camera_id}/talkback-session"
+        return await self._request("POST", endpoint)
+
+    async def async_get_files(self, file_type: str) -> list[dict[str, Any]]:
+        """Get device asset files."""
+        _LOGGER.debug("Getting device asset files of type %s", file_type)
+        endpoint = f"/proxy/protect/integration/v1/files/{file_type}"
+        response = await self._request("GET", endpoint)
+        return response if isinstance(response, list) else []
+
+    async def async_upload_file(
+        self, file_type: str, file_data: bytes, content_type: str
+    ) -> dict[str, Any]:
+        """Upload a device asset file."""
+        _LOGGER.debug("Uploading device asset file of type %s", file_type)
+        endpoint = f"/proxy/protect/integration/v1/files/{file_type}"
+
+        # Note: This requires multipart/form-data which is more complex
+        # For now, we'll implement the basic structure
+        headers = {"Content-Type": content_type}
+        return await self._request("POST", endpoint, data=file_data, headers=headers)
 
     async def async_start_websocket(self) -> None:
         """Start WebSocket connections."""
@@ -1030,18 +1182,24 @@ class UnifiProtectClient:
                 await self._start_ws_devices()
             except Exception as err:
                 _LOGGER.warning("Failed to start device WebSocket connection: %s", err)
-                _LOGGER.info("Integration will continue to function without real-time device updates")
+                _LOGGER.info(
+                    "Integration will continue to function without real-time device updates"
+                )
 
             # Start events WebSocket
             try:
                 await self._start_ws_events()
             except Exception as err:
                 _LOGGER.warning("Failed to start events WebSocket connection: %s", err)
-                _LOGGER.info("Integration will continue to function without real-time event updates")
+                _LOGGER.info(
+                    "Integration will continue to function without real-time event updates"
+                )
 
         except Exception as err:
             _LOGGER.warning("Failed to start WebSocket connections: %s", err)
-            _LOGGER.info("Integration will continue to function without real-time updates")
+            _LOGGER.info(
+                "Integration will continue to function without real-time updates"
+            )
 
     async def async_stop_websocket(self) -> None:
         """Stop WebSocket connections."""
@@ -1050,20 +1208,20 @@ class UnifiProtectClient:
         await self._stop_ws_events()
 
     def register_device_update_callback(
-        self, callback: Callable[[str, Dict[str, Any]], None]
+        self, callback: Callable[[str, dict[str, Any]], None]
     ) -> None:
         """Register a callback for device updates."""
         _LOGGER.debug("Registering device update callback")
         self._device_update_callbacks.append(callback)
 
     def register_event_update_callback(
-        self, callback: Callable[[str, Dict[str, Any]], None]
+        self, callback: Callable[[str, dict[str, Any]], None]
     ) -> None:
         """Register a callback for event updates."""
         _LOGGER.debug("Registering event update callback")
         self._event_update_callbacks.append(callback)
 
-    def get_websocket_status(self) -> Dict[str, Any]:
+    def get_websocket_status(self) -> dict[str, Any]:
         """Get WebSocket connection status information for the UI."""
         devices_stats = self._ws_devices_stats
         events_stats = self._ws_events_stats
@@ -1071,34 +1229,54 @@ class UnifiProtectClient:
         return {
             "devices": {
                 "state": devices_stats.state,
-                "last_connected": devices_stats.last_connected.isoformat() if devices_stats.last_connected else None,
-                "last_disconnected": devices_stats.last_disconnected.isoformat() if devices_stats.last_disconnected else None,
+                "last_connected": devices_stats.last_connected.isoformat()
+                if devices_stats.last_connected
+                else None,
+                "last_disconnected": devices_stats.last_disconnected.isoformat()
+                if devices_stats.last_disconnected
+                else None,
                 "connection_attempts": devices_stats.connection_attempts,
                 "successful_connections": devices_stats.successful_connections,
                 "failed_connections": devices_stats.failed_connections,
                 "consecutive_errors": devices_stats.consecutive_errors,
                 "last_error": devices_stats.last_error,
-                "last_error_time": devices_stats.last_error_time.isoformat() if devices_stats.last_error_time else None,
+                "last_error_time": devices_stats.last_error_time.isoformat()
+                if devices_stats.last_error_time
+                else None,
                 "messages_received": devices_stats.messages_received,
-                "last_message_time": devices_stats.last_message_time.isoformat() if devices_stats.last_message_time else None,
-                "last_heartbeat_time": devices_stats.last_heartbeat_time.isoformat() if devices_stats.last_heartbeat_time else None,
+                "last_message_time": devices_stats.last_message_time.isoformat()
+                if devices_stats.last_message_time
+                else None,
+                "last_heartbeat_time": devices_stats.last_heartbeat_time.isoformat()
+                if devices_stats.last_heartbeat_time
+                else None,
                 "heartbeat_response_time": devices_stats.heartbeat_response_time,
             },
             "events": {
                 "state": events_stats.state,
-                "last_connected": events_stats.last_connected.isoformat() if events_stats.last_connected else None,
-                "last_disconnected": events_stats.last_disconnected.isoformat() if events_stats.last_disconnected else None,
+                "last_connected": events_stats.last_connected.isoformat()
+                if events_stats.last_connected
+                else None,
+                "last_disconnected": events_stats.last_disconnected.isoformat()
+                if events_stats.last_disconnected
+                else None,
                 "connection_attempts": events_stats.connection_attempts,
                 "successful_connections": events_stats.successful_connections,
                 "failed_connections": events_stats.failed_connections,
                 "consecutive_errors": events_stats.consecutive_errors,
                 "last_error": events_stats.last_error,
-                "last_error_time": events_stats.last_error_time.isoformat() if events_stats.last_error_time else None,
+                "last_error_time": events_stats.last_error_time.isoformat()
+                if events_stats.last_error_time
+                else None,
                 "messages_received": events_stats.messages_received,
-                "last_message_time": events_stats.last_message_time.isoformat() if events_stats.last_message_time else None,
-                "last_heartbeat_time": events_stats.last_heartbeat_time.isoformat() if events_stats.last_heartbeat_time else None,
+                "last_message_time": events_stats.last_message_time.isoformat()
+                if events_stats.last_message_time
+                else None,
+                "last_heartbeat_time": events_stats.last_heartbeat_time.isoformat()
+                if events_stats.last_heartbeat_time
+                else None,
                 "heartbeat_response_time": events_stats.heartbeat_response_time,
-            }
+            },
         }
 
     async def _start_ws_devices(self) -> None:
@@ -1109,9 +1287,7 @@ class UnifiProtectClient:
 
         _LOGGER.debug("Starting WebSocket devices task")
         self._ws_devices_stats.update_state(WS_STATE_CONNECTING)
-        self._ws_devices_task = asyncio.create_task(
-            self._ws_devices_listener()
-        )
+        self._ws_devices_task = asyncio.create_task(self._ws_devices_listener())
 
     async def _start_ws_events(self) -> None:
         """Start WebSocket connection for event updates."""
@@ -1121,9 +1297,7 @@ class UnifiProtectClient:
 
         _LOGGER.debug("Starting WebSocket events task")
         self._ws_events_stats.update_state(WS_STATE_CONNECTING)
-        self._ws_events_task = asyncio.create_task(
-            self._ws_events_listener()
-        )
+        self._ws_events_task = asyncio.create_task(self._ws_events_listener())
 
     async def _start_ws_devices_heartbeat(self) -> None:
         """Start heartbeat for devices WebSocket connection."""
@@ -1133,11 +1307,7 @@ class UnifiProtectClient:
 
         _LOGGER.debug("Starting WebSocket devices heartbeat task")
         self._ws_devices_heartbeat_task = asyncio.create_task(
-            self._ws_heartbeat_task(
-                "devices",
-                self._ws_devices,
-                self._ws_devices_stats
-            )
+            self._ws_heartbeat_task("devices", self._ws_devices, self._ws_devices_stats)
         )
 
     async def _start_ws_events_heartbeat(self) -> None:
@@ -1148,18 +1318,11 @@ class UnifiProtectClient:
 
         _LOGGER.debug("Starting WebSocket events heartbeat task")
         self._ws_events_heartbeat_task = asyncio.create_task(
-            self._ws_heartbeat_task(
-                "events",
-                self._ws_events,
-                self._ws_events_stats
-            )
+            self._ws_heartbeat_task("events", self._ws_events, self._ws_events_stats)
         )
 
     async def _ws_heartbeat_task(
-        self,
-        ws_type: str,
-        ws: ClientWebSocketResponse,
-        stats: WebSocketConnectionStats
+        self, ws_type: str, ws: ClientWebSocketResponse, stats: WebSocketConnectionStats
     ) -> None:
         """Send periodic heartbeats to keep the connection alive."""
         try:
@@ -1181,7 +1344,7 @@ class UnifiProtectClient:
                             _LOGGER.debug(
                                 "%s WebSocket connection is healthy (message received %.2f seconds ago)",
                                 ws_type.capitalize(),
-                                time_since_last_message
+                                time_since_last_message,
                             )
                             stats.record_heartbeat(time_since_last_message)
                         elif time_since_last_message > WS_HEARTBEAT_TIMEOUT:
@@ -1189,20 +1352,25 @@ class UnifiProtectClient:
                             _LOGGER.debug(
                                 "%s WebSocket connection may be dead (no message for %.2f seconds)",
                                 ws_type.capitalize(),
-                                time_since_last_message
+                                time_since_last_message,
                             )
 
                             # Try to send a ping to check connection
                             try:
                                 # Send a proper WebSocket ping instead of JSON
                                 await ws.ping()
-                                _LOGGER.debug("%s WebSocket ping sent successfully", ws_type.capitalize())
-                                stats.record_heartbeat(0.0)  # Record successful heartbeat
+                                _LOGGER.debug(
+                                    "%s WebSocket ping sent successfully",
+                                    ws_type.capitalize(),
+                                )
+                                stats.record_heartbeat(
+                                    0.0
+                                )  # Record successful heartbeat
                             except Exception as err:
                                 _LOGGER.debug(
                                     "%s WebSocket ping failed, closing connection: %s",
                                     ws_type.capitalize(),
-                                    err
+                                    err,
                                 )
                                 # Connection is likely dead, close it to trigger reconnection
                                 await ws.close()
@@ -1211,20 +1379,14 @@ class UnifiProtectClient:
                         # No message received yet, wait for initial messages
                         _LOGGER.debug(
                             "%s WebSocket waiting for initial messages",
-                            ws_type.capitalize()
+                            ws_type.capitalize(),
                         )
 
                 except Exception as err:
-                    _LOGGER.debug(
-                        "Error in %s WebSocket heartbeat: %s",
-                        ws_type,
-                        err
-                    )
+                    _LOGGER.debug("Error in %s WebSocket heartbeat: %s", ws_type, err)
                     # If we can't check the connection, it's likely dead
-                    try:
+                    with contextlib.suppress(Exception):
                         await ws.close()
-                    except Exception:
-                        pass
                     break
 
                 # Wait for next heartbeat interval
@@ -1234,9 +1396,7 @@ class UnifiProtectClient:
             _LOGGER.debug("%s WebSocket heartbeat task cancelled", ws_type.capitalize())
         except Exception as err:
             _LOGGER.debug(
-                "Unexpected error in %s WebSocket heartbeat task: %s",
-                ws_type,
-                err
+                "Unexpected error in %s WebSocket heartbeat task: %s", ws_type, err
             )
         finally:
             if ws_type == "devices":
@@ -1251,19 +1411,15 @@ class UnifiProtectClient:
         # Stop heartbeat task
         if self._ws_devices_heartbeat_task is not None:
             self._ws_devices_heartbeat_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._ws_devices_heartbeat_task
-            except asyncio.CancelledError:
-                pass
             self._ws_devices_heartbeat_task = None
 
         # Stop main WebSocket task
         if self._ws_devices_task is not None:
             self._ws_devices_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._ws_devices_task
-            except asyncio.CancelledError:
-                pass
             self._ws_devices_task = None
 
         # Close WebSocket connection
@@ -1281,19 +1437,15 @@ class UnifiProtectClient:
         # Stop heartbeat task
         if self._ws_events_heartbeat_task is not None:
             self._ws_events_heartbeat_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._ws_events_heartbeat_task
-            except asyncio.CancelledError:
-                pass
             self._ws_events_heartbeat_task = None
 
         # Stop main WebSocket task
         if self._ws_events_task is not None:
             self._ws_events_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._ws_events_task
-            except asyncio.CancelledError:
-                pass
             self._ws_events_task = None
 
         # Close WebSocket connection
@@ -1320,7 +1472,7 @@ class UnifiProtectClient:
                 _LOGGER.debug(
                     "Connecting to WebSocket devices endpoint (attempt %d, timeout: %.1fs)",
                     stats.connection_attempts,
-                    connection_timeout
+                    connection_timeout,
                 )
 
                 headers = {
@@ -1352,7 +1504,7 @@ class UnifiProtectClient:
                             stats.update_state(WS_STATE_CONNECTED)
                             _LOGGER.info(
                                 "Connected to WebSocket devices endpoint (after %d attempts)",
-                                stats.connection_attempts
+                                stats.connection_attempts,
                             )
 
                             # Start heartbeat task
@@ -1363,7 +1515,7 @@ class UnifiProtectClient:
                             if buffered_messages:
                                 _LOGGER.debug(
                                     "Processing %d buffered device messages",
-                                    len(buffered_messages)
+                                    len(buffered_messages),
                                 )
                                 for message in buffered_messages:
                                     await self._process_device_message(message)
@@ -1377,7 +1529,8 @@ class UnifiProtectClient:
                                         await self._process_device_message(data)
                                     except Exception as err:
                                         _LOGGER.debug(
-                                            "Error processing WebSocket device message: %s", err
+                                            "Error processing WebSocket device message: %s",
+                                            err,
                                         )
                                 elif msg.type == WSMsgType.ERROR:
                                     error = ws.exception() or "Unknown error"
@@ -1387,14 +1540,16 @@ class UnifiProtectClient:
                                     stats.record_error(WS_ERROR_UNKNOWN)
                                     break
                                 elif msg.type == WSMsgType.CLOSED:
-                                    _LOGGER.debug("WebSocket devices connection closed normally")
+                                    _LOGGER.debug(
+                                        "WebSocket devices connection closed normally"
+                                    )
                                     break
                                 elif msg.type == WSMsgType.PING:
                                     # Respond to ping with pong
                                     await ws.pong(msg.data)
                                     _LOGGER.debug("Responded to WebSocket devices ping")
 
-                except asyncio.TimeoutError as err:
+                except TimeoutError as err:
                     # Connection timeout
                     _LOGGER.debug("WebSocket devices connection timeout: %s", err)
                     stats.record_error(WS_ERROR_TIMEOUT)
@@ -1422,10 +1577,7 @@ class UnifiProtectClient:
 
             except Exception as err:
                 # Unexpected error
-                _LOGGER.debug(
-                    "Unexpected error in WebSocket devices listener: %s",
-                    err
-                )
+                _LOGGER.debug("Unexpected error in WebSocket devices listener: %s", err)
                 stats.record_error(WS_ERROR_UNKNOWN)
 
             finally:
@@ -1445,9 +1597,11 @@ class UnifiProtectClient:
             if stats.consecutive_errors >= WS_MAX_CONSECUTIVE_ERRORS:
                 _LOGGER.warning(
                     "Too many consecutive WebSocket devices errors (%s), stopping reconnection attempts",
-                    stats.consecutive_errors
+                    stats.consecutive_errors,
                 )
-                _LOGGER.info("Integration will continue to function without real-time device updates")
+                _LOGGER.info(
+                    "Integration will continue to function without real-time device updates"
+                )
                 stats.update_state(WS_STATE_FAILED)
                 break
 
@@ -1456,11 +1610,11 @@ class UnifiProtectClient:
             _LOGGER.debug(
                 "WebSocket devices connection failed, retrying in %.2f seconds (error: %s)",
                 delay,
-                stats.last_error
+                stats.last_error,
             )
             await asyncio.sleep(delay)
 
-    async def _process_device_message(self, data: Dict[str, Any]) -> None:
+    async def _process_device_message(self, data: dict[str, Any]) -> None:
         """Process a device message from the WebSocket."""
         if data.get("type") == "add" and "item" in data:
             item = data["item"]
@@ -1469,11 +1623,7 @@ class UnifiProtectClient:
 
             # Check if this is a device update we care about
             if model_key in WS_DEVICE_UPDATE_TYPES:
-                _LOGGER.debug(
-                    "Received device update for %s: %s",
-                    model_key,
-                    item_id
-                )
+                _LOGGER.debug("Received device update for %s: %s", model_key, item_id)
 
                 # Check for duplicate message
                 message_id = f"{model_key}_{item_id}_{hash(str(item))}"
@@ -1503,7 +1653,7 @@ class UnifiProtectClient:
                 _LOGGER.debug(
                     "Connecting to WebSocket events endpoint (attempt %d, timeout: %.1fs)",
                     stats.connection_attempts,
-                    connection_timeout
+                    connection_timeout,
                 )
 
                 headers = {
@@ -1535,7 +1685,7 @@ class UnifiProtectClient:
                             stats.update_state(WS_STATE_CONNECTED)
                             _LOGGER.info(
                                 "Connected to WebSocket events endpoint (after %d attempts)",
-                                stats.connection_attempts
+                                stats.connection_attempts,
                             )
 
                             # Start heartbeat task
@@ -1546,7 +1696,7 @@ class UnifiProtectClient:
                             if buffered_messages:
                                 _LOGGER.debug(
                                     "Processing %d buffered event messages",
-                                    len(buffered_messages)
+                                    len(buffered_messages),
                                 )
                                 for message in buffered_messages:
                                     await self._process_event_message(message)
@@ -1560,7 +1710,8 @@ class UnifiProtectClient:
                                         await self._process_event_message(data)
                                     except Exception as err:
                                         _LOGGER.debug(
-                                            "Error processing WebSocket event message: %s", err
+                                            "Error processing WebSocket event message: %s",
+                                            err,
                                         )
                                 elif msg.type == WSMsgType.ERROR:
                                     error = ws.exception() or "Unknown error"
@@ -1570,14 +1721,16 @@ class UnifiProtectClient:
                                     stats.record_error(WS_ERROR_UNKNOWN)
                                     break
                                 elif msg.type == WSMsgType.CLOSED:
-                                    _LOGGER.debug("WebSocket events connection closed normally")
+                                    _LOGGER.debug(
+                                        "WebSocket events connection closed normally"
+                                    )
                                     break
                                 elif msg.type == WSMsgType.PING:
                                     # Respond to ping with pong
                                     await ws.pong(msg.data)
                                     _LOGGER.debug("Responded to WebSocket events ping")
 
-                except asyncio.TimeoutError as err:
+                except TimeoutError as err:
                     # Connection timeout
                     _LOGGER.debug("WebSocket events connection timeout: %s", err)
                     stats.record_error(WS_ERROR_TIMEOUT)
@@ -1605,10 +1758,7 @@ class UnifiProtectClient:
 
             except Exception as err:
                 # Unexpected error
-                _LOGGER.debug(
-                    "Unexpected error in WebSocket events listener: %s",
-                    err
-                )
+                _LOGGER.debug("Unexpected error in WebSocket events listener: %s", err)
                 stats.record_error(WS_ERROR_UNKNOWN)
 
             finally:
@@ -1628,9 +1778,11 @@ class UnifiProtectClient:
             if stats.consecutive_errors >= WS_MAX_CONSECUTIVE_ERRORS:
                 _LOGGER.warning(
                     "Too many consecutive WebSocket events errors (%s), stopping reconnection attempts",
-                    stats.consecutive_errors
+                    stats.consecutive_errors,
                 )
-                _LOGGER.info("Integration will continue to function without real-time event updates")
+                _LOGGER.info(
+                    "Integration will continue to function without real-time event updates"
+                )
                 stats.update_state(WS_STATE_FAILED)
                 break
 
@@ -1639,11 +1791,11 @@ class UnifiProtectClient:
             _LOGGER.debug(
                 "WebSocket events connection failed, retrying in %.2f seconds (error: %s)",
                 delay,
-                stats.last_error
+                stats.last_error,
             )
             await asyncio.sleep(delay)
 
-    async def _process_event_message(self, data: Dict[str, Any]) -> None:
+    async def _process_event_message(self, data: dict[str, Any]) -> None:
         """Process an event message from the WebSocket."""
         message_type = data.get("type")
 
@@ -1664,7 +1816,7 @@ class UnifiProtectClient:
                         event_type,
                         device_id,
                         item_id,
-                        smart_detect_types
+                        smart_detect_types,
                     )
                 else:
                     _LOGGER.debug(
@@ -1672,7 +1824,7 @@ class UnifiProtectClient:
                         message_type,
                         event_type,
                         device_id,
-                        item_id
+                        item_id,
                     )
 
                 # Check for duplicate message

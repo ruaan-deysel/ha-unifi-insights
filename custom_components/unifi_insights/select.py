@@ -1,14 +1,12 @@
 """Support for UniFi Protect select entities."""
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     ATTR_CAMERA_ID,
@@ -18,26 +16,35 @@ from .const import (
     ATTR_CHIME_RINGTONE_ID,
     ATTR_HDR_MODE,
     ATTR_VIDEO_MODE,
-    CHIME_RINGTONE_DEFAULT,
-    CHIME_RINGTONE_MECHANICAL,
-    CHIME_RINGTONE_DIGITAL,
+    ATTR_VIEWER_ID,
+    ATTR_VIEWER_NAME,
     CHIME_RINGTONE_CHRISTMAS,
-    CHIME_RINGTONE_TRADITIONAL,
     CHIME_RINGTONE_CUSTOM_1,
     CHIME_RINGTONE_CUSTOM_2,
+    CHIME_RINGTONE_DEFAULT,
+    CHIME_RINGTONE_DIGITAL,
+    CHIME_RINGTONE_MECHANICAL,
+    CHIME_RINGTONE_TRADITIONAL,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
+    DEVICE_TYPE_VIEWER,
     DOMAIN,
     HDR_MODE_AUTO,
-    HDR_MODE_ON,
     HDR_MODE_OFF,
+    HDR_MODE_ON,
     VIDEO_MODE_DEFAULT,
     VIDEO_MODE_HIGH_FPS,
-    VIDEO_MODE_SPORT,
     VIDEO_MODE_SLOW_SHUTTER,
+    VIDEO_MODE_SPORT,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,7 +66,9 @@ async def async_setup_entry(
 
     # Add camera HDR mode selects
     for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
-        _LOGGER.debug("Adding HDR mode select for camera %s", camera_data.get("name", camera_id))
+        _LOGGER.debug(
+            "Adding HDR mode select for camera %s", camera_data.get("name", camera_id)
+        )
         entities.append(
             UnifiProtectHDRModeSelect(
                 coordinator=coordinator,
@@ -67,7 +76,9 @@ async def async_setup_entry(
             )
         )
 
-        _LOGGER.debug("Adding video mode select for camera %s", camera_data.get("name", camera_id))
+        _LOGGER.debug(
+            "Adding video mode select for camera %s", camera_data.get("name", camera_id)
+        )
         entities.append(
             UnifiProtectVideoModeSelect(
                 coordinator=coordinator,
@@ -77,11 +88,39 @@ async def async_setup_entry(
 
     # Add chime ringtone selects
     for chime_id, chime_data in coordinator.data["protect"]["chimes"].items():
-        _LOGGER.debug("Adding ringtone select for chime %s", chime_data.get("name", chime_id))
+        _LOGGER.debug(
+            "Adding ringtone select for chime %s", chime_data.get("name", chime_id)
+        )
         entities.append(
             UnifiProtectChimeRingtoneSelect(
                 coordinator=coordinator,
                 chime_id=chime_id,
+            )
+        )
+
+    # Add PTZ preset selects for cameras with PTZ support
+    for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
+        if camera_data.get("hasPtz", False):
+            _LOGGER.debug(
+                "Adding PTZ preset select for camera %s",
+                camera_data.get("name", camera_id),
+            )
+            entities.append(
+                UnifiProtectPTZPresetSelect(
+                    coordinator=coordinator,
+                    camera_id=camera_id,
+                )
+            )
+
+    # Add liveview selects for viewers
+    for viewer_id, viewer_data in coordinator.data["protect"]["viewers"].items():
+        _LOGGER.debug(
+            "Adding liveview select for viewer %s", viewer_data.get("name", viewer_id)
+        )
+        entities.append(
+            UnifiProtectViewerLiveviewSelect(
+                coordinator=coordinator,
+                viewer_id=viewer_id,
             )
         )
 
@@ -114,7 +153,9 @@ class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
-        camera_data = self.coordinator.data["protect"]["cameras"].get(self._device_id, {})
+        camera_data = self.coordinator.data["protect"]["cameras"].get(
+            self._device_id, {}
+        )
 
         # Set current option
         self._attr_current_option = camera_data.get("hdrType", HDR_MODE_AUTO)
@@ -138,7 +179,7 @@ class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):
             self._attr_current_option = option
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting HDR mode: %s", err)
+            _LOGGER.exception("Error setting HDR mode: %s", err)
 
 
 class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):
@@ -171,7 +212,9 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
-        camera_data = self.coordinator.data["protect"]["cameras"].get(self._device_id, {})
+        camera_data = self.coordinator.data["protect"]["cameras"].get(
+            self._device_id, {}
+        )
 
         # Set current option
         self._attr_current_option = camera_data.get("videoMode", VIDEO_MODE_DEFAULT)
@@ -195,7 +238,7 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):
             self._attr_current_option = option
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting video mode: %s", err)
+            _LOGGER.exception("Error setting video mode: %s", err)
 
 
 class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):
@@ -264,4 +307,134 @@ class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):
             self._attr_current_option = option
             self.async_write_ha_state()
         except Exception as err:
-            _LOGGER.error("Error setting ringtone: %s", err)
+            _LOGGER.exception("Error setting ringtone: %s", err)
+
+
+class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):
+    """Representation of a UniFi Protect Camera PTZ Preset Select."""
+
+    _attr_has_entity_name = True
+    _attr_options = ["0", "1", "2", "3", "4"]
+    _attr_icon = "mdi:camera-control"
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        camera_id: str,
+    ) -> None:
+        """Initialize the select entity."""
+        super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "ptz_preset")
+
+        # Set entity category
+        self._attr_entity_category = EntityCategory.CONFIG
+
+        # Set name
+        self._attr_name = "PTZ Preset"
+
+        # Set initial state
+        self._update_from_data()
+
+    def _update_from_data(self) -> None:
+        """Update entity from data."""
+        camera_data = self.coordinator.data["protect"]["cameras"].get(
+            self._device_id, {}
+        )
+
+        # Set current option
+        current_preset = camera_data.get("currentPtzPreset", 0)
+        self._attr_current_option = str(current_preset)
+
+        # Set attributes
+        self._attr_extra_state_attributes = {
+            ATTR_CAMERA_ID: self._device_id,
+            ATTR_CAMERA_NAME: camera_data.get("name"),
+            "current_preset": current_preset,
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the selected option."""
+        _LOGGER.debug("Setting PTZ preset to %s for camera %s", option, self._device_id)
+
+        try:
+            slot = int(option)
+            await self.coordinator.protect_api.async_ptz_goto_preset(
+                camera_id=self._device_id,
+                slot=slot,
+            )
+            self._attr_current_option = option
+            self.async_write_ha_state()
+        except Exception as err:
+            _LOGGER.exception("Error setting PTZ preset: %s", err)
+
+
+class UnifiProtectViewerLiveviewSelect(UnifiProtectEntity, SelectEntity):
+    """Representation of a UniFi Protect Viewer Liveview Select."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:monitor-multiple"
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        viewer_id: str,
+    ) -> None:
+        """Initialize the select entity."""
+        super().__init__(coordinator, DEVICE_TYPE_VIEWER, viewer_id, "liveview")
+
+        # Set entity category
+        self._attr_entity_category = EntityCategory.CONFIG
+
+        # Set name
+        self._attr_name = "Liveview"
+
+        # Set initial state
+        self._update_from_data()
+
+    def _update_from_data(self) -> None:
+        """Update entity from data."""
+        viewer_data = self.coordinator.data["protect"]["viewers"].get(
+            self._device_id, {}
+        )
+        liveviews = self.coordinator.data["protect"]["liveviews"]
+
+        # Set options from available liveviews
+        self._attr_options = [lv.get("name", lv_id) for lv_id, lv in liveviews.items()]
+
+        # Set current option
+        liveview_id = viewer_data.get("liveview")
+        if liveview_id and liveview_id in liveviews:
+            self._attr_current_option = liveviews[liveview_id].get("name", liveview_id)
+        else:
+            self._attr_current_option = None
+
+        # Set attributes
+        self._attr_extra_state_attributes = {
+            ATTR_VIEWER_ID: self._device_id,
+            ATTR_VIEWER_NAME: viewer_data.get("name"),
+            "liveview_id": liveview_id,
+        }
+
+    async def async_select_option(self, option: str) -> None:
+        """Change the selected option."""
+        _LOGGER.debug("Setting liveview to %s for viewer %s", option, self._device_id)
+
+        try:
+            # Find liveview ID by name
+            liveviews = self.coordinator.data["protect"]["liveviews"]
+            liveview_id = None
+            for lv_id, lv in liveviews.items():
+                if lv.get("name") == option:
+                    liveview_id = lv_id
+                    break
+
+            if liveview_id:
+                await self.coordinator.protect_api.async_update_viewer(
+                    viewer_id=self._device_id,
+                    data={"liveview": liveview_id},
+                )
+                self._attr_current_option = option
+                self.async_write_ha_state()
+            else:
+                _LOGGER.error("Liveview not found: %s", option)
+        except Exception as err:
+            _LOGGER.exception("Error setting liveview: %s", err)

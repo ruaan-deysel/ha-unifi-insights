@@ -1,4 +1,5 @@
 """Constants for the UniFi Insights integration."""
+
 from datetime import timedelta
 from typing import Final
 
@@ -9,11 +10,7 @@ MANUFACTURER: Final = "Ubiquiti Inc."
 DEFAULT_API_HOST = "https://192.168.10.1"
 SCAN_INTERVAL_NORMAL = timedelta(seconds=30)
 
-UNIFI_API_HEADERS = {
-    "Accept": "application/json",
-    "Content-Type": "application/json"
-}
-
+UNIFI_API_HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 
 
 # Device types
@@ -80,7 +77,9 @@ API_PATH_PTZ_MOVE: Final = "/proxy/protect/integration/v1/cameras/{id}/ptz/goto/
 API_PATH_PTZ_PATROL_START: Final = (
     "/proxy/protect/integration/v1/cameras/{id}/ptz/patrol/start/{slot}"
 )
-API_PATH_PTZ_PATROL_STOP: Final = "/proxy/protect/integration/v1/cameras/{id}/ptz/patrol/stop"
+API_PATH_PTZ_PATROL_STOP: Final = (
+    "/proxy/protect/integration/v1/cameras/{id}/ptz/patrol/stop"
+)
 
 # WebSocket endpoints
 API_PATH_WEBSOCKET_DEVICES: Final = "/proxy/protect/integration/v1/subscribe/devices"
@@ -122,7 +121,9 @@ WS_RECONNECT_JITTER: Final = 0.2  # 20% jitter
 WS_MAX_CONSECUTIVE_ERRORS: Final = 15  # Allow more errors before giving up
 
 # Connection Health
-WS_STALE_CONNECTION_THRESHOLD: Final = 60.0  # Force reconnect if no messages for 60 seconds
+WS_STALE_CONNECTION_THRESHOLD: Final = (
+    60.0  # Force reconnect if no messages for 60 seconds
+)
 
 # WebSocket connection states
 WS_STATE_DISCONNECTED: Final = "disconnected"
@@ -225,3 +226,74 @@ API_PATH_CHIME_PLAY: Final = "/proxy/protect/integration/v1/chimes/{id}/play"
 LIGHT_MODE_ALWAYS: Final = "always"
 LIGHT_MODE_MOTION: Final = "motion"
 LIGHT_MODE_OFF: Final = "off"
+
+# UniFi Network API endpoints
+API_PATH_NETWORK_INFO: Final = "/v1/info"
+API_PATH_NETWORK_SITES: Final = "/v1/sites"
+API_PATH_NETWORK_DEVICES: Final = "/v1/sites/{siteId}/devices"
+API_PATH_NETWORK_DEVICE: Final = "/v1/sites/{siteId}/devices/{deviceId}"
+API_PATH_NETWORK_DEVICE_STATS: Final = (
+    "/v1/sites/{siteId}/devices/{deviceId}/statistics/latest"
+)
+API_PATH_NETWORK_DEVICE_ACTION: Final = "/v1/sites/{siteId}/devices/{deviceId}/actions"
+API_PATH_NETWORK_PORT_ACTION: Final = (
+    "/v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/{portIdx}/actions"
+)
+API_PATH_NETWORK_CLIENTS: Final = "/v1/sites/{siteId}/clients"
+API_PATH_NETWORK_CLIENT: Final = "/v1/sites/{siteId}/clients/{clientId}"
+API_PATH_NETWORK_CLIENT_ACTION: Final = "/v1/sites/{siteId}/clients/{clientId}/actions"
+API_PATH_NETWORK_VOUCHERS: Final = "/v1/sites/{siteId}/hotspot/vouchers"
+API_PATH_NETWORK_VOUCHER: Final = "/v1/sites/{siteId}/hotspot/vouchers/{voucherId}"
+
+# UniFi Protect additional API endpoints
+API_PATH_VIEWERS: Final = "/proxy/protect/integration/v1/viewers"
+API_PATH_VIEWER: Final = "/proxy/protect/integration/v1/viewers/{id}"
+API_PATH_LIVEVIEWS: Final = "/proxy/protect/integration/v1/liveviews"
+API_PATH_LIVEVIEW: Final = "/proxy/protect/integration/v1/liveviews/{id}"
+API_PATH_ALARM_WEBHOOK: Final = (
+    "/proxy/protect/integration/v1/alarm-manager/webhook/{id}"
+)
+API_PATH_CAMERA_TALKBACK: Final = (
+    "/proxy/protect/integration/v1/cameras/{id}/talkback-session"
+)
+API_PATH_FILES: Final = "/proxy/protect/integration/v1/files/{fileType}"
+
+# UniFi Network Services
+SERVICE_POWER_CYCLE_PORT: Final = "power_cycle_port"
+SERVICE_AUTHORIZE_GUEST: Final = "authorize_guest"
+SERVICE_GENERATE_VOUCHER: Final = "generate_voucher"
+SERVICE_DELETE_VOUCHER: Final = "delete_voucher"
+SERVICE_LIST_VOUCHERS: Final = "list_vouchers"
+
+# UniFi Protect Services
+SERVICE_PTZ_GOTO_PRESET: Final = "ptz_goto_preset"
+SERVICE_PTZ_START_PATROL: Final = "ptz_start_patrol"
+SERVICE_PTZ_STOP_PATROL: Final = "ptz_stop_patrol"
+SERVICE_TRIGGER_ALARM: Final = "trigger_alarm"
+SERVICE_SET_LIVEVIEW: Final = "set_liveview"
+SERVICE_CREATE_LIVEVIEW: Final = "create_liveview"
+
+# Port actions
+PORT_ACTION_POWER_CYCLE: Final = "POWER_CYCLE"
+
+# Client actions
+CLIENT_ACTION_AUTHORIZE_GUEST: Final = "AUTHORIZE_GUEST_ACCESS"
+
+# Viewer attributes
+ATTR_VIEWER_ID: Final = "viewer_id"
+ATTR_VIEWER_NAME: Final = "viewer_name"
+ATTR_VIEWER_STATE: Final = "viewer_state"
+ATTR_VIEWER_LIVEVIEW: Final = "viewer_liveview"
+
+# Liveview attributes
+ATTR_LIVEVIEW_ID: Final = "liveview_id"
+ATTR_LIVEVIEW_NAME: Final = "liveview_name"
+ATTR_LIVEVIEW_LAYOUT: Final = "liveview_layout"
+ATTR_LIVEVIEW_IS_DEFAULT: Final = "liveview_is_default"
+
+# Sensor mount types
+SENSOR_MOUNT_DOOR: Final = "door"
+SENSOR_MOUNT_WINDOW: Final = "window"
+SENSOR_MOUNT_GARAGE: Final = "garage"
+SENSOR_MOUNT_LEAK: Final = "leak"
+SENSOR_MOUNT_MOTION: Final = "motion"

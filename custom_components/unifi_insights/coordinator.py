@@ -1,37 +1,41 @@
 """Data update coordinator for UniFi Insights."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
 
+from .const import (
+    DEVICE_TYPE_CAMERA,
+    DEVICE_TYPE_CHIME,
+    DEVICE_TYPE_LIGHT,
+    DEVICE_TYPE_NVR,
+    DEVICE_TYPE_SENSOR,
+    DEVICE_TYPE_VIEWER,
+    DOMAIN,
+    SCAN_INTERVAL_NORMAL,
+)
 from .unifi_network_api import (
     UnifiInsightsAuthError,
     UnifiInsightsClient,
     UnifiInsightsConnectionError,
 )
-from .const import (
-    DEVICE_TYPE_CAMERA,
-    DEVICE_TYPE_LIGHT,
-    DEVICE_TYPE_SENSOR,
-    DEVICE_TYPE_NVR,
-    DEVICE_TYPE_VIEWER,
-    DEVICE_TYPE_CHIME,
-    DOMAIN,
-    SCAN_INTERVAL_NORMAL,
-)
-from .unifi_protect_api import (
-    UnifiProtectClient,
-)
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+
+    from .unifi_protect_api import (
+        UnifiProtectClient,
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +49,7 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         hass: HomeAssistant,
         api: UnifiInsightsClient,
-        protect_api: Optional[UnifiProtectClient] = None,
+        protect_api: UnifiProtectClient | None = None,
         entry: ConfigEntry = None,
     ) -> None:
         """Initialize the coordinator."""
@@ -64,6 +68,8 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "devices": {},
             "clients": {},
             "stats": {},
+            "network_info": {},
+            "vouchers": {},
             "protect": {
                 "cameras": {},
                 "lights": {},
@@ -71,6 +77,8 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "nvrs": {},
                 "viewers": {},
                 "chimes": {},
+                "liveviews": {},
+                "protect_info": {},
                 "events": {},
             },
             "last_update": None,
@@ -85,7 +93,9 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Get site data by site ID."""
         return self.data.get("sites", {}).get(site_id)
 
-    def _handle_device_update(self, model_key: str, device_data: dict[str, Any]) -> None:
+    def _handle_device_update(
+        self, model_key: str, device_data: dict[str, Any]
+    ) -> None:
         """Handle device update from WebSocket."""
         device_id = device_data.get("id")
         if not device_id:
@@ -127,31 +137,72 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if device_id:
             # Check if this is a camera motion event
             if event_type == "motion" and device_id in self.data["protect"]["cameras"]:
-                self.data["protect"]["cameras"][device_id]["lastMotion"] = event_data.get("start")
+                # Store both start and end times for motion events
+                self.data["protect"]["cameras"][device_id]["lastMotionStart"] = (
+                    event_data.get("start")
+                )
+                self.data["protect"]["cameras"][device_id]["lastMotionEnd"] = (
+                    event_data.get("end")
+                )
                 # Clear smart detect types for basic motion
                 self.data["protect"]["cameras"][device_id]["lastSmartDetectTypes"] = []
-                _LOGGER.debug("Updated motion for camera %s at %s", device_id, event_data.get("start"))
+                _LOGGER.info(
+                    "Motion event for camera %s: start=%s, end=%s",
+                    device_id,
+                    event_data.get("start"),
+                    event_data.get("end"),
+                )
 
             # Check if this is a light motion event
             elif event_type == "motion" and device_id in self.data["protect"]["lights"]:
-                self.data["protect"]["lights"][device_id]["lastMotion"] = event_data.get("start")
+                self.data["protect"]["lights"][device_id]["lastMotionStart"] = (
+                    event_data.get("start")
+                )
+                self.data["protect"]["lights"][device_id]["lastMotionEnd"] = (
+                    event_data.get("end")
+                )
 
             # Check if this is a smart detection event (per API documentation)
-            elif event_type == "smartDetectZone" and device_id in self.data["protect"]["cameras"]:
+            elif (
+                event_type == "smartDetectZone"
+                and device_id in self.data["protect"]["cameras"]
+            ):
                 # Extract smart detection types from event data
                 smart_detect_types = event_data.get("smartDetectTypes", [])
                 event_start = event_data.get("start", 0)
+                event_end = event_data.get("end")
 
                 # Update camera with smart detection information
-                self.data["protect"]["cameras"][device_id]["lastMotion"] = event_start
-                self.data["protect"]["cameras"][device_id]["lastSmartDetectTypes"] = smart_detect_types
+                self.data["protect"]["cameras"][device_id]["lastMotionStart"] = (
+                    event_start
+                )
+                self.data["protect"]["cameras"][device_id]["lastMotionEnd"] = event_end
+                self.data["protect"]["cameras"][device_id]["lastSmartDetectTypes"] = (
+                    smart_detect_types
+                )
 
-                _LOGGER.info("Smart detection event for camera %s: %s at %s", device_id, smart_detect_types, event_start)
+                _LOGGER.info(
+                    "Smart detection event for camera %s: %s (start=%s, end=%s)",
+                    device_id,
+                    smart_detect_types,
+                    event_start,
+                    event_end,
+                )
 
             # Check if this is a doorbell ring event
             elif event_type == "ring" and device_id in self.data["protect"]["cameras"]:
-                self.data["protect"]["cameras"][device_id]["lastRing"] = event_data.get("start")
-                _LOGGER.info("Doorbell ring for camera %s at %s", device_id, event_data.get("start"))
+                self.data["protect"]["cameras"][device_id]["lastRingStart"] = (
+                    event_data.get("start")
+                )
+                self.data["protect"]["cameras"][device_id]["lastRingEnd"] = (
+                    event_data.get("end")
+                )
+                _LOGGER.info(
+                    "Doorbell ring for camera %s: start=%s, end=%s",
+                    device_id,
+                    event_data.get("start"),
+                    event_data.get("end"),
+                )
 
         self.async_update_listeners()
 
@@ -191,15 +242,14 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return device_id, device, stats
 
         except Exception as err:
-            _LOGGER.error(
-                "Error processing device %s (%s): %s",
-                device_name,
-                device_id,
-                err
+            _LOGGER.exception(
+                "Error processing device %s (%s): %s", device_name, device_id, err
             )
             return device_id, device, {}
 
-    async def _process_site(self, site_id: str) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
+    async def _process_site(
+        self, site_id: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
         """Process a single site's devices and clients."""
         try:
             # Get devices and clients in parallel
@@ -209,8 +259,7 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Process devices in parallel
             tasks = [
-                self._process_device(site_id, device, clients)
-                for device in devices
+                self._process_device(site_id, device, clients) for device in devices
             ]
             results = await asyncio.gather(*tasks)
 
@@ -226,12 +275,7 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return devices_dict, stats_dict, clients_dict
 
         except Exception as err:
-            _LOGGER.error(
-                "Error processing site %s: %s",
-                site_id,
-                err,
-                exc_info=True
-            )
+            _LOGGER.error("Error processing site %s: %s", site_id, err, exc_info=True)
             return None
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -242,13 +286,11 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.data["sites"] = {site["id"]: site for site in sites}
 
             # Process all sites in parallel
-            tasks = [
-                self._process_site(site_id) for site_id in self.data["sites"]
-            ]
+            tasks = [self._process_site(site_id) for site_id in self.data["sites"]]
             results = await asyncio.gather(*tasks)
 
             # Update data structure with results
-            for site_id, result in zip(self.data["sites"], results):
+            for site_id, result in zip(self.data["sites"], results, strict=False):
                 if result is not None:
                     devices_dict, stats_dict, clients_dict = result
                     self.data["devices"][site_id] = devices_dict
@@ -259,7 +301,7 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         "Successfully processed site %s with %d devices and %d clients",
                         site_id,
                         len(devices_dict),
-                        len(clients_dict)
+                        len(clients_dict),
                     )
 
             # Fetch Unifi Protect data if API is available
@@ -273,9 +315,25 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     for camera in cameras:
                         camera_id = camera.get("id")
                         if camera_id:
-                            # Initialize smart detection fields
+                            # Extract smartDetectTypes from featureFlags for easier access
+                            # (per API documentation, smartDetectTypes is nested in featureFlags)
+                            feature_flags = camera.get("featureFlags", {})
+                            camera["smartDetectTypes"] = feature_flags.get(
+                                "smartDetectTypes", []
+                            )
+
+                            # Initialize last detection fields
                             camera["lastSmartDetectTypes"] = []
+                            camera["lastMotion"] = 0
+                            camera["lastRing"] = 0
+
                             self.data["protect"]["cameras"][camera_id] = camera
+
+                            _LOGGER.debug(
+                                "Camera %s supports smart detection types: %s",
+                                camera.get("name", camera_id),
+                                camera["smartDetectTypes"],
+                            )
 
                     # Fetch lights
                     _LOGGER.debug("Fetching Unifi Protect lights")
@@ -300,37 +358,17 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Fetch NVRs
                     _LOGGER.debug("Fetching Unifi Protect NVRs")
                     try:
-                        nvrs = await self.protect_api.async_get_nvrs()
-                        # Check if the response is a list (expected) or a string (error case)
-                        if isinstance(nvrs, list):
-                            for nvr in nvrs:
-                                nvr_id = nvr.get("id")
-                                if nvr_id:
-                                    self.data["protect"]["nvrs"][nvr_id] = nvr
-                            _LOGGER.debug("Successfully fetched %d NVRs", len(nvrs))
-                        elif isinstance(nvrs, dict) and "nvrs" in nvrs:
-                            # Handle case where API returns a dict with an 'nvrs' key
-                            nvr_list = nvrs["nvrs"]
-                            for nvr in nvr_list:
-                                nvr_id = nvr.get("id")
-                                if nvr_id:
-                                    self.data["protect"]["nvrs"][nvr_id] = nvr
-                            _LOGGER.debug("Successfully fetched %d NVRs", len(nvr_list))
-                        elif isinstance(nvrs, str):
-                            # Handle case where API returns a string
-                            _LOGGER.debug("NVR API returned a string: %s", nvrs)
-                            # If the string is the NVR ID itself, try to fetch details
-                            try:
-                                nvr_id = nvrs.strip()
-                                if nvr_id:
-                                    nvr_details = await self.protect_api.async_get_nvr(nvr_id)
-                                    if isinstance(nvr_details, dict):
-                                        self.data["protect"]["nvrs"][nvr_id] = nvr_details
-                                        _LOGGER.debug("Successfully fetched NVR details for %s", nvr_id)
-                            except Exception as nvr_err:
-                                _LOGGER.debug("Error fetching NVR details: %s", nvr_err)
+                        nvr = await self.protect_api.async_get_nvrs()
+                        # The API returns a single NVR object (dict), not a list
+                        if isinstance(nvr, dict):
+                            nvr_id = nvr.get("id")
+                            if nvr_id:
+                                self.data["protect"]["nvrs"][nvr_id] = nvr
+                                _LOGGER.debug("Successfully fetched NVR: %s", nvr_id)
                         else:
-                            _LOGGER.debug("Unexpected NVR API response type: %s", type(nvrs))
+                            _LOGGER.debug(
+                                "Unexpected NVR API response type: %s", type(nvr)
+                            )
                     except Exception as err:
                         _LOGGER.debug("Error fetching NVRs: %s", err)
 
@@ -346,20 +384,50 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     except Exception as err:
                         _LOGGER.warning("Error fetching chimes: %s", err)
 
+                    # Fetch viewers
+                    _LOGGER.debug("Fetching Unifi Protect viewers")
+                    try:
+                        viewers = await self.protect_api.async_get_viewers()
+                        for viewer in viewers:
+                            viewer_id = viewer.get("id")
+                            if viewer_id:
+                                self.data["protect"]["viewers"][viewer_id] = viewer
+                        _LOGGER.debug("Successfully fetched %d viewers", len(viewers))
+                    except Exception as err:
+                        _LOGGER.warning("Error fetching viewers: %s", err)
+
+                    # Fetch liveviews
+                    _LOGGER.debug("Fetching Unifi Protect liveviews")
+                    try:
+                        liveviews = await self.protect_api.async_get_liveviews()
+                        for liveview in liveviews:
+                            liveview_id = liveview.get("id")
+                            if liveview_id:
+                                self.data["protect"]["liveviews"][liveview_id] = (
+                                    liveview
+                                )
+                        _LOGGER.debug(
+                            "Successfully fetched %d liveviews", len(liveviews)
+                        )
+                    except Exception as err:
+                        _LOGGER.warning("Error fetching liveviews: %s", err)
+
                     # Start WebSocket connections if not already started
                     await self.protect_api.async_start_websocket()
 
                     _LOGGER.debug(
-                        "Successfully fetched Unifi Protect data: %d cameras, %d lights, %d sensors, %d NVRs, %d chimes",
+                        "Successfully fetched Unifi Protect data: %d cameras, %d lights, %d sensors, %d NVRs, %d chimes, %d viewers, %d liveviews",
                         len(self.data["protect"]["cameras"]),
                         len(self.data["protect"]["lights"]),
                         len(self.data["protect"]["sensors"]),
                         len(self.data["protect"]["nvrs"]),
-                        len(self.data["protect"]["chimes"])
+                        len(self.data["protect"]["chimes"]),
+                        len(self.data["protect"]["viewers"]),
+                        len(self.data["protect"]["liveviews"]),
                     )
 
                 except Exception as err:
-                    _LOGGER.error("Error fetching Unifi Protect data: %s", err)
+                    _LOGGER.exception("Error fetching Unifi Protect data: %s", err)
 
             self._available = True
             self.data["last_update"] = datetime.now()
@@ -370,11 +438,13 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed from err
         except UnifiInsightsConnectionError as err:
             self._available = False
-            raise UpdateFailed(f"Error communicating with API: {err}") from err
+            msg = f"Error communicating with API: {err}"
+            raise UpdateFailed(msg) from err
         except Exception as err:
             self._available = False
             _LOGGER.error("Unexpected error updating data: %s", err, exc_info=True)
-            raise UpdateFailed(f"Error updating data: {err}") from err
+            msg = f"Error updating data: {err}"
+            raise UpdateFailed(msg) from err
 
     @property
     def available(self) -> bool:

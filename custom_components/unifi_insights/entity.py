@@ -5,18 +5,16 @@ import logging
 from typing import Any
 
 from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
+from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    DOMAIN,
-    MANUFACTURER,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_SENSOR,
-    DEVICE_TYPE_NVR,
-    DEVICE_TYPE_CHIME,
+    DOMAIN,
+    MANUFACTURER,
 )
 from .coordinator import UnifiInsightsDataUpdateCoordinator
 
@@ -146,7 +144,7 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
         coordinator: UnifiInsightsDataUpdateCoordinator,
         device_type: str,
         device_id: str,
-        entity_type: str = None,
+        entity_type: str | None = None,
     ) -> None:
         """Initialize the entity."""
         super().__init__(coordinator)
@@ -287,7 +285,6 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
     def _update_from_data(self) -> None:
         """Update entity from data."""
         # To be implemented by subclasses
-        pass
 
     @property
     def device_data(self) -> dict[str, Any] | None:

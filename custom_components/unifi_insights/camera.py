@@ -1,15 +1,11 @@
 """Support for UniFi Protect cameras."""
+
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import Any, Final
+from typing import TYPE_CHECKING
 
-from homeassistant.components.camera import Camera, CameraEntityFeature
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.components.camera import Camera
 
 from .const import (
     ATTR_CAMERA_ID,
@@ -19,13 +15,17 @@ from .const import (
     ATTR_IS_PACKAGE_CAMERA,
     ATTR_PARENT_CAMERA_ID,
     CAMERA_STATE_CONNECTED,
-    CAMERA_TYPE_DOORBELL_MAIN,
-    CAMERA_TYPE_DOORBELL_PACKAGE,
     DEVICE_TYPE_CAMERA,
     DOMAIN,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
 from .entity import UnifiProtectEntity
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
+    from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -74,8 +74,9 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
         super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id)
         Camera.__init__(self)
 
-        # Set up camera features
-        self._attr_supported_features = CameraEntityFeature.STREAM
+        # Set up camera features - only enable STREAM if we can get stream source
+        # We'll check this dynamically in the supported_features property
+        self._attr_supported_features = 0
 
         # Set entity category
         self._attr_entity_category = None
@@ -85,7 +86,9 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
-        camera_data = self.coordinator.data["protect"]["cameras"].get(self._device_id, {})
+        camera_data = self.coordinator.data["protect"]["cameras"].get(
+            self._device_id, {}
+        )
 
         # Set availability
         self._attr_available = camera_data.get("state") == CAMERA_STATE_CONNECTED
@@ -117,7 +120,9 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
             _LOGGER.debug("Error getting standard quality camera image: %s", err)
 
             # Check if the camera supports high quality snapshots
-            camera_data = self.coordinator.data["protect"]["cameras"].get(self._device_id, {})
+            camera_data = self.coordinator.data["protect"]["cameras"].get(
+                self._device_id, {}
+            )
             feature_flags = camera_data.get("featureFlags", {})
             supports_full_hd = feature_flags.get("supportFullHdSnapshot", False)
 
@@ -129,9 +134,13 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
                         high_quality=True,
                     )
                 except Exception as high_err:
-                    _LOGGER.error("Error getting high quality camera image: %s", high_err)
+                    _LOGGER.exception(
+                        "Error getting high quality camera image: %s", high_err
+                    )
             else:
-                _LOGGER.debug("Camera %s does not support full HD snapshots", self._device_id)
+                _LOGGER.debug(
+                    "Camera %s does not support full HD snapshots", self._device_id
+                )
 
             # If we get here, both attempts failed or high quality is not supported
             return None
@@ -142,13 +151,15 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
 
         try:
             # Get RTSPS stream URL
-            stream_data = await self.coordinator.protect_api.async_get_camera_rtsps_stream(
-                camera_id=self._device_id,
-                qualities=["high"],
+            stream_data = (
+                await self.coordinator.protect_api.async_get_camera_rtsps_stream(
+                    camera_id=self._device_id,
+                    qualities=["high"],
+                )
             )
 
             # Return high quality stream URL
             return stream_data.get("high")
         except Exception as err:
-            _LOGGER.error("Error getting stream source: %s", err)
+            _LOGGER.exception("Error getting stream source: %s", err)
             return None

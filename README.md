@@ -1,8 +1,8 @@
 # UniFi Insights Integration for Home Assistant
 
 [![HACS Integration][hacsbadge]][hacs]
-[![GitHub Last Commit](https://img.shields.io/github/last-commit/domalab/ha-unifi-insights?style=for-the-badge)](https://github.com/domalab/ha-unifi-insights/commits/main)
-[![License](https://img.shields.io/github/license/domalab/ha-unifi-insights?style=for-the-badge)](./LICENSE)
+[![GitHub Last Commit](https://img.shields.io/github/last-commit/ruaan-deysel/ha-unifi-insights?style=for-the-badge)](https://github.com/ruaan-deysel/ha-unifi-insights/commits/main)
+[![License](https://img.shields.io/github/license/ruaan-deysel/ha-unifi-insights?style=for-the-badge)](./LICENSE)
 
 This custom integration allows you to monitor your UniFi devices through the UniFi Network API. Get detailed insights into your UniFi infrastructure directly in Home Assistant.
 
@@ -19,7 +19,7 @@ This custom integration allows you to monitor your UniFi devices through the Uni
 
 ### HACS (Recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=domalab&repository=ha-unifi-insights&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ruaan-deysel&repository=ha-unifi-insights&category=integration)
 
 ### Manual Installation
 

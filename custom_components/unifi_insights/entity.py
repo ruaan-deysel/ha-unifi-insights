@@ -1,10 +1,10 @@
 """UniFi Insights entity base class."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from homeassistant.core import callback
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -21,7 +21,33 @@ from .coordinator import UnifiInsightsDataUpdateCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
-class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
+def get_field(data: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """
+    Get a field from data using multiple possible key names.
+
+    Handles both camelCase and snake_case field names from different API versions.
+    """
+    for key in keys:
+        if key in data:
+            return data[key]
+    return default
+
+
+def is_device_online(data: dict[str, Any]) -> bool:
+    """
+    Check if device is online, handling different status field formats.
+
+    Handles:
+    - state: "ONLINE" / "OFFLINE"
+    - status: "online" / "offline"
+    """
+    state = get_field(data, "state", "status", default="")
+    if isinstance(state, str):
+        return state.upper() in ("ONLINE", "CONNECTED", "UP")
+    return False
+
+
+class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):  # type: ignore[misc]
     """Base class for UniFi Insights entities."""
 
     _attr_has_entity_name = True
@@ -41,8 +67,10 @@ class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator])
 
         # Get device data
         device_data = coordinator.data["devices"][site_id][device_id]
-        device_name = device_data.get("name", f"UniFi Device {device_id}")
-        ip_address = device_data.get("ipAddress", "")
+        device_name = get_field(
+            device_data, "name", default=f"UniFi Device {device_id}"
+        )
+        ip_address = get_field(device_data, "ipAddress", "ip_address", "ip", default="")
 
         # Set unique ID
         self._attr_unique_id = f"{site_id}_{device_id}_{description.key}"
@@ -55,35 +83,39 @@ class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator])
             "identifiers": {(DOMAIN, f"{site_id}_{device_id}")},
             "name": f"{device_name} ({ip_address})" if ip_address else device_name,
             "manufacturer": MANUFACTURER,
-            "model": device_data.get("model", "Unknown Model"),
-            "sw_version": device_data.get("firmwareVersion"),
-            "configuration_url": f"{coordinator.api.host}/network/devices/{device_id}",
+            "model": get_field(device_data, "model", default="Unknown Model"),
+            "sw_version": get_field(
+                device_data, "firmwareVersion", "firmware_version", "version"
+            ),
+            "configuration_url": (
+                f"{coordinator.network_client.base_url}/network/devices/{device_id}"
+            ),
         }
 
         # Add network connections
-        if mac := device_data.get("macAddress"):
+        if mac := get_field(device_data, "macAddress", "mac_address", "mac"):
             device_info["connections"] = {(CONNECTION_NETWORK_MAC, mac)}
 
         # Add hardware version based on device features
         hw_info = []
 
         # Get port count
-        if ports := device_data.get("port_table", []):
-            if isinstance(ports, list):
-                port_count = len(ports)
-                if port_count > 0:
-                    hw_info.append(f"{port_count} Ports")
+        if (ports := device_data.get("port_table", [])) and isinstance(ports, list):
+            port_count = len(ports)
+            if port_count > 0:
+                hw_info.append(f"{port_count} Ports")
 
         # Get radio info
-        if radio_table := device_data.get("radio_table", []):
-            if isinstance(radio_table, list):
-                for radio in radio_table:
-                    if not isinstance(radio, dict):
-                        continue
-                    radio_name = radio.get("name", "")
-                    radio_type = radio.get("radio", "")
-                    if radio_name and radio_type:
-                        hw_info.append(f"{radio_name} ({radio_type})")
+        if (radio_table := device_data.get("radio_table", [])) and isinstance(
+            radio_table, list
+        ):
+            for radio in radio_table:
+                if not isinstance(radio, dict):
+                    continue
+                radio_name = radio.get("name", "")
+                radio_type = radio.get("radio", "")
+                if radio_name and radio_type:
+                    hw_info.append(f"{radio_name} ({radio_type})")
 
         if hw_info:
             device_info["hw_version"] = " | ".join(hw_info)
@@ -106,40 +138,47 @@ class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator])
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        device_data = self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        device_data = (
+            self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        )
         if not device_data:
             return False
-        return device_data.get("state") == "ONLINE"
+        return is_device_online(device_data)
 
-    @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        device_data = self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        device_data = (
+            self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        )
         if not device_data:
             self._attr_available = False
             self.async_write_ha_state()
             return
 
-        self._attr_available = device_data.get("state") == "ONLINE"
+        self._attr_available = is_device_online(device_data)
         self.async_write_ha_state()
 
     @property
     def device_data(self) -> dict[str, Any] | None:
         """Return device data."""
-        return self.coordinator.data["devices"].get(self._site_id, {}).get(self._device_id)
+        devices = self.coordinator.data["devices"].get(self._site_id, {})
+        result = devices.get(self._device_id)
+        return result if isinstance(result, dict) else None
 
     @property
     def device_stats(self) -> dict[str, Any] | None:
         """Return device statistics."""
-        return self.coordinator.data["stats"].get(self._site_id, {}).get(self._device_id)
+        stats = self.coordinator.data["stats"].get(self._site_id, {})
+        result = stats.get(self._device_id)
+        return result if isinstance(result, dict) else None
 
 
-class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
+class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):  # type: ignore[misc]
     """Base class for UniFi Protect entities."""
 
     _attr_has_entity_name = True
 
-    def __init__(
+    def __init__(  # noqa: PLR0912, PLR0915
         self,
         coordinator: UnifiInsightsDataUpdateCoordinator,
         device_type: str,
@@ -154,14 +193,16 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
 
         # Get device data
         device_data = coordinator.data["protect"][f"{device_type}s"].get(device_id, {})
-        device_name = device_data.get("name", f"UniFi {device_type.capitalize()} {device_id}")
+        device_name = device_data.get(
+            "name", f"UniFi {device_type.capitalize()} {device_id}"
+        )
 
         # For dual-camera entities, extract the original device ID for device grouping
         original_device_id = device_id
         parent_camera_id = device_data.get("_parent_camera_id")
         if parent_camera_id:
             original_device_id = parent_camera_id
-            # Use the original device name without camera type suffix for device grouping
+            # Use original device name without camera type suffix for device grouping
             original_device_name = device_name
             if " Main Camera" in device_name:
                 original_device_name = device_name.replace(" Main Camera", "")
@@ -182,7 +223,9 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
         # For cameras, try to find a matching network device by MAC address
         # Use the original device ID for MAC lookup in case of dual-camera
         lookup_device_id = original_device_id if parent_camera_id else device_id
-        lookup_device_data = coordinator.data["protect"][f"{device_type}s"].get(lookup_device_id, device_data)
+        lookup_device_data = coordinator.data["protect"][f"{device_type}s"].get(
+            lookup_device_id, device_data
+        )
 
         if device_type == DEVICE_TYPE_CAMERA and "mac" in lookup_device_data:
             camera_mac = lookup_device_data.get("mac")
@@ -194,29 +237,39 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
                             network_device_id = net_device_id
                             network_site_id = site_id
                             _LOGGER.debug(
-                                "Found matching network device %s in site %s for camera %s",
+                                "Matched network device %s at site %s for camera %s",
                                 net_device_id,
                                 site_id,
-                                lookup_device_id
+                                lookup_device_id,
                             )
                             break
                     if network_device_id:
                         break
 
         # Create device info based on whether we found a matching network device
+        device_info: dict[str, Any]
         if network_device_id and network_site_id:
-            # Use the network device's identifiers to ensure all entities appear under the same device
-            network_device = coordinator.data["devices"][network_site_id][network_device_id]
-            network_device_name = network_device.get("name", f"UniFi Device {network_device_id}")
+            # Use the network device's identifiers to ensure all entities
+            # appear under the same device
+            network_device = coordinator.data["devices"][network_site_id][
+                network_device_id
+            ]
+            network_device_name = network_device.get(
+                "name", f"UniFi Device {network_device_id}"
+            )
             ip_address = network_device.get("ipAddress", "")
 
-            device_info: dict[str, Any] = {
+            device_info = {
                 "identifiers": {(DOMAIN, f"{network_site_id}_{network_device_id}")},
-                "name": f"{network_device_name} ({ip_address})" if ip_address else network_device_name,
+                "name": f"{network_device_name} ({ip_address})"
+                if ip_address
+                else network_device_name,
                 "manufacturer": MANUFACTURER,
                 "model": network_device.get("model", "Unknown Model"),
                 "sw_version": network_device.get("firmwareVersion"),
-                "configuration_url": f"{coordinator.api.host}/network/devices/{network_device_id}",
+                "configuration_url": (
+                    f"{coordinator.network_client.base_url}/network/devices/{network_device_id}"
+                ),
             }
 
             # Add network connections
@@ -224,23 +277,31 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
                 device_info["connections"] = {(CONNECTION_NETWORK_MAC, mac)}
 
             _LOGGER.debug(
-                "Using network device info for %s device %s (network device %s in site %s)",
+                "Using network info for %s %s (net %s site %s)",
                 device_type,
                 device_id,
                 network_device_id,
-                network_site_id
+                network_site_id,
             )
         else:
             # Create a new device entry for this Protect device
             # Use original device ID for dual-camera grouping
-            device_id_for_identifier = original_device_id if parent_camera_id else device_id
-            device_info: dict[str, Any] = {
-                "identifiers": {(DOMAIN, f"protect_{device_type}_{device_id_for_identifier}")},
+            device_id_for_identifier = (
+                original_device_id if parent_camera_id else device_id
+            )
+            device_info = {
+                "identifiers": {
+                    (DOMAIN, f"protect_{device_type}_{device_id_for_identifier}")
+                },
                 "name": device_name,
                 "manufacturer": MANUFACTURER,
-                "model": lookup_device_data.get("type", f"UniFi {device_type.capitalize()}"),
+                "model": lookup_device_data.get(
+                    "type", f"UniFi {device_type.capitalize()}"
+                ),
                 "sw_version": lookup_device_data.get("firmwareVersion"),
-                "configuration_url": f"{coordinator.protect_api.host}/protect/devices/{device_id_for_identifier}",
+                "configuration_url": (
+                    f"{coordinator.protect_client.base_url}/protect/devices/{device_id_for_identifier}"
+                ),
             }
 
             # Set suggested area
@@ -253,12 +314,12 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
 
             # Add MAC connection if available
             if "mac" in lookup_device_data:
-                device_info["connections"] = {(CONNECTION_NETWORK_MAC, lookup_device_data.get("mac"))}
+                device_info["connections"] = {
+                    (CONNECTION_NETWORK_MAC, lookup_device_data.get("mac"))
+                }
 
             _LOGGER.debug(
-                "Created new device info for %s device %s",
-                device_type,
-                device_id
+                "Created new device info for %s device %s", device_type, device_id
             )
 
         self._attr_device_info = DeviceInfo(**device_info)
@@ -271,16 +332,16 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        device_data = self.coordinator.data["protect"][f"{self._device_type}s"].get(self._device_id)
-        if not device_data:
+        device_data = self.coordinator.data["protect"][f"{self._device_type}s"].get(
+            self._device_id
+        )
+        if not device_data or not isinstance(device_data, dict):
             return False
-        return device_data.get("state") == "CONNECTED"
+        state = device_data.get("state")
+        return isinstance(state, str) and state == "CONNECTED"
 
-    @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        self._update_from_data()
-        self.async_write_ha_state()
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
@@ -289,4 +350,7 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
     @property
     def device_data(self) -> dict[str, Any] | None:
         """Return device data."""
-        return self.coordinator.data["protect"][f"{self._device_type}s"].get(self._device_id)
+        data = self.coordinator.data["protect"][f"{self._device_type}s"].get(
+            self._device_id
+        )
+        return data if isinstance(data, dict) else None

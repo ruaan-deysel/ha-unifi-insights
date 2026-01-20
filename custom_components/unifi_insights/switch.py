@@ -1,4 +1,5 @@
 """Support for UniFi Protect switches."""
+
 from __future__ import annotations
 
 import logging
@@ -12,30 +13,33 @@ from .const import (
     ATTR_CAMERA_NAME,
     ATTR_MIC_ENABLED,
     DEVICE_TYPE_CAMERA,
-    DOMAIN,
 )
 from .entity import UnifiProtectEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from . import UnifiInsightsConfigEntry
     from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Switch entities are action-based, allow parallel execution
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switches for UniFi Protect integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    _ = hass
+    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
 
     # Skip if Protect API is not available
-    if not coordinator.protect_api:
+    if not coordinator.protect_client:
         _LOGGER.debug("Skipping switch setup - Protect API not available")
         return
 
@@ -43,7 +47,9 @@ async def async_setup_entry(
 
     # Add camera microphone switches
     for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
-        _LOGGER.debug("Adding microphone switch for camera %s", camera_data.get("name", camera_id))
+        _LOGGER.debug(
+            "Adding microphone switch for camera %s", camera_data.get("name", camera_id)
+        )
         entities.append(
             UnifiProtectMicrophoneSwitch(
                 coordinator=coordinator,
@@ -55,7 +61,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
+class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Camera Microphone Switch."""
 
     _attr_has_entity_name = True
@@ -79,7 +85,9 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
-        camera_data = self.coordinator.data["protect"]["cameras"].get(self._device_id, {})
+        camera_data = self.coordinator.data["protect"]["cameras"].get(
+            self._device_id, {}
+        )
 
         # Set state
         self._attr_is_on = camera_data.get("micEnabled", False)
@@ -93,28 +101,30 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the microphone on."""
+        _ = kwargs
         _LOGGER.debug("Turning on microphone for camera %s", self._device_id)
 
         try:
-            await self.coordinator.protect_api.async_update_camera(
+            await self.coordinator.protect_client.update_camera(
                 camera_id=self._device_id,
                 data={"micEnabled": True},
             )
             self._attr_is_on = True
             self.async_write_ha_state()
-        except Exception as err:
-            _LOGGER.exception("Error turning on microphone: %s", err)
+        except Exception:
+            _LOGGER.exception("Error turning on microphone")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the microphone off."""
+        _ = kwargs
         _LOGGER.debug("Turning off microphone for camera %s", self._device_id)
 
         try:
-            await self.coordinator.protect_api.async_update_camera(
+            await self.coordinator.protect_client.update_camera(
                 camera_id=self._device_id,
                 data={"micEnabled": False},
             )
             self._attr_is_on = False
             self.async_write_ha_state()
-        except Exception as err:
-            _LOGGER.exception("Error turning off microphone: %s", err)
+        except Exception:
+            _LOGGER.exception("Error turning off microphone")

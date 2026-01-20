@@ -109,7 +109,7 @@ UniFi API → API Client → Coordinator → Entities
 - **Linter**: Ruff + Pylint (strict mode)
 - **Type Checker**: mypy in strict mode (phased adoption)
 - **Import Order**: stdlib → third-party → homeassistant → local
-- **Naming**: 
+- **Naming**:
   - Classes: `PascalCase`
   - Functions/methods: `snake_case`
   - Constants: `UPPER_SNAKE_CASE`

@@ -4,13 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
+)
+from unifi_official_api import (
+    UniFiAuthenticationError,
+    UniFiConnectionError,
+    UniFiResponseError,
+    UniFiTimeoutError,
 )
 
 from .const import (
@@ -23,24 +30,17 @@ from .const import (
     DOMAIN,
     SCAN_INTERVAL_NORMAL,
 )
-from .unifi_network_api import (
-    UnifiInsightsAuthError,
-    UnifiInsightsClient,
-    UnifiInsightsConnectionError,
-)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-
-    from .unifi_protect_api import (
-        UnifiProtectClient,
-    )
+    from unifi_official_api.network import UniFiNetworkClient
+    from unifi_official_api.protect import UniFiProtectClient
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ignore[misc]
     """Class to manage fetching UniFi Insights data."""
 
     config_entry: ConfigEntry
@@ -48,8 +48,8 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def __init__(
         self,
         hass: HomeAssistant,
-        api: UnifiInsightsClient,
-        protect_api: UnifiProtectClient | None = None,
+        network_client: UniFiNetworkClient,
+        protect_client: UniFiProtectClient | None = None,
         entry: ConfigEntry = None,
     ) -> None:
         """Initialize the coordinator."""
@@ -59,11 +59,21 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=DOMAIN,
             update_interval=SCAN_INTERVAL_NORMAL,
         )
-        self.api = api
-        self.protect_api = protect_api
+        self.network_client = network_client
+        self.protect_client = protect_client
         self.config_entry = entry
         self._available = True
-        self.data = {
+        # Track previous device IDs for stale device cleanup (Gold requirement)
+        self._previous_network_device_ids: set[str] = set()
+        self._previous_protect_device_ids: dict[str, set[str]] = {
+            "cameras": set(),
+            "lights": set(),
+            "sensors": set(),
+            "nvrs": set(),
+            "viewers": set(),
+            "chimes": set(),
+        }
+        self.data: dict[str, Any] = {
             "sites": {},
             "devices": {},
             "clients": {},
@@ -85,13 +95,24 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
         # Register WebSocket callbacks if Protect API is available
-        if self.protect_api:
-            self.protect_api.register_device_update_callback(self._handle_device_update)
-            self.protect_api.register_event_update_callback(self._handle_event_update)
+        if self.protect_client:
+            try:
+                if hasattr(self.protect_client, "register_device_update_callback"):
+                    self.protect_client.register_device_update_callback(
+                        self._handle_device_update
+                    )
+                if hasattr(self.protect_client, "register_event_update_callback"):
+                    self.protect_client.register_event_update_callback(
+                        self._handle_event_update
+                    )
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("WebSocket callbacks not supported: %s", err)
 
     def get_site(self, site_id: str) -> dict[str, Any] | None:
         """Get site data by site ID."""
-        return self.data.get("sites", {}).get(site_id)
+        sites = self.data.get("sites", {})
+        result = sites.get(site_id)
+        return result if isinstance(result, dict) else None
 
     def _handle_device_update(
         self, model_key: str, device_data: dict[str, Any]
@@ -208,56 +229,114 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def get_device(self, site_id: str, device_id: str) -> dict[str, Any] | None:
         """Get device data by site ID and device ID."""
-        return self.data.get("devices", {}).get(site_id, {}).get(device_id)
+        devices = self.data.get("devices", {}).get(site_id, {})
+        result = devices.get(device_id)
+        return result if isinstance(result, dict) else None
 
     def get_device_stats(self, site_id: str, device_id: str) -> dict[str, Any] | None:
         """Get device statistics by site ID and device ID."""
-        return self.data.get("stats", {}).get(site_id, {}).get(device_id)
+        stats = self.data.get("stats", {}).get(site_id, {})
+        result = stats.get(device_id)
+        return result if isinstance(result, dict) else None
+
+    def _model_to_dict(self, model: Any) -> dict[str, Any]:
+        """
+        Convert a model object to a dictionary.
+
+        Handles both pydantic models (with model_dump) and objects with __dict__.
+        Uses by_alias=True to get camelCase field names that match the
+        original API format.
+        """
+        if model is None:
+            return {}
+        if isinstance(model, dict):
+            return model
+        if hasattr(model, "model_dump"):
+            # Use by_alias=True to get camelCase field names matching the API response
+            # This ensures compatibility with entity code expecting camelCase keys
+            try:
+                result = model.model_dump(by_alias=True, exclude_none=False)
+                return result if isinstance(result, dict) else {}
+            except TypeError:
+                # Fall back to regular model_dump if by_alias not supported
+                result = model.model_dump()
+                return result if isinstance(result, dict) else {}
+        if hasattr(model, "__dict__"):
+            return {k: v for k, v in model.__dict__.items() if not k.startswith("_")}
+        return {}
 
     async def _process_device(
-        self, site_id: str, device: dict[str, Any], clients: list[dict[str, Any]]
+        self, site_id: str, device_dict: dict[str, Any], clients: list[dict[str, Any]]
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """Process a single device and its stats."""
-        device_id = device["id"]
-        device_name = device.get("name", device_id)
+        device_id = device_dict.get("id")
+        device_name = device_dict.get("name", device_id)
 
         try:
-            # Get device info and stats in parallel
-            info_task = self.api.async_get_device_info(site_id, device_id)
-            stats_task = self.api.async_get_device_stats(site_id, device_id)
-            device_info, stats = await asyncio.gather(info_task, stats_task)
+            # Get device statistics
+            stats_model = await self.network_client.devices.get_statistics(
+                site_id, device_id=device_id
+            )
+            stats = self._model_to_dict(stats_model) if stats_model else {}
 
-            # Update device info
-            device.update(device_info)
-
-            # Add client data and device info to stats
-            if stats is not None:
+            # Add client data to stats
+            if stats:
                 stats["clients"] = [
-                    c for c in clients if c.get("uplinkDeviceId") == device_id
+                    c for c in clients if c.get("uplink_device_id") == device_id
                 ]
                 stats["id"] = device_id
-            else:
-                stats = {}
 
-            return device_id, device, stats
+            return device_id, device_dict, stats  # noqa: TRY300
 
-        except Exception as err:
-            _LOGGER.exception(
-                "Error processing device %s (%s): %s", device_name, device_id, err
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "Error getting stats for device %s (%s): %s",
+                device_name,
+                device_id,
+                err,
             )
-            return device_id, device, {}
+            return device_id, device_dict, {}
 
     async def _process_site(
         self, site_id: str
-    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]] | None:
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
         """Process a single site's devices and clients."""
         try:
-            # Get devices and clients in parallel
-            devices_task = self.api.async_get_devices(site_id)
-            clients_task = self.api.async_get_clients(site_id)
-            devices, clients = await asyncio.gather(devices_task, clients_task)
+            # Get devices and clients in parallel using new API
+            devices_task = self.network_client.devices.get_all(site_id)
+            clients_task = self.network_client.clients.get_all(site_id)
+            devices_models, clients_models = await asyncio.gather(
+                devices_task, clients_task
+            )
 
-            # Process devices in parallel
+            # Convert model objects to dictionaries
+            devices = [self._model_to_dict(d) for d in devices_models]
+            clients = [self._model_to_dict(c) for c in clients_models]
+
+            _LOGGER.debug(
+                "Site %s: Found %d devices and %d clients",
+                site_id,
+                len(devices),
+                len(clients),
+            )
+
+            # Log sample device keys for debugging data format issues
+            if devices:
+                sample_device = devices[0]
+                _LOGGER.debug(
+                    "Sample device keys for site %s: %s",
+                    site_id,
+                    list(sample_device.keys()),
+                )
+                _LOGGER.debug(
+                    "Sample device data: id=%s, name=%s, model=%s, state/status=%s",
+                    sample_device.get("id"),
+                    sample_device.get("name"),
+                    sample_device.get("model"),
+                    sample_device.get("state") or sample_device.get("status"),
+                )
+
+            # Process devices in parallel (get stats)
             tasks = [
                 self._process_device(site_id, device, clients) for device in devices
             ]
@@ -267,23 +346,29 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             devices_dict = {}
             stats_dict = {}
             for device_id, device, stats in results:
-                devices_dict[device_id] = device
-                stats_dict[device_id] = stats
+                if device_id:
+                    devices_dict[device_id] = device
+                    stats_dict[device_id] = stats
 
-            clients_dict = {client["id"]: client for client in clients}
+            clients_dict = {
+                client.get("id"): client for client in clients if client.get("id")
+            }
 
-            return devices_dict, stats_dict, clients_dict
+            return devices_dict, stats_dict, clients_dict  # noqa: TRY300
 
-        except Exception as err:
-            _LOGGER.error("Error processing site %s: %s", site_id, err, exc_info=True)
+        except Exception:
+            _LOGGER.exception("Error processing site %s", site_id)
             return None
 
-    async def _async_update_data(self) -> dict[str, Any]:
+    async def _async_update_data(self) -> dict[str, Any]:  # noqa: C901, PLR0912, PLR0915
         """Fetch data from API."""
         try:
-            # Get all sites first
-            sites = await self.api.async_get_sites()
-            self.data["sites"] = {site["id"]: site for site in sites}
+            # Get all sites first using new API
+            sites_models = await self.network_client.sites.get_all()
+            sites = [self._model_to_dict(s) for s in sites_models]
+            self.data["sites"] = {
+                site.get("id"): site for site in sites if site.get("id")
+            }
 
             # Process all sites in parallel
             tasks = [self._process_site(site_id) for site_id in self.data["sites"]]
@@ -305,22 +390,25 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
 
             # Fetch Unifi Protect data if API is available
-            if self.protect_api:
+            if self.protect_client:
                 try:
                     _LOGGER.debug("Fetching Unifi Protect data")
 
-                    # Fetch cameras
+                    # Fetch cameras using new API
                     _LOGGER.debug("Fetching Unifi Protect cameras")
-                    cameras = await self.protect_api.async_get_cameras()
-                    for camera in cameras:
+                    cameras_models = await self.protect_client.cameras.get_all()
+                    for camera_model in cameras_models:
+                        camera = self._model_to_dict(camera_model)
                         camera_id = camera.get("id")
                         if camera_id:
-                            # Extract smartDetectTypes from featureFlags for easier access
-                            # (per API documentation, smartDetectTypes is nested in featureFlags)
-                            feature_flags = camera.get("featureFlags", {})
-                            camera["smartDetectTypes"] = feature_flags.get(
-                                "smartDetectTypes", []
-                            )
+                            # Extract smartDetectTypes from featureFlags
+                            feature_flags = camera.get("feature_flags", {})
+                            if isinstance(feature_flags, dict):
+                                camera["smartDetectTypes"] = feature_flags.get(
+                                    "smart_detect_types", []
+                                )
+                            else:
+                                camera["smartDetectTypes"] = []
 
                             # Initialize last detection fields
                             camera["lastSmartDetectTypes"] = []
@@ -332,91 +420,102 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             _LOGGER.debug(
                                 "Camera %s supports smart detection types: %s",
                                 camera.get("name", camera_id),
-                                camera["smartDetectTypes"],
+                                camera.get("smartDetectTypes", []),
                             )
 
-                    # Fetch lights
+                    # Fetch lights using new API
                     _LOGGER.debug("Fetching Unifi Protect lights")
-                    lights = await self.protect_api.async_get_lights()
-                    for light in lights:
+                    lights_models = await self.protect_client.lights.get_all()
+                    for light_model in lights_models:
+                        light = self._model_to_dict(light_model)
                         light_id = light.get("id")
                         if light_id:
                             self.data["protect"]["lights"][light_id] = light
 
-                    # Fetch sensors
+                    # Fetch sensors using new API
                     _LOGGER.debug("Fetching Unifi Protect sensors")
                     try:
-                        sensors = await self.protect_api.async_get_sensors()
-                        for sensor in sensors:
+                        sensors_models = await self.protect_client.sensors.get_all()
+                        for sensor_model in sensors_models:
+                            sensor = self._model_to_dict(sensor_model)
                             sensor_id = sensor.get("id")
                             if sensor_id:
                                 self.data["protect"]["sensors"][sensor_id] = sensor
-                        _LOGGER.debug("Successfully fetched %d sensors", len(sensors))
-                    except Exception as err:
+                        _LOGGER.debug(
+                            "Successfully fetched %d sensors", len(sensors_models)
+                        )
+                    except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Error fetching sensors: %s", err)
 
-                    # Fetch NVRs
-                    _LOGGER.debug("Fetching Unifi Protect NVRs")
+                    # Fetch NVR using new API
+                    _LOGGER.debug("Fetching Unifi Protect NVR")
                     try:
-                        nvr = await self.protect_api.async_get_nvrs()
-                        # The API returns a single NVR object (dict), not a list
-                        if isinstance(nvr, dict):
+                        nvr_model = await self.protect_client.nvr.get()
+                        nvr = self._model_to_dict(nvr_model)
+                        if nvr:
                             nvr_id = nvr.get("id")
                             if nvr_id:
                                 self.data["protect"]["nvrs"][nvr_id] = nvr
                                 _LOGGER.debug("Successfully fetched NVR: %s", nvr_id)
-                        else:
-                            _LOGGER.debug(
-                                "Unexpected NVR API response type: %s", type(nvr)
-                            )
-                    except Exception as err:
-                        _LOGGER.debug("Error fetching NVRs: %s", err)
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.debug("Error fetching NVR: %s", err)
 
-                    # Fetch chimes
+                    # Fetch chimes using new API
                     _LOGGER.debug("Fetching Unifi Protect chimes")
                     try:
-                        chimes = await self.protect_api.async_get_chimes()
-                        for chime in chimes:
+                        chimes_models = await self.protect_client.chimes.get_all()
+                        for chime_model in chimes_models:
+                            chime = self._model_to_dict(chime_model)
                             chime_id = chime.get("id")
                             if chime_id:
                                 self.data["protect"]["chimes"][chime_id] = chime
-                        _LOGGER.debug("Successfully fetched %d chimes", len(chimes))
-                    except Exception as err:
+                        _LOGGER.debug(
+                            "Successfully fetched %d chimes", len(chimes_models)
+                        )
+                    except Exception as err:  # noqa: BLE001
                         _LOGGER.warning("Error fetching chimes: %s", err)
 
-                    # Fetch viewers
+                    # Fetch viewers using new API (if available)
                     _LOGGER.debug("Fetching Unifi Protect viewers")
                     try:
-                        viewers = await self.protect_api.async_get_viewers()
-                        for viewer in viewers:
-                            viewer_id = viewer.get("id")
-                            if viewer_id:
-                                self.data["protect"]["viewers"][viewer_id] = viewer
-                        _LOGGER.debug("Successfully fetched %d viewers", len(viewers))
-                    except Exception as err:
-                        _LOGGER.warning("Error fetching viewers: %s", err)
+                        if hasattr(self.protect_client, "viewers"):
+                            viewers_models = await self.protect_client.viewers.get_all()
+                            for viewer_model in viewers_models:
+                                viewer = self._model_to_dict(viewer_model)
+                                viewer_id = viewer.get("id")
+                                if viewer_id:
+                                    self.data["protect"]["viewers"][viewer_id] = viewer
+                            _LOGGER.debug(
+                                "Successfully fetched %d viewers", len(viewers_models)
+                            )
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.debug("Error fetching viewers: %s", err)
 
-                    # Fetch liveviews
+                    # Fetch liveviews using new API (if available)
                     _LOGGER.debug("Fetching Unifi Protect liveviews")
                     try:
-                        liveviews = await self.protect_api.async_get_liveviews()
-                        for liveview in liveviews:
-                            liveview_id = liveview.get("id")
-                            if liveview_id:
-                                self.data["protect"]["liveviews"][liveview_id] = (
-                                    liveview
-                                )
-                        _LOGGER.debug(
-                            "Successfully fetched %d liveviews", len(liveviews)
-                        )
-                    except Exception as err:
-                        _LOGGER.warning("Error fetching liveviews: %s", err)
-
-                    # Start WebSocket connections if not already started
-                    await self.protect_api.async_start_websocket()
+                        if hasattr(self.protect_client, "liveviews"):
+                            liveviews_models = (
+                                await self.protect_client.liveviews.get_all()
+                            )
+                            for liveview_model in liveviews_models:
+                                liveview = self._model_to_dict(liveview_model)
+                                liveview_id = liveview.get("id")
+                                if liveview_id:
+                                    self.data["protect"]["liveviews"][liveview_id] = (
+                                        liveview
+                                    )
+                            _LOGGER.debug(
+                                "Successfully fetched %d liveviews",
+                                len(liveviews_models),
+                            )
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.debug("Error fetching liveviews: %s", err)
 
                     _LOGGER.debug(
-                        "Successfully fetched Unifi Protect data: %d cameras, %d lights, %d sensors, %d NVRs, %d chimes, %d viewers, %d liveviews",
+                        "Successfully fetched Unifi Protect data: "
+                        "%d cameras, %d lights, %d sensors, %d NVRs, "
+                        "%d chimes, %d viewers, %d liveviews",
                         len(self.data["protect"]["cameras"]),
                         len(self.data["protect"]["lights"]),
                         len(self.data["protect"]["sensors"]),
@@ -426,23 +525,38 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         len(self.data["protect"]["liveviews"]),
                     )
 
-                except Exception as err:
-                    _LOGGER.exception("Error fetching Unifi Protect data: %s", err)
+                except Exception:
+                    _LOGGER.exception("Error fetching Unifi Protect data")
 
             self._available = True
-            self.data["last_update"] = datetime.now()
-            return self.data
+            self.data["last_update"] = datetime.now(tz=UTC)
 
-        except UnifiInsightsAuthError as err:
+            # Clean up stale devices (Gold requirement)
+            self._cleanup_stale_devices()
+
+            return self.data  # noqa: TRY300
+
+        except UniFiAuthenticationError as err:
             self._available = False
-            raise ConfigEntryAuthFailed from err
-        except UnifiInsightsConnectionError as err:
+            msg = f"Authentication failed: {err}"
+            raise ConfigEntryAuthFailed(msg) from err
+        except UniFiConnectionError as err:
             self._available = False
             msg = f"Error communicating with API: {err}"
             raise UpdateFailed(msg) from err
+        except UniFiTimeoutError as err:
+            self._available = False
+            _LOGGER.warning("Timeout during update: %s", err)
+            msg = f"Timeout: {err}"
+            raise UpdateFailed(msg) from err
+        except UniFiResponseError as err:
+            self._available = False
+            _LOGGER.exception("API error during update")
+            msg = f"API error: {err}"
+            raise UpdateFailed(msg) from err
         except Exception as err:
             self._available = False
-            _LOGGER.error("Unexpected error updating data: %s", err, exc_info=True)
+            _LOGGER.exception("Unexpected error updating data")
             msg = f"Error updating data: {err}"
             raise UpdateFailed(msg) from err
 
@@ -450,3 +564,72 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def available(self) -> bool:
         """Return coordinator availability."""
         return self._available
+
+    def _cleanup_stale_devices(self) -> None:
+        """Remove stale devices from the device registry (Gold requirement)."""
+        device_registry = dr.async_get(self.hass)
+
+        # Collect current network device IDs
+        current_network_device_ids: set[str] = set()
+        for site_id, devices in self.data.get("devices", {}).items():
+            for device_id in devices:
+                current_network_device_ids.add(f"{site_id}_{device_id}")
+
+        # Find and remove stale network devices
+        stale_network_ids = (
+            self._previous_network_device_ids - current_network_device_ids
+        )
+        for device_identifier in stale_network_ids:
+            device = device_registry.async_get_device(
+                identifiers={(DOMAIN, device_identifier)}
+            )
+            if device:
+                _LOGGER.info(
+                    "Removing stale network device from registry: %s",
+                    device_identifier,
+                )
+                device_registry.async_update_device(
+                    device_id=device.id,
+                    remove_config_entry_id=self.config_entry.entry_id,
+                )
+
+        self._previous_network_device_ids = current_network_device_ids
+
+        # Collect current Protect device IDs and cleanup stale ones
+        if self.protect_client:
+            for device_type in [
+                "cameras",
+                "lights",
+                "sensors",
+                "nvrs",
+                "viewers",
+                "chimes",
+            ]:
+                current_ids: set[str] = set(
+                    self.data.get("protect", {}).get(device_type, {}).keys()
+                )
+                previous_ids = self._previous_protect_device_ids.get(device_type, set())
+
+                stale_ids = previous_ids - current_ids
+                for device_id in stale_ids:
+                    # Try both identifier patterns (with and without "protect_" prefix)
+                    for identifier in [
+                        f"protect_{device_type[:-1]}_{device_id}",  # protect_camera_xyz
+                        device_id,  # Just the device ID
+                    ]:
+                        device = device_registry.async_get_device(
+                            identifiers={(DOMAIN, identifier)}
+                        )
+                        if device:
+                            _LOGGER.info(
+                                "Removing stale %s device from registry: %s",
+                                device_type,
+                                device_id,
+                            )
+                            device_registry.async_update_device(
+                                device_id=device.id,
+                                remove_config_entry_id=self.config_entry.entry_id,
+                            )
+                            break
+
+                self._previous_protect_device_ids[device_type] = current_ids

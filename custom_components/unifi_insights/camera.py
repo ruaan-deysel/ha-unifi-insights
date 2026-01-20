@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.components.camera import Camera
+from homeassistant.components.camera import Camera, CameraEntityFeature
 
 from .const import (
     ATTR_CAMERA_ID,
@@ -16,30 +16,33 @@ from .const import (
     ATTR_PARENT_CAMERA_ID,
     CAMERA_STATE_CONNECTED,
     DEVICE_TYPE_CAMERA,
-    DOMAIN,
 )
 from .entity import UnifiProtectEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from . import UnifiInsightsConfigEntry
     from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Camera streaming/snapshots can be parallel
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up cameras for UniFi Protect integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
+    _ = hass  # hass is unused but kept for HA signature
 
     # Skip if Protect API is not available
-    if not coordinator.protect_api:
+    if not coordinator.protect_client:
         _LOGGER.debug("Skipping camera setup - Protect API not available")
         return
 
@@ -59,7 +62,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiProtectCamera(UnifiProtectEntity, Camera):
+class UnifiProtectCamera(UnifiProtectEntity, Camera):  # type: ignore[misc]
     """Representation of a UniFi Protect Camera."""
 
     _attr_has_entity_name = True
@@ -74,9 +77,9 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
         super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id)
         Camera.__init__(self)
 
-        # Set up camera features - only enable STREAM if we can get stream source
-        # We'll check this dynamically in the supported_features property
-        self._attr_supported_features = 0
+        # Set up camera features - use CameraEntityFeature flags for proper type
+        # STREAM enables streaming support for the camera
+        self._attr_supported_features = CameraEntityFeature.STREAM
 
         # Set entity category
         self._attr_entity_category = None
@@ -109,40 +112,17 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
         """Return a still image from the camera."""
         _LOGGER.debug("Getting camera image for %s", self._device_id)
 
-        # First try with standard quality
         try:
-            return await self.coordinator.protect_api.async_get_camera_snapshot(
-                camera_id=self._device_id,
-                high_quality=False,
+            # Use the correct library API: cameras.get_snapshot()
+            # The library supports width and height parameters
+            snapshot = await self.coordinator.protect_client.cameras.get_snapshot(
+                self._device_id,
+                width=width or 1920,
+                height=height or 1080,
             )
-        except Exception as err:
-            # If standard quality fails, log the error but don't return yet
-            _LOGGER.debug("Error getting standard quality camera image: %s", err)
-
-            # Check if the camera supports high quality snapshots
-            camera_data = self.coordinator.data["protect"]["cameras"].get(
-                self._device_id, {}
-            )
-            feature_flags = camera_data.get("featureFlags", {})
-            supports_full_hd = feature_flags.get("supportFullHdSnapshot", False)
-
-            if supports_full_hd:
-                # Try with high quality if supported
-                try:
-                    return await self.coordinator.protect_api.async_get_camera_snapshot(
-                        camera_id=self._device_id,
-                        high_quality=True,
-                    )
-                except Exception as high_err:
-                    _LOGGER.exception(
-                        "Error getting high quality camera image: %s", high_err
-                    )
-            else:
-                _LOGGER.debug(
-                    "Camera %s does not support full HD snapshots", self._device_id
-                )
-
-            # If we get here, both attempts failed or high quality is not supported
+            return snapshot if isinstance(snapshot, bytes) else None
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Error getting camera snapshot", exc_info=True)
             return None
 
     async def async_stream_source(self) -> str | None:
@@ -150,16 +130,13 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):
         _LOGGER.debug("Getting stream source for %s", self._device_id)
 
         try:
-            # Get RTSPS stream URL
-            stream_data = (
-                await self.coordinator.protect_api.async_get_camera_rtsps_stream(
-                    camera_id=self._device_id,
-                    qualities=["high"],
-                )
+            # Use the correct library API: cameras.create_rtsps_stream()
+            # Returns a stream object with url attribute
+            stream = await self.coordinator.protect_client.cameras.create_rtsps_stream(
+                self._device_id
             )
-
-            # Return high quality stream URL
-            return stream_data.get("high")
-        except Exception as err:
-            _LOGGER.exception("Error getting stream source: %s", err)
-            return None
+            if stream and hasattr(stream, "url") and isinstance(stream.url, str):
+                return stream.url
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Error getting stream source", exc_info=True)
+        return None

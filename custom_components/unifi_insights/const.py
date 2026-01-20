@@ -7,6 +7,12 @@ DOMAIN = "unifi_insights"
 
 MANUFACTURER: Final = "Ubiquiti Inc."
 
+# Connection types
+CONF_CONNECTION_TYPE: Final = "connection_type"
+CONF_CONSOLE_ID: Final = "console_id"
+CONNECTION_TYPE_LOCAL: Final = "local"
+CONNECTION_TYPE_REMOTE: Final = "remote"
+
 DEFAULT_API_HOST = "https://192.168.10.1"
 SCAN_INTERVAL_NORMAL = timedelta(seconds=30)
 

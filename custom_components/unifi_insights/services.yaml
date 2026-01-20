@@ -1,3 +1,4 @@
+---
 # Service definitions for UniFi Insights
 
 # Core services
@@ -7,7 +8,8 @@ refresh_data:
   fields:
     site_id:
       name: Site ID
-      description: Optional site ID to refresh. If not specified, refreshes all sites.
+      description: >-
+        Optional site ID to refresh. If not specified, refreshes all sites.
       required: false
       selector:
         text:
@@ -72,7 +74,8 @@ play_chime_ringtone:
         text:
     ringtone_id:
       name: Ringtone ID
-      description: Optional ringtone ID to play (uses current setting if not specified)
+      description: >-
+        Optional ringtone ID to play (uses current setting if not specified)
       required: false
       example: "default"
       selector:
@@ -114,7 +117,8 @@ set_chime_ringtone:
             - "custom2"
     camera_id:
       name: Camera ID
-      description: Optional camera ID to set ringtone for specific camera
+      description: >-
+        Optional camera ID to set ringtone for specific camera
       required: false
       example: "60e9c8c0e3e4b8001a123456"
       selector:
@@ -143,7 +147,8 @@ set_chime_repeat_times:
           step: 1
     camera_id:
       name: Camera ID
-      description: Optional camera ID to set repeat times for specific camera
+      description: >-
+        Optional camera ID to set repeat times for specific camera
       required: false
       example: "60e9c8c0e3e4b8001a123456"
       selector:

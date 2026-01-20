@@ -1,90 +1,10 @@
-
-# Python cache files
+# ============================================================================
+# Python
+# ============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
-.DS_Store
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
-# Virtual environment
-.env
-.venv
-venv/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-coverage.xml
-*.cover
-.pytest_cache/
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Logs
-*.log
-
-# macOS specific files
-.DS_Store
-
-# Python cache files
-__pycache__/
-*.py[cod]
-
-# Custom components cache and specific files
-custom_components/.DS_Store
-custom_components/*/__pycache__/
-custom_components/*/*.py[cod]
-
-# Virtual environment
-venv/
-ENV/
-env/
-env.bak/
-*.env
-
-# VS Code settings
-.vscode/
-
-# IDE files
-.idea/
-
-# Test coverage reports
-.coverage
-coverage/
-.coverage.*
-
-# Cache directories
-.cache/
-
-# Logs
-*.log
-
-# Unit test / Coverage reports
-htmlcov/
-.tox/
-.nox/
-.cache/
-coverage.xml
-nosetests.xml
-test-results.xml
-
-# Distribution / packaging
+*.so
 .Python
 build/
 develop-eggs/
@@ -101,34 +21,98 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
 
-# Sphinx documentation
-docs/_build/
-target/
+# ============================================================================
+# Virtual Environments
+# ============================================================================
+.venv
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# ============================================================================
+# IDE & Editor
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# Local environment variables
+# ============================================================================
+# Testing & Coverage
+# ============================================================================
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage/
+htmlcov/
+.pytest_cache/
+.pytest*
+nosetests.xml
+test-results.xml
+junit.xml
+*.cover
+
+# ============================================================================
+# Type Checking
+# ============================================================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache
+
+# ============================================================================
+# Logging
+# ============================================================================
+*.log
+*.log.*
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
 .env
 .env.local
 .env.*.local
 
-# artifacts
-__pycache__
-.pytest*
-*.egg-info
-*/build/*
-*/dist/*
-
-
-# misc
-.coverage
-.vscode
-coverage.xml
-.ruff_cache
-
-
-# Home Assistant configuration
+# ============================================================================
+# Home Assistant Configuration
+# ============================================================================
 config/*
 !config/configuration.yaml
+config/blueprints/
+config/deps/
+config/tts/
+config/home-assistant.log*
+
+# ============================================================================
+# Build & Distribution
+# ============================================================================
+dist/
+build/
+*.egg
+target/
+
+# ============================================================================
+# Jupyter Notebooks
+# ============================================================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ============================================================================
+# Documentation
+# ============================================================================
+docs/_build/
+site/

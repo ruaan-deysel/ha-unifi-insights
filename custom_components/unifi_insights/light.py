@@ -1,4 +1,5 @@
 """Support for UniFi Protect lights."""
+
 from __future__ import annotations
 
 import logging
@@ -20,32 +21,35 @@ from .const import (
     ATTR_LIGHT_NAME,
     ATTR_LIGHT_STATE,
     DEVICE_TYPE_LIGHT,
-    DOMAIN,
     LIGHT_MODE_ALWAYS,
     LIGHT_MODE_OFF,
 )
 from .entity import UnifiProtectEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from . import UnifiInsightsConfigEntry
     from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Lights are action-based, allow parallel execution
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up lights for UniFi Protect integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    _ = hass
+    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
 
     # Skip if Protect API is not available
-    if not coordinator.protect_api:
+    if not coordinator.protect_client:
         _LOGGER.debug("Skipping light setup - Protect API not available")
         return
 
@@ -65,7 +69,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiProtectLight(UnifiProtectEntity, LightEntity):
+class UnifiProtectLight(UnifiProtectEntity, LightEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Light."""
 
     _attr_has_entity_name = True
@@ -125,13 +129,13 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
             brightness = kwargs[ATTR_BRIGHTNESS]
             level = int(brightness * 100 / 255)
             _LOGGER.debug("Setting light %s brightness to %s", self._device_id, level)
-            await self.coordinator.protect_api.async_set_light_level(
+            await self.coordinator.protect_client.set_light_brightness(
                 light_id=self._device_id,
                 level=level,
             )
 
         # Set light mode to always on
-        await self.coordinator.protect_api.async_set_light_mode(
+        await self.coordinator.protect_client.set_light_mode(
             light_id=self._device_id,
             mode=LIGHT_MODE_ALWAYS,
         )
@@ -143,9 +147,10 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the light off."""
         _LOGGER.debug("Turning off light %s", self._device_id)
+        _ = kwargs
 
         # Set light mode to off
-        await self.coordinator.protect_api.async_set_light_mode(
+        await self.coordinator.protect_client.set_light_mode(
             light_id=self._device_id,
             mode=LIGHT_MODE_OFF,
         )

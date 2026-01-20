@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_serena_serena__read_file",
+      "mcp__plugin_serena_serena__list_dir",
+      "mcp__plugin_serena_serena__activate_project",
+      "mcp__plugin_serena_serena__find_file",
+      "mcp__plugin_serena_serena__replace_content",
+      "mcp__plugin_serena_serena__search_for_pattern",
+      "Bash(git fetch:*)",
+      "Bash(.specify/scripts/bash/create-new-feature.sh:*)",
+      "mcp__plugin_serena_serena__get_symbols_overview",
+      "Bash(.specify/scripts/bash/check-prerequisites.sh:*)",
+      "Bash(.specify/scripts/bash/setup-plan.sh:*)",
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(.specify/scripts/bash/update-agent-context.sh:*)",
+      "mcp__plugin_serena_serena__think_about_collected_information",
+      "Bash(git rev-parse:*)",
+      "Bash(pip install:*)",
+      "Bash(python3 -m pip install:*)",
+      "Bash(if [ -d \"venv\" ])",
+      "Bash(then echo \"Virtual environment exists\")",
+      "Bash(else python3 -m venv venv)",
+      "Bash(fi)",
+      "Bash(source:*)",
+      "Bash(python test_library_api.py:*)",
+      "Bash(python -c:*)"
+    ]
+  }
+}

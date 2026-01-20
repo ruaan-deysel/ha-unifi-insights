@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -31,30 +30,34 @@ from .const import (
     ATTR_SENSOR_NAME,
     ATTR_SENSOR_TEMPERATURE_VALUE,
     DEVICE_TYPE_SENSOR,
-    DOMAIN,
 )
-from .entity import UnifiInsightsEntity, UnifiProtectEntity
+from .entity import UnifiInsightsEntity, UnifiProtectEntity, get_field
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
+    from collections.abc import Callable
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.typing import StateType
 
+    from . import UnifiInsightsConfigEntry
     from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Coordinator handles updates centrally (Gold/Platinum requirement)
+PARALLEL_UPDATES = 0
+
 
 @dataclass
-class UnifiInsightsSensorEntityDescription(SensorEntityDescription):
+class UnifiInsightsSensorEntityDescription(SensorEntityDescription):  # type: ignore[misc]
     """Class describing UniFi Insights sensor entities."""
 
     value_fn: Callable[[dict[str, Any]], StateType] | None = None
 
 
 @dataclass
-class UnifiProtectSensorEntityDescription(SensorEntityDescription):
+class UnifiProtectSensorEntityDescription(SensorEntityDescription):  # type: ignore[misc]
     """Class describing UniFi Protect sensor entities."""
 
     value_fn: Callable[[dict[str, Any]], StateType] | None = None
@@ -80,6 +83,11 @@ def format_uptime(seconds: int | None) -> str | None:
     parts.append(f"{minutes}m")
 
     return " ".join(parts)
+
+
+def get_stats_field(stats: dict, *keys: str, default: Any = None) -> Any:
+    """Get a field from stats handling both camelCase and snake_case."""
+    return get_field(stats, *keys, default=default)
 
 
 def bytes_to_megabits(bytes_per_sec: float | None) -> float | None:
@@ -151,7 +159,9 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.POWER_FACTOR,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:cpu-64-bit",
-        value_fn=lambda stats: stats.get("cpuUtilizationPct"),
+        value_fn=lambda stats: get_stats_field(
+            stats, "cpuUtilizationPct", "cpu_utilization_pct", "cpu_percent", "cpu"
+        ),
     ),
     UnifiInsightsSensorEntityDescription(
         key="memory_usage",
@@ -161,16 +171,29 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.POWER_FACTOR,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:memory",
-        value_fn=lambda stats: stats.get("memoryUtilizationPct"),
+        value_fn=lambda stats: get_stats_field(
+            stats,
+            "memoryUtilizationPct",
+            "memory_utilization_pct",
+            "memory_percent",
+            "memory",
+        ),
     ),
     UnifiInsightsSensorEntityDescription(
         key="uptime",
         translation_key="uptime",
         name="Uptime",
         device_class=None,
-        entity_category=EntityCategory.DIAGNOSTIC,  # Diagnostic - uptime is informational/troubleshooting data
+        # Diagnostic - uptime is informational/troubleshooting data
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # Gold: Disable diagnostic entities by default
+        entity_registry_enabled_default=False,
         icon="mdi:clock-start",
-        value_fn=lambda stats: format_uptime(stats.get("uptimeSec")),
+        value_fn=lambda stats: format_uptime(
+            get_stats_field(
+                stats, "uptimeSec", "uptime_sec", "uptime_seconds", "uptime"
+            )
+        ),
     ),
     UnifiInsightsSensorEntityDescription(
         key="tx_rate",
@@ -181,7 +204,13 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:upload-network",
         value_fn=lambda stats: bytes_to_megabits(
-            stats.get("uplink", {}).get("txRateBps")
+            get_stats_field(stats, "uplink", "uplink_stats", default={}).get(
+                "txRateBps"
+            )
+            or get_stats_field(stats, "uplink", "uplink_stats", default={}).get(
+                "tx_rate_bps"
+            )
+            or get_stats_field(stats, "txRateBps", "tx_rate_bps", "tx_bytes_per_sec")
         ),
     ),
     UnifiInsightsSensorEntityDescription(
@@ -193,7 +222,13 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:download-network",
         value_fn=lambda stats: bytes_to_megabits(
-            stats.get("uplink", {}).get("rxRateBps")
+            get_stats_field(stats, "uplink", "uplink_stats", default={}).get(
+                "rxRateBps"
+            )
+            or get_stats_field(stats, "uplink", "uplink_stats", default={}).get(
+                "rx_rate_bps"
+            )
+            or get_stats_field(stats, "rxRateBps", "rx_rate_bps", "rx_bytes_per_sec")
         ),
     ),
     UnifiInsightsSensorEntityDescription(
@@ -201,8 +236,12 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         translation_key="firmware_version",
         name="Firmware Version",
         entity_category=EntityCategory.DIAGNOSTIC,
+        # Gold: Disable diagnostic entities by default
+        entity_registry_enabled_default=False,
         icon="mdi:text-box-check",
-        value_fn=lambda device: device.get("firmwareVersion"),
+        value_fn=lambda device: get_field(
+            device, "firmwareVersion", "firmware_version", "version"
+        ),
     ),
     UnifiInsightsSensorEntityDescription(
         key="wired_clients",
@@ -214,8 +253,9 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
             [
                 c
                 for c in stats.get("clients", [])
-                if c.get("type") == "WIRED"
-                and c.get("uplinkDeviceId") == stats.get("id")
+                if (c.get("type") or c.get("connection_type", "")).upper() == "WIRED"
+                and (c.get("uplinkDeviceId") or c.get("uplink_device_id"))
+                == stats.get("id")
             ]
         ),
     ),
@@ -229,8 +269,9 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
             [
                 c
                 for c in stats.get("clients", [])
-                if c.get("type") == "WIRELESS"
-                and c.get("uplinkDeviceId") == stats.get("id")
+                if (c.get("type") or c.get("connection_type", "")).upper() == "WIRELESS"
+                and (c.get("uplinkDeviceId") or c.get("uplink_device_id"))
+                == stats.get("id")
             ]
         ),
     ),
@@ -249,7 +290,8 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:flash",
-        value_fn=lambda port: port.get("poe", {}).get("power"),
+        value_fn=lambda port: get_field(port, "poe", default={}).get("power")
+        or get_field(port, "poe", default={}).get("watts"),
     ),
     # Port Speed
     UnifiInsightsSensorEntityDescription(
@@ -259,9 +301,14 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         native_unit_of_measurement="Mbps",
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        entity_category=EntityCategory.DIAGNOSTIC,  # Diagnostic - port speed is configuration/status, not actively monitored data
+        # Diagnostic - port speed is configuration/status, not monitored data
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # Gold: Disable diagnostic entities by default
+        entity_registry_enabled_default=False,
         icon="mdi:speedometer",
-        value_fn=lambda port: port.get("speedMbps") if port.get("state") == "UP" else 0,
+        value_fn=lambda port: get_field(port, "speedMbps", "speed_mbps", "speed")
+        if get_field(port, "state", "status", default="").upper() == "UP"
+        else 0,
     ),
     # Port TX Bytes
     UnifiInsightsSensorEntityDescription(
@@ -273,7 +320,8 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:upload",
-        value_fn=lambda port: port.get("stats", {}).get("txBytes", 0),
+        value_fn=lambda port: get_field(port, "stats", default={}).get("txBytes")
+        or get_field(port, "stats", default={}).get("tx_bytes", 0),
     ),
     # Port RX Bytes
     UnifiInsightsSensorEntityDescription(
@@ -285,7 +333,8 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:download",
-        value_fn=lambda port: port.get("stats", {}).get("rxBytes", 0),
+        value_fn=lambda port: get_field(port, "stats", default={}).get("rxBytes")
+        or get_field(port, "stats", default={}).get("rx_bytes", 0),
     ),
 )
 
@@ -298,8 +347,10 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         name="WAN IP Address",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
+        # Gold: Disable diagnostic entities by default
+        entity_registry_enabled_default=False,
         icon="mdi:ip-network",
-        value_fn=lambda device: device.get("ipAddress"),
+        value_fn=lambda device: get_field(device, "ipAddress", "ip_address", "ip"),
     ),
     # WAN Uptime
     UnifiInsightsSensorEntityDescription(
@@ -308,23 +359,30 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         name="WAN Uptime",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
+        # Gold: Disable diagnostic entities by default
+        entity_registry_enabled_default=False,
         icon="mdi:clock-start",
-        value_fn=lambda stats: format_uptime(stats.get("uptimeSec")),
+        value_fn=lambda stats: format_uptime(
+            get_stats_field(
+                stats, "uptimeSec", "uptime_sec", "uptime_seconds", "uptime"
+            )
+        ),
     ),
 )
 
 
-async def async_setup_entry(
+async def async_setup_entry(  # noqa: PLR0912
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensors for UniFi Insights integration."""
+    _ = hass
     _LOGGER.debug("Setting up UniFi Insights sensors")
 
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator: UnifiInsightsDataUpdateCoordinator = (
+        config_entry.runtime_data.coordinator
+    )
     entities = []
 
     # Add sensors for each device in each site
@@ -350,7 +408,7 @@ async def async_setup_entry(
             )
 
             for description in SENSOR_TYPES:
-                entities.append(
+                entities.append(  # noqa: PERF401
                     UnifiInsightsSensor(
                         coordinator=coordinator,
                         description=description,
@@ -360,8 +418,14 @@ async def async_setup_entry(
                 )
 
             # Add port sensors for switches with port interfaces
-            if "ports" in device_data.get("interfaces", {}):
-                ports = device_data["interfaces"]["ports"]
+            # Handle both camelCase and snake_case for interface keys
+            interfaces = get_field(device_data, "interfaces", default={})
+            # Ensure interfaces is a dict before accessing ports
+            if isinstance(interfaces, dict):
+                ports = get_field(interfaces, "ports", default=[])
+            else:
+                ports = []
+            if ports:
                 _LOGGER.debug(
                     "Device %s has %d ports, creating port sensors",
                     device_name,
@@ -369,13 +433,13 @@ async def async_setup_entry(
                 )
 
                 for port in ports:
-                    port_idx = port.get("idx")
+                    port_idx = get_field(port, "idx", "index", "port_idx")
                     if port_idx is None:
                         continue
 
                     # Only create sensors for active ports (state = "UP")
-                    port_state = port.get("state", "DOWN")
-                    if port_state != "UP":
+                    port_state = get_field(port, "state", "status", default="DOWN")
+                    if str(port_state).upper() != "UP":
                         _LOGGER.debug(
                             "Skipping port %d on device %s - port state is %s (not UP)",
                             port_idx,
@@ -385,7 +449,8 @@ async def async_setup_entry(
                         continue
 
                     # Create PoE power sensor only for PoE-capable ports
-                    if port.get("poe", {}).get("enabled"):
+                    poe_data = get_field(port, "poe", default={})
+                    if poe_data.get("enabled"):
                         poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
                         entities.append(
                             UnifiPortSensor(
@@ -432,15 +497,17 @@ async def async_setup_entry(
                     )
 
             # Add WAN sensors for gateway devices
-            if "switching" in device_data.get("features", {}) and device_data.get(
-                "model", ""
-            ).startswith("UDM"):
+            features = get_field(device_data, "features", default={})
+            model = get_field(device_data, "model", default="")
+            if (
+                "switching" in features or "gateway" in features or "router" in features
+            ) and (model.startswith(("UDM", "USG")) or "gateway" in model.lower()):
                 _LOGGER.debug(
                     "Device %s is a gateway, creating WAN sensors", device_name
                 )
 
                 for description in WAN_SENSOR_TYPES:
-                    entities.append(
+                    entities.append(  # noqa: PERF401
                         UnifiInsightsSensor(
                             coordinator=coordinator,
                             description=description,
@@ -450,7 +517,7 @@ async def async_setup_entry(
                     )
 
     # Add UniFi Protect sensors if API is available
-    if coordinator.protect_api:
+    if coordinator.protect_client:
         # Add sensors for UniFi Protect sensors
         for sensor_id, sensor_data in coordinator.data["protect"]["sensors"].items():
             sensor_name = sensor_data.get("name", f"Sensor {sensor_id}")
@@ -463,7 +530,7 @@ async def async_setup_entry(
 
             for description in PROTECT_SENSOR_TYPES:
                 if description.device_type == DEVICE_TYPE_SENSOR:
-                    entities.append(
+                    entities.append(  # noqa: PERF401
                         UnifiProtectSensor(
                             coordinator=coordinator,
                             description=description,
@@ -475,7 +542,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):
+class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
     """Representation of a UniFi Insights Sensor."""
 
     entity_description: UnifiInsightsSensorEntityDescription
@@ -556,7 +623,7 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):
         )
 
 
-class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):
+class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
     """Representation of a UniFi Port Sensor."""
 
     entity_description: UnifiInsightsSensorEntityDescription
@@ -652,26 +719,33 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):
         return value
 
     @property
-    def available(self) -> bool:
+    def available(self) -> bool:  # noqa: PLR0911
         """Return if entity is available."""
         # Port sensors are available if the device is available AND the port is UP
         if not self.coordinator.last_update_success:
             return False
 
         # Get device data
-        device_data = (
-            self.coordinator.data.get("devices", {})
-            .get(self._site_id, {})
-            .get(self._device_id, {})
-        )
-
-        if not device_data:
+        devices = self.coordinator.data.get("devices", {})
+        if not isinstance(devices, dict):
+            return False
+        site_devices = devices.get(self._site_id, {})
+        if not isinstance(site_devices, dict):
+            return False
+        device_data = site_devices.get(self._device_id, {})
+        if not device_data or not isinstance(device_data, dict):
             return False
 
         # Find the port data
-        ports = device_data.get("interfaces", {}).get("ports", [])
+        ports = device_data.get("interfaces", {})
+        if not isinstance(ports, dict):
+            return False
+        port_list = ports.get("ports", [])
+        if not isinstance(port_list, list):
+            return False
+
         port_data = None
-        for port in ports:
+        for port in port_list:
             if port.get("idx") == self._port_idx:
                 port_data = port
                 break
@@ -681,10 +755,10 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):
 
         # Port sensor is only available if port state is UP
         port_state = port_data.get("state", "DOWN")
-        return port_state == "UP"
+        return isinstance(port_state, str) and port_state == "UP"
 
 
-class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):
+class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Sensor."""
 
     entity_description: UnifiProtectSensorEntityDescription

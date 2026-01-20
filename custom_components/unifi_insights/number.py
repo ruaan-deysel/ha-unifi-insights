@@ -1,4 +1,5 @@
 """Support for UniFi Protect number entities."""
+
 from __future__ import annotations
 
 import logging
@@ -21,30 +22,33 @@ from .const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
     DEVICE_TYPE_LIGHT,
-    DOMAIN,
 )
 from .entity import UnifiProtectEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from . import UnifiInsightsConfigEntry
     from .coordinator import UnifiInsightsDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
+# Number entities are action-based, allow parallel execution
+PARALLEL_UPDATES = 1
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up number entities for UniFi Protect integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    _ = hass
+    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
 
     # Skip if Protect API is not available
-    if not coordinator.protect_api:
+    if not coordinator.protect_client:
         _LOGGER.debug("Skipping number setup - Protect API not available")
         return
 
@@ -52,7 +56,10 @@ async def async_setup_entry(
 
     # Add camera microphone volume numbers
     for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
-        _LOGGER.debug("Adding microphone volume number for camera %s", camera_data.get("name", camera_id))
+        _LOGGER.debug(
+            "Adding microphone volume number for camera %s",
+            camera_data.get("name", camera_id),
+        )
         entities.append(
             UnifiProtectMicrophoneVolumeNumber(
                 coordinator=coordinator,
@@ -62,7 +69,10 @@ async def async_setup_entry(
 
     # Add light brightness level numbers
     for light_id, light_data in coordinator.data["protect"]["lights"].items():
-        _LOGGER.debug("Adding brightness level number for light %s", light_data.get("name", light_id))
+        _LOGGER.debug(
+            "Adding brightness level number for light %s",
+            light_data.get("name", light_id),
+        )
         entities.append(
             UnifiProtectLightLevelNumber(
                 coordinator=coordinator,
@@ -72,7 +82,9 @@ async def async_setup_entry(
 
     # Add chime volume numbers
     for chime_id, chime_data in coordinator.data["protect"]["chimes"].items():
-        _LOGGER.debug("Adding volume number for chime %s", chime_data.get("name", chime_id))
+        _LOGGER.debug(
+            "Adding volume number for chime %s", chime_data.get("name", chime_id)
+        )
         entities.append(
             UnifiProtectChimeVolumeNumber(
                 coordinator=coordinator,
@@ -81,7 +93,9 @@ async def async_setup_entry(
         )
 
         # Add repeat times number
-        _LOGGER.debug("Adding repeat times number for chime %s", chime_data.get("name", chime_id))
+        _LOGGER.debug(
+            "Adding repeat times number for chime %s", chime_data.get("name", chime_id)
+        )
         entities.append(
             UnifiProtectChimeRepeatTimesNumber(
                 coordinator=coordinator,
@@ -93,7 +107,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
+class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Camera Microphone Volume Number."""
 
     _attr_has_entity_name = True
@@ -108,7 +122,9 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
         camera_id: str,
     ) -> None:
         """Initialize the number entity."""
-        super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "microphone_volume")
+        super().__init__(
+            coordinator, DEVICE_TYPE_CAMERA, camera_id, "microphone_volume"
+        )
 
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
@@ -121,7 +137,9 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
-        camera_data = self.coordinator.data["protect"]["cameras"].get(self._device_id, {})
+        camera_data = self.coordinator.data["protect"]["cameras"].get(
+            self._device_id, {}
+        )
 
         # Set value
         self._attr_native_value = camera_data.get("micVolume", 0)
@@ -135,20 +153,22 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the microphone volume."""
-        _LOGGER.debug("Setting microphone volume to %s for camera %s", value, self._device_id)
+        _LOGGER.debug(
+            "Setting microphone volume to %s for camera %s", value, self._device_id
+        )
 
         try:
-            await self.coordinator.protect_api.async_set_camera_mic_volume(
+            await self.coordinator.protect_client.set_microphone_volume(
                 camera_id=self._device_id,
                 volume=int(value),
             )
             self._attr_native_value = value
             self.async_write_ha_state()
-        except Exception as err:
-            _LOGGER.exception("Error setting microphone volume: %s", err)
+        except Exception:
+            _LOGGER.exception("Error setting microphone volume")
 
 
-class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
+class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Light Brightness Level Number."""
 
     _attr_has_entity_name = True
@@ -179,7 +199,9 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
         light_data = self.coordinator.data["protect"]["lights"].get(self._device_id, {})
 
         # Set value
-        self._attr_native_value = light_data.get("lightDeviceSettings", {}).get("ledLevel", 100)
+        self._attr_native_value = light_data.get("lightDeviceSettings", {}).get(
+            "ledLevel", 100
+        )
 
         # Set attributes
         self._attr_extra_state_attributes = {
@@ -193,17 +215,17 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
         _LOGGER.debug("Setting light level to %s for light %s", value, self._device_id)
 
         try:
-            await self.coordinator.protect_api.async_set_light_level(
+            await self.coordinator.protect_client.set_light_brightness(
                 light_id=self._device_id,
                 level=int(value),
             )
             self._attr_native_value = value
             self.async_write_ha_state()
-        except Exception as err:
-            _LOGGER.exception("Error setting light level: %s", err)
+        except Exception:
+            _LOGGER.exception("Error setting light level")
 
 
-class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):
+class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Chime Volume Number."""
 
     _attr_has_entity_name = True
@@ -257,17 +279,17 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):
         _LOGGER.debug("Setting chime volume to %s for chime %s", value, self._device_id)
 
         try:
-            await self.coordinator.protect_api.async_set_chime_volume(
+            await self.coordinator.protect_client.set_chime_volume(
                 chime_id=self._device_id,
                 volume=int(value),
             )
-            self._attr_native_value = value
+            self._attr_native_value = int(value)
             self.async_write_ha_state()
-        except Exception as err:
-            _LOGGER.exception("Error setting chime volume: %s", err)
+        except Exception:
+            _LOGGER.exception("Error setting chime volume")
 
 
-class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):
+class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
     """Representation of a UniFi Protect Chime Repeat Times Number."""
 
     _attr_has_entity_name = True
@@ -318,14 +340,16 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the chime repeat times."""
-        _LOGGER.debug("Setting chime repeat times to %s for chime %s", value, self._device_id)
+        _LOGGER.debug(
+            "Setting chime repeat times to %s for chime %s", value, self._device_id
+        )
 
         try:
-            await self.coordinator.protect_api.async_set_chime_repeat_times(
+            await self.coordinator.protect_client.set_chime_repeat(
                 chime_id=self._device_id,
                 repeat_times=int(value),
             )
-            self._attr_native_value = value
+            self._attr_native_value = int(value)
             self.async_write_ha_state()
-        except Exception as err:
-            _LOGGER.exception("Error setting chime repeat times: %s", err)
+        except Exception:
+            _LOGGER.exception("Error setting chime repeat times")

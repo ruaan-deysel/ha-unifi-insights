@@ -50,8 +50,8 @@ This custom integration allows you to monitor your UniFi devices through the Uni
 2. Click the "+" button to add a new integration
 3. Search for "UniFi Insights"
 4. Enter your:
-   - API Key
    - Host URL (e.g., <https://192.168.1.1>)
+   - API Key
 
 ## Available Entities
 
@@ -119,7 +119,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Disclaimer
 

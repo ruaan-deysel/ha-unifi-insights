@@ -126,17 +126,61 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):  # type: ignore[misc]
             return None
 
     async def async_stream_source(self) -> str | None:
-        """Return the stream source."""
+        """
+        Return the stream source.
+
+        Returns RTSPS URL for UniFi Protect cameras.
+        Uses the API to create a dynamic stream URL when possible, with fallback
+        to static URL construction if needed.
+        """
         _LOGGER.debug("Getting stream source for %s", self._device_id)
 
-        try:
-            # Use the correct library API: cameras.create_rtsps_stream()
-            # Returns a stream object with url attribute
-            stream = await self.coordinator.protect_client.cameras.create_rtsps_stream(
-                self._device_id
+        # Try to use the API to create a dynamic RTSPS stream (preferred method)
+        if self.coordinator.protect_client:
+            try:
+                stream = (
+                    await self.coordinator.protect_client.cameras.create_rtsps_stream(
+                        self._device_id,
+                        qualities=["high"],
+                    )
+                )
+                if stream and stream.high:
+                    _LOGGER.debug(
+                        "Using dynamic stream URL for camera %s", self._device_id
+                    )
+                    stream_url: str = stream.high
+                    return stream_url
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Failed to create dynamic stream, falling back to static URL",
+                    exc_info=True,
+                )
+
+        # Fallback: Construct static RTSPS URL
+        nvr_host = None
+
+        # Try to get from NVR data
+        nvr_data = self.coordinator.data["protect"].get("nvrs", {})
+        for nvr in nvr_data.values():
+            if nvr.get("host"):
+                nvr_host = nvr["host"]
+                break
+
+        # Fall back to configured base URL host
+        if not nvr_host and self.coordinator.protect_client:
+            base_url = str(self.coordinator.protect_client.base_url)
+            if "://" in base_url:
+                nvr_host = base_url.split("://")[1].split("/")[0].split(":")[0]
+
+        if not nvr_host:
+            _LOGGER.warning(
+                "Could not determine NVR host for camera %s stream", self._device_id
             )
-            if stream and hasattr(stream, "url") and isinstance(stream.url, str):
-                return stream.url
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug("Error getting stream source", exc_info=True)
-        return None
+            return None
+
+        # Static RTSPS URL format
+        stream_url = f"rtsps://{nvr_host}:7441/{self._device_id}?enableSrtp"
+        _LOGGER.debug(
+            "Using static stream URL for camera %s: %s", self._device_id, stream_url
+        )
+        return stream_url

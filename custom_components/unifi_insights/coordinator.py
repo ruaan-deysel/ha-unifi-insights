@@ -281,8 +281,12 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Add client data to stats
             if stats:
+                # Use camelCase uplinkDeviceId as returned by model_dump(by_alias=True)
                 stats["clients"] = [
-                    c for c in clients if c.get("uplink_device_id") == device_id
+                    c
+                    for c in clients
+                    if (c.get("uplinkDeviceId") or c.get("uplink_device_id"))
+                    == device_id
                 ]
                 stats["id"] = device_id
 

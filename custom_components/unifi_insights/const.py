@@ -13,6 +13,10 @@ CONF_CONSOLE_ID: Final = "console_id"
 CONNECTION_TYPE_LOCAL: Final = "local"
 CONNECTION_TYPE_REMOTE: Final = "remote"
 
+# Options
+CONF_TRACK_CLIENTS: Final = "track_clients"
+DEFAULT_TRACK_CLIENTS: Final = False
+
 DEFAULT_API_HOST = "https://192.168.10.1"
 SCAN_INTERVAL_NORMAL = timedelta(seconds=30)
 

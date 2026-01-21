@@ -25,7 +25,18 @@
       "Bash(fi)",
       "Bash(source:*)",
       "Bash(python test_library_api.py:*)",
-      "Bash(python -c:*)"
+      "Bash(python -c:*)",
+      "mcp__plugin_context7_context7__resolve-library-id",
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(python scripts/test_api.py:*)",
+      "Bash(python:*)",
+      "mcp__perplexity__perplexity_ask",
+      "Bash(pip show:*)",
+      "Bash(python3:*)",
+      "Bash(ruff check:*)",
+      "Bash(gh issue create:*)",
+      "Bash(gh issue list:*)",
+      "Bash(pre-commit run:*)"
     ]
   }
 }

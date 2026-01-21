@@ -52,6 +52,57 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 0
 
 
+def _get_supported_smart_detect_types(camera_data: dict[str, Any]) -> list[str]:
+    """
+    Get supported smart detection types for a camera.
+
+    The supported types are in featureFlags.smartDetectTypes, not smartDetectTypes.
+    """
+    feature_flags = camera_data.get("featureFlags", {})
+    if isinstance(feature_flags, dict):
+        result: list[str] = feature_flags.get("smartDetectTypes", [])
+        return result
+    return []
+
+
+def _is_smart_detect_active(camera_data: dict[str, Any], detect_type: str) -> bool:
+    """
+    Check if a specific smart detection type is currently active.
+
+    For smart detection to be active:
+    1. The camera must support this smart detect type (in featureFlags)
+    2. Motion must be currently detected (isMotionDetected or via lastMotionStart/End)
+    3. Smart detection must be active (isSmartDetected or via lastSmartDetectTypes)
+    4. The specific type must be in the last detected types
+    """
+    # Check if camera supports this detect type
+    supported_types = _get_supported_smart_detect_types(camera_data)
+    if detect_type not in supported_types:
+        return False
+
+    # Check if motion is currently detected
+    is_motion = camera_data.get("isMotionDetected", False)
+    if not is_motion:
+        # Fallback to event-based detection
+        motion_start = camera_data.get("lastMotionStart")
+        motion_end = camera_data.get("lastMotionEnd")
+        is_motion = motion_start is not None and motion_end is None
+
+    if not is_motion:
+        return False
+
+    # Check if smart detection is active and matches the type
+    is_smart = camera_data.get("isSmartDetected", False)
+    if is_smart:
+        # When isSmartDetected is True, check lastSmartDetectTypes for specific type
+        last_types = camera_data.get("lastSmartDetectTypes", [])
+        return detect_type in last_types
+
+    # Fallback to just checking lastSmartDetectTypes
+    last_types = camera_data.get("lastSmartDetectTypes", [])
+    return detect_type in last_types
+
+
 def _is_doorbell_camera(camera_data: dict[str, Any]) -> bool:
     """Check if a camera is a doorbell camera."""
     # Check camera type metadata set by the API client
@@ -118,31 +169,29 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         value_fn=lambda device: is_device_online(device),
         entity_type="device",
     ),
-    # Camera motion detection
+    # Camera motion detection - uses isMotionDetected from API
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_motion",
         translation_key="camera_motion",
         name="Motion Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: (
-            device.get("lastMotionStart") is not None
-            and device.get("lastMotionEnd") is None
+            device.get("isMotionDetected", False)
+            or (
+                device.get("lastMotionStart") is not None
+                and device.get("lastMotionEnd") is None
+            )
         ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
-    # Camera person detection
+    # Camera person detection - uses helper to check feature flags and active detection
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_person_detection",
         translation_key="camera_person_detection",
         name="Person Detection",
         device_class=BinarySensorDeviceClass.MOTION,
-        value_fn=lambda device: (
-            SMART_DETECT_PERSON in device.get("smartDetectTypes", [])
-            and SMART_DETECT_PERSON in device.get("lastSmartDetectTypes", [])
-            and device.get("lastMotionStart") is not None
-            and device.get("lastMotionEnd") is None
-        ),
+        value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_PERSON),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
@@ -152,12 +201,7 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         translation_key="camera_vehicle_detection",
         name="Vehicle Detection",
         device_class=BinarySensorDeviceClass.MOTION,
-        value_fn=lambda device: (
-            SMART_DETECT_VEHICLE in device.get("smartDetectTypes", [])
-            and SMART_DETECT_VEHICLE in device.get("lastSmartDetectTypes", [])
-            and device.get("lastMotionStart") is not None
-            and device.get("lastMotionEnd") is None
-        ),
+        value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_VEHICLE),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
@@ -167,12 +211,7 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         translation_key="camera_animal_detection",
         name="Animal Detection",
         device_class=BinarySensorDeviceClass.MOTION,
-        value_fn=lambda device: (
-            SMART_DETECT_ANIMAL in device.get("smartDetectTypes", [])
-            and SMART_DETECT_ANIMAL in device.get("lastSmartDetectTypes", [])
-            and device.get("lastMotionStart") is not None
-            and device.get("lastMotionEnd") is None
-        ),
+        value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_ANIMAL),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),
@@ -182,12 +221,7 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         translation_key="camera_package_detection",
         name="Package Detection",
         device_class=BinarySensorDeviceClass.MOTION,
-        value_fn=lambda device: (
-            SMART_DETECT_PACKAGE in device.get("smartDetectTypes", [])
-            and SMART_DETECT_PACKAGE in device.get("lastSmartDetectTypes", [])
-            and device.get("lastMotionStart") is not None
-            and device.get("lastMotionEnd") is None
-        ),
+        value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_PACKAGE),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
     ),

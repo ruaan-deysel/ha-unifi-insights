@@ -63,21 +63,21 @@ This document defines the data structure transformations required to migrate fro
 
 ### Device Status Fields
 
-| Current Field | Library Field | Transform | Notes |
-|---------------|---------------|-----------|-------|
-| `id` | `id` | None | Direct mapping |
-| `mac` | `mac` | None | Direct mapping |
-| `model` | `model` | None | Direct mapping |
-| `name` | `name` | None | Direct mapping |
-| `state` | `status` | Map values | "connected" ↔ "online" |
-| `adopted` | `adopted` | None | Direct mapping |
-| `version` | `firmware_version` | None | Key name change only |
-| `uptime` | `uptime_seconds` | None | Key name change only |
-| `cpu_usage` | `cpu_percent` | None | Key name change only |
-| `memory_usage` | `memory_percent` | None | Key name change only |
-| `tx_bytes` | `tx_bytes` | None | Direct mapping |
-| `rx_bytes` | `rx_bytes` | None | Direct mapping |
-| `site_id` | `site` | None | Key name change only |
+| Current Field  | Library Field      | Transform  | Notes                   |
+| -------------- | ------------------ | ---------- | ----------------------- |
+| `id`           | `id`               | None       | Direct mapping          |
+| `mac`          | `mac`              | None       | Direct mapping          |
+| `model`        | `model`            | None       | Direct mapping          |
+| `name`         | `name`             | None       | Direct mapping          |
+| `state`        | `status`           | Map values | "connected" ↔ "online" |
+| `adopted`      | `adopted`          | None       | Direct mapping          |
+| `version`      | `firmware_version` | None       | Key name change only    |
+| `uptime`       | `uptime_seconds`   | None       | Key name change only    |
+| `cpu_usage`    | `cpu_percent`      | None       | Key name change only    |
+| `memory_usage` | `memory_percent`   | None       | Key name change only    |
+| `tx_bytes`     | `tx_bytes`         | None       | Direct mapping          |
+| `rx_bytes`     | `rx_bytes`         | None       | Direct mapping          |
+| `site_id`      | `site`             | None       | Key name change only    |
 
 ### Transformation Function
 
@@ -116,18 +116,18 @@ def map_device_status(lib_status: str) -> str:
 
 ### Camera Fields
 
-| Current Field | Library Field | Transform | Notes |
-|---------------|---------------|-----------|-------|
-| `id` | `id` | None | Direct mapping |
-| `name` | `name` | None | Direct mapping |
-| `state` | `status` | Uppercase | "CONNECTED" ↔ "connected" |
-| `is_recording` | `recording` | None | Key name change |
-| `motion_detected` | `motion` | None | Key name change |
-| `type` | `model` | None | Key name change |
-| `hdr_mode` | `hdr` | Uppercase | "AUTO" ↔ "auto" |
-| `video_mode` | `video_mode` | Uppercase | "DEFAULT" ↔ "default" |
-| `snapshot_url` | Method call | Generate | `await client.protect.get_snapshot(id)` |
-| `rtsps_url` | Method call | Generate | `await client.protect.get_stream_url(id)` |
+| Current Field     | Library Field | Transform | Notes                                     |
+| ----------------- | ------------- | --------- | ----------------------------------------- |
+| `id`              | `id`          | None      | Direct mapping                            |
+| `name`            | `name`        | None      | Direct mapping                            |
+| `state`           | `status`      | Uppercase | "CONNECTED" ↔ "connected"                |
+| `is_recording`    | `recording`   | None      | Key name change                           |
+| `motion_detected` | `motion`      | None      | Key name change                           |
+| `type`            | `model`       | None      | Key name change                           |
+| `hdr_mode`        | `hdr`         | Uppercase | "AUTO" ↔ "auto"                          |
+| `video_mode`      | `video_mode`  | Uppercase | "DEFAULT" ↔ "default"                    |
+| `snapshot_url`    | Method call   | Generate  | `await client.protect.get_snapshot(id)`   |
+| `rtsps_url`       | Method call   | Generate  | `await client.protect.get_stream_url(id)` |
 
 ### Transformation Function
 
@@ -149,14 +149,14 @@ def transform_protect_camera(lib_camera: dict) -> dict:
 
 ### Light Fields
 
-| Current Field | Library Field | Transform | Notes |
-|---------------|---------------|-----------|-------|
-| `id` | `id` | None | Direct mapping |
-| `name` | `name` | None | Direct mapping |
-| `is_on` | `on` | None | Key name change |
-| `brightness` | `brightness` | None | Direct mapping |
-| `mode` | `light_mode` | Uppercase | "MOTION" ↔ "motion" |
-| `is_dark` | `dark` | None | Key name change |
+| Current Field | Library Field | Transform | Notes                |
+| ------------- | ------------- | --------- | -------------------- |
+| `id`          | `id`          | None      | Direct mapping       |
+| `name`        | `name`        | None      | Direct mapping       |
+| `is_on`       | `on`          | None      | Key name change      |
+| `brightness`  | `brightness`  | None      | Direct mapping       |
+| `mode`        | `light_mode`  | Uppercase | "MOTION" ↔ "motion" |
+| `is_dark`     | `dark`        | None      | Key name change      |
 
 ### Transformation Function
 
@@ -175,24 +175,24 @@ def transform_protect_light(lib_light: dict) -> dict:
 
 ### Sensor Fields
 
-| Current Field | Library Field | Transform | Notes |
-|---------------|---------------|-----------|-------|
-| `id` | `id` | None | Direct mapping |
-| `name` | `name` | None | Direct mapping |
-| `temperature` | `temperature` | None | Direct mapping |
-| `humidity` | `humidity` | None | Direct mapping |
-| `light_level` | `light` | None | Key name change |
-| `battery_percentage` | `battery` | None | Key name change |
+| Current Field        | Library Field | Transform | Notes           |
+| -------------------- | ------------- | --------- | --------------- |
+| `id`                 | `id`          | None      | Direct mapping  |
+| `name`               | `name`        | None      | Direct mapping  |
+| `temperature`        | `temperature` | None      | Direct mapping  |
+| `humidity`           | `humidity`    | None      | Direct mapping  |
+| `light_level`        | `light`       | None      | Key name change |
+| `battery_percentage` | `battery`     | None      | Key name change |
 
 ### Chime Fields
 
-| Current Field | Library Field | Transform | Notes |
-|---------------|---------------|-----------|-------|
-| `id` | `id` | None | Direct mapping |
-| `name` | `name` | None | Direct mapping |
-| `volume` | `volume` | None | Direct mapping |
-| `repeat_times` | `repeat` | None | Key name change |
-| `ringtone_id` | `ringtone` | None | Key name change |
+| Current Field  | Library Field | Transform | Notes           |
+| -------------- | ------------- | --------- | --------------- |
+| `id`           | `id`          | None      | Direct mapping  |
+| `name`         | `name`        | None      | Direct mapping  |
+| `volume`       | `volume`      | None      | Direct mapping  |
+| `repeat_times` | `repeat`      | None      | Key name change |
+| `ringtone_id`  | `ringtone`    | None      | Key name change |
 
 ---
 
@@ -308,13 +308,13 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator):
 
 ### Unique ID Patterns
 
-| Entity Type | Unique ID Format | Source Field |
-|-------------|------------------|--------------|
-| Network Device | `{domain}_{mac}_{attribute}` | Device MAC address |
-| Protect Camera | `protect_camera_{id}_{attribute}` | Camera ID |
-| Protect Light | `protect_light_{id}` | Light ID |
-| Protect Sensor | `protect_sensor_{id}_{attribute}` | Sensor ID |
-| Protect Chime | `protect_chime_{id}` | Chime ID |
+| Entity Type    | Unique ID Format                  | Source Field       |
+| -------------- | --------------------------------- | ------------------ |
+| Network Device | `{domain}_{mac}_{attribute}`      | Device MAC address |
+| Protect Camera | `protect_camera_{id}_{attribute}` | Camera ID          |
+| Protect Light  | `protect_light_{id}`              | Light ID           |
+| Protect Sensor | `protect_sensor_{id}_{attribute}` | Sensor ID          |
+| Protect Chime  | `protect_chime_{id}`              | Chime ID           |
 
 **These patterns are library-agnostic** - they depend only on device identifiers, not API structure.
 

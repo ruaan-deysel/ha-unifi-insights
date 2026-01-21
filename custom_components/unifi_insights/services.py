@@ -57,11 +57,11 @@ _LOGGER = logging.getLogger(__name__)
 
 def _get_coordinators(hass: HomeAssistant) -> list[Any]:
     """Get all UniFi Insights coordinators from config entries."""
-    coordinators = []
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if hasattr(entry, "runtime_data") and entry.runtime_data:
-            coordinators.append(entry.runtime_data.coordinator)  # noqa: PERF401
-    return coordinators
+    return [
+        entry.runtime_data.coordinator
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if hasattr(entry, "runtime_data") and entry.runtime_data
+    ]
 
 
 def _get_first_coordinator(

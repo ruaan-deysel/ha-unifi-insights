@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
+from homeassistant.const import EntityCategory
 
 from .const import (
     ATTR_CHIME_ID,
@@ -20,6 +21,9 @@ from .const import (
     DEVICE_TYPE_CHIME,
 )
 from .entity import UnifiInsightsEntity, UnifiProtectEntity
+
+# Client device type for buttons
+DEVICE_TYPE_CLIENT = "client"
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -49,7 +53,7 @@ BUTTON_TYPES: tuple[UnifiInsightsButtonEntityDescription, ...] = (
 )
 
 
-async def async_setup_entry(
+async def async_setup_entry(  # noqa: PLR0912
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -160,6 +164,40 @@ async def async_setup_entry(
                         camera_id=camera_id,
                     )
                 )
+
+    # Add client block/unblock buttons for each connected client
+    for site_id, clients in coordinator.data.get("clients", {}).items():
+        for client_id, client_data in clients.items():
+            client_name = (
+                client_data.get("name")
+                or client_data.get("hostname")
+                or client_data.get("mac", client_id)
+            )
+            is_blocked = client_data.get("blocked", False)
+
+            _LOGGER.debug(
+                "Adding block/unblock buttons for client %s (blocked=%s)",
+                client_name,
+                is_blocked,
+            )
+
+            # Add block button (only if not already blocked)
+            entities.append(
+                UnifiClientBlockButton(
+                    coordinator=coordinator,
+                    site_id=site_id,
+                    client_id=client_id,
+                )
+            )
+
+            # Add unblock button (only if blocked)
+            entities.append(
+                UnifiClientUnblockButton(
+                    coordinator=coordinator,
+                    site_id=site_id,
+                    client_id=client_id,
+                )
+            )
 
     _LOGGER.info("Adding %d UniFi Insights buttons", len(entities))
     async_add_entities(entities)
@@ -445,4 +483,155 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
         except Exception:
             _LOGGER.exception(
                 "Error stopping PTZ patrol for camera %s", self._device_id
+            )
+
+
+class UnifiClientBlockButton(ButtonEntity):  # type: ignore[misc]
+    """Button to block a network client."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-cancel"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        site_id: str,
+        client_id: str,
+    ) -> None:
+        """Initialize the button."""
+        self.coordinator = coordinator
+        self._site_id = site_id
+        self._client_id = client_id
+
+        # Get client data for naming
+        client_data = self._get_client_data()
+        client_name = (
+            client_data.get("name")
+            or client_data.get("hostname")
+            or client_data.get("mac", client_id)
+        )
+
+        self._attr_unique_id = f"{site_id}_{client_id}_block"
+        self._attr_name = f"Block {client_name}"
+
+        # Device info - associate with the client
+        self._attr_device_info = {
+            "identifiers": {("unifi_insights", f"client_{client_id}")},
+            "name": client_name,
+            "manufacturer": "Ubiquiti",
+            "model": "Network Client",
+            "via_device": ("unifi_insights", site_id),
+        }
+
+    def _get_client_data(self) -> dict[str, Any]:
+        """Get client data from coordinator."""
+        result: dict[str, Any] = (
+            self.coordinator.data.get("clients", {})
+            .get(self._site_id, {})
+            .get(self._client_id, {})
+        )
+        return result
+
+    @property
+    def available(self) -> bool:
+        """Return if button is available (client not already blocked)."""
+        client_data = self._get_client_data()
+        # Only available if client exists and is not blocked
+        return bool(client_data) and not client_data.get("blocked", False)
+
+    async def async_press(self) -> None:
+        """Block the client."""
+        _LOGGER.debug("Blocking client %s in site %s", self._client_id, self._site_id)
+
+        try:
+            await self.coordinator.network_client.clients.block(
+                self._site_id, self._client_id
+            )
+            _LOGGER.info(
+                "Successfully blocked client %s in site %s",
+                self._client_id,
+                self._site_id,
+            )
+            # Request coordinator refresh to update state
+            await self.coordinator.async_request_refresh()
+        except Exception:
+            _LOGGER.exception(
+                "Error blocking client %s in site %s", self._client_id, self._site_id
+            )
+
+
+class UnifiClientUnblockButton(ButtonEntity):  # type: ignore[misc]
+    """Button to unblock a network client."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-check"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        site_id: str,
+        client_id: str,
+    ) -> None:
+        """Initialize the button."""
+        self.coordinator = coordinator
+        self._site_id = site_id
+        self._client_id = client_id
+
+        # Get client data for naming
+        client_data = self._get_client_data()
+        client_name = (
+            client_data.get("name")
+            or client_data.get("hostname")
+            or client_data.get("mac", client_id)
+        )
+
+        self._attr_unique_id = f"{site_id}_{client_id}_unblock"
+        self._attr_name = f"Unblock {client_name}"
+
+        # Device info - associate with the client
+        self._attr_device_info = {
+            "identifiers": {("unifi_insights", f"client_{client_id}")},
+            "name": client_name,
+            "manufacturer": "Ubiquiti",
+            "model": "Network Client",
+            "via_device": ("unifi_insights", site_id),
+        }
+
+    def _get_client_data(self) -> dict[str, Any]:
+        """Get client data from coordinator."""
+        result: dict[str, Any] = (
+            self.coordinator.data.get("clients", {})
+            .get(self._site_id, {})
+            .get(self._client_id, {})
+        )
+        return result
+
+    @property
+    def available(self) -> bool:
+        """Return if button is available (client is blocked)."""
+        client_data = self._get_client_data()
+        # Only available if client exists and is blocked
+        blocked = client_data.get("blocked", False)
+        return bool(client_data) and bool(blocked)
+
+    async def async_press(self) -> None:
+        """Unblock the client."""
+        _LOGGER.debug("Unblocking client %s in site %s", self._client_id, self._site_id)
+
+        try:
+            await self.coordinator.network_client.clients.unblock(
+                self._site_id, self._client_id
+            )
+            _LOGGER.info(
+                "Successfully unblocked client %s in site %s",
+                self._client_id,
+                self._site_id,
+            )
+            # Request coordinator refresh to update state
+            await self.coordinator.async_request_refresh()
+        except Exception:
+            _LOGGER.exception(
+                "Error unblocking client %s in site %s", self._client_id, self._site_id
             )

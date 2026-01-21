@@ -1,0 +1,33 @@
+---
+# Yamllint configuration - aligned with Home Assistant Core
+extends: default
+
+rules:
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 0
+  colons:
+    max-spaces-after: -1
+  commas:
+    max-spaces-after: -1
+  comments: disable
+  comments-indentation: disable
+  document-start: disable
+  empty-lines:
+    max: 1
+    max-end: 1
+  indentation:
+    indent-sequences: consistent
+  line-length:
+    max: 160
+  truthy:
+    check-keys: false
+
+ignore: |
+  .serena/
+  .venv/
+  venv/
+  node_modules/

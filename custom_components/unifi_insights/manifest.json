@@ -10,7 +10,7 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ruaan-deysel/ha-unifi-insights/issues",
   "loggers": ["custom_components.unifi_insights"],
-  "requirements": ["unifi-official-api~=1.0.0"],
+  "requirements": ["unifi-official-api~=1.1.0"],
   "ssdp": [
     {
       "manufacturer": "Ubiquiti Networks",
@@ -26,6 +26,6 @@
     }
   ],
   "usb": [],
-  "version": "2026.02.0",
+  "version": "2026.2.0",
   "zeroconf": []
 }

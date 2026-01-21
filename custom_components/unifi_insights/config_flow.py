@@ -6,8 +6,14 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
+from homeassistant.core import callback
 from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
@@ -26,24 +32,33 @@ from unifi_official_api.network import UniFiNetworkClient
 from .const import (
     CONF_CONNECTION_TYPE,
     CONF_CONSOLE_ID,
+    CONF_TRACK_CLIENTS,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_REMOTE,
     DEFAULT_API_HOST,
+    DEFAULT_TRACK_CLIENTS,
     DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class UnifiInsightsConfigFlow(ConfigFlow):  # type: ignore[misc]
+class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[misc,call-arg]
     """Handle a config flow for UniFi Insights."""
 
     VERSION = 1
-    DOMAIN = DOMAIN
 
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._connection_type: str | None = None
+
+    @staticmethod
+    @callback  # type: ignore[misc]
+    def async_get_options_flow(
+        config_entry: ConfigEntry,  # noqa: ARG004
+    ) -> UnifiInsightsOptionsFlow:
+        """Get the options flow for this handler."""
+        return UnifiInsightsOptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -374,4 +389,29 @@ class UnifiInsightsConfigFlow(ConfigFlow):  # type: ignore[misc]
                 }
             ),
             errors=errors,
+        )
+
+
+class UnifiInsightsOptionsFlow(OptionsFlow):  # type: ignore[misc]
+    """Handle options for UniFi Insights integration."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_TRACK_CLIENTS,
+                        default=self.config_entry.options.get(
+                            CONF_TRACK_CLIENTS, DEFAULT_TRACK_CLIENTS
+                        ),
+                    ): bool,
+                }
+            ),
         )

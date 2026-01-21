@@ -18,6 +18,7 @@ _LOGGER = logging.getLogger(__name__)
 
 TO_REDACT = {
     CONF_API_KEY,
+    "unique_id",  # Also redact unique_id as it may contain the API key
     "macAddress",
     "id",
     "deviceId",

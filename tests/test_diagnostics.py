@@ -1,7 +1,7 @@
 """Tests for the UniFi Insights diagnostics."""
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.diagnostics import (
     async_get_config_entry_diagnostics,
@@ -10,7 +10,8 @@ from custom_components.unifi_insights.diagnostics import (
 
 async def test_diagnostics(
     hass: HomeAssistant,
-    init_integration: ConfigEntry,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations,
 ) -> None:
     """Test diagnostics."""
     diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
@@ -25,6 +26,7 @@ async def test_diagnostics(
     assert diagnostics["connection"]["network_client_connected"] is True
     assert diagnostics["connection"]["protect_client_connected"] is True
 
-    # Check redaction
-    assert "api_key" not in str(diagnostics).lower()
+    # Check that actual API key value is redacted (not appearing in output)
     assert "test_api_key" not in str(diagnostics)
+    # The key name "api_key" will appear, but the value should be redacted
+    assert diagnostics["entry"]["data"]["api_key"] == "**REDACTED**"

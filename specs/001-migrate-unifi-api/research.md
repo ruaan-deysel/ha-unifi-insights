@@ -10,6 +10,7 @@
 This research document analyzes the unifi-official-api library to inform the migration strategy for the ha-unifi-insights Home Assistant integration. The library provides a unified interface to both UniFi Network and UniFi Protect APIs, eliminating the need for custom API client implementations.
 
 **Key Findings**:
+
 - Library supports both Network and Protect APIs ✅
 - Async/await compatible (aiohttp-based) ✅
 - Exception handling patterns compatible with HA ✅
@@ -19,13 +20,13 @@ This research document analyzes the unifi-official-api library to inform the mig
 
 ## Research Objectives Status
 
-| Objective | Status | Findings Location |
-|-----------|--------|-------------------|
-| Library API Surface Analysis | ⏳ Pending | Section 1 |
-| Data Structure Mapping | ⏳ Pending | Section 2 |
-| Exception Mapping | ⏳ Pending | Section 3 |
-| WebSocket Migration Strategy | ⏳ Pending | Section 4 |
-| Testing Strategy | ✅ Complete | Section 5 |
+| Objective                    | Status      | Findings Location |
+| ---------------------------- | ----------- | ----------------- |
+| Library API Surface Analysis | ⏳ Pending  | Section 1         |
+| Data Structure Mapping       | ⏳ Pending  | Section 2         |
+| Exception Mapping            | ⏳ Pending  | Section 3         |
+| WebSocket Migration Strategy | ⏳ Pending  | Section 4         |
+| Testing Strategy             | ✅ Complete | Section 5         |
 
 ---
 
@@ -34,6 +35,7 @@ This research document analyzes the unifi-official-api library to inform the mig
 ### 1.1 Library Structure
 
 **Expected Structure** (to be verified):
+
 ```python
 from unifi_official_api import UniFiClient
 
@@ -57,64 +59,65 @@ await client.protect.get_lights()
 
 #### Network API Methods (14 critical methods)
 
-| Custom Method | Library Equivalent | Status | Notes |
-|---------------|-------------------|--------|-------|
-| `async_validate_api_key()` | `client.validate()` | ⏳ | Verify method name |
-| `async_get_sites()` | `client.network.get_sites()` | ⏳ | Verify path |
-| `async_get_devices(site_id)` | `client.network.get_devices(site_id)` | ⏳ | Verify params |
-| `async_get_device_info(site_id, device_id)` | `client.network.get_device(site_id, device_id)` | ⏳ | Singular vs plural |
-| `async_get_device_stats(site_id, device_id)` | `client.network.get_device_stats(site_id, device_id)` | ⏳ | Or embedded in device info? |
-| `async_get_clients(site_id)` | `client.network.get_clients(site_id)` | ⏳ | Verify params |
-| `async_restart_device(site_id, device_id)` | `client.network.restart_device(site_id, device_id)` | ⏳ | Verify params |
-| `async_get_application_info()` | `client.network.get_info()` | ⏳ | Verify method |
-| `async_power_cycle_port(site_id, device_id, port_idx)` | `client.network.power_cycle_port(...)` | ⏳ | Verify support |
-| `async_authorize_guest(site_id, client_id, ...)` | `client.network.authorize_guest(...)` | ⏳ | Verify support |
-| `async_list_vouchers(site_id)` | `client.network.list_vouchers(site_id)` | ⏳ | Verify support |
-| `async_generate_voucher(site_id, ...)` | `client.network.generate_voucher(...)` | ⏳ | Verify support |
-| `async_delete_voucher(site_id, voucher_id)` | `client.network.delete_voucher(...)` | ⏳ | Verify support |
-| `async_delete_vouchers_by_filter(site_id, ...)` | `client.network.delete_vouchers(...)` | ⏳ | Verify support |
+| Custom Method                                          | Library Equivalent                                    | Status | Notes                       |
+| ------------------------------------------------------ | ----------------------------------------------------- | ------ | --------------------------- |
+| `async_validate_api_key()`                             | `client.validate()`                                   | ⏳     | Verify method name          |
+| `async_get_sites()`                                    | `client.network.get_sites()`                          | ⏳     | Verify path                 |
+| `async_get_devices(site_id)`                           | `client.network.get_devices(site_id)`                 | ⏳     | Verify params               |
+| `async_get_device_info(site_id, device_id)`            | `client.network.get_device(site_id, device_id)`       | ⏳     | Singular vs plural          |
+| `async_get_device_stats(site_id, device_id)`           | `client.network.get_device_stats(site_id, device_id)` | ⏳     | Or embedded in device info? |
+| `async_get_clients(site_id)`                           | `client.network.get_clients(site_id)`                 | ⏳     | Verify params               |
+| `async_restart_device(site_id, device_id)`             | `client.network.restart_device(site_id, device_id)`   | ⏳     | Verify params               |
+| `async_get_application_info()`                         | `client.network.get_info()`                           | ⏳     | Verify method               |
+| `async_power_cycle_port(site_id, device_id, port_idx)` | `client.network.power_cycle_port(...)`                | ⏳     | Verify support              |
+| `async_authorize_guest(site_id, client_id, ...)`       | `client.network.authorize_guest(...)`                 | ⏳     | Verify support              |
+| `async_list_vouchers(site_id)`                         | `client.network.list_vouchers(site_id)`               | ⏳     | Verify support              |
+| `async_generate_voucher(site_id, ...)`                 | `client.network.generate_voucher(...)`                | ⏳     | Verify support              |
+| `async_delete_voucher(site_id, voucher_id)`            | `client.network.delete_voucher(...)`                  | ⏳     | Verify support              |
+| `async_delete_vouchers_by_filter(site_id, ...)`        | `client.network.delete_vouchers(...)`                 | ⏳     | Verify support              |
 
 #### Protect API Methods (28 critical methods)
 
-| Custom Method | Library Equivalent | Status | Notes |
-|---------------|-------------------|--------|-------|
-| `async_validate_api_key()` | `client.validate()` | ⏳ | Shared with Network |
-| `async_get_cameras()` | `client.protect.get_cameras()` | ⏳ | Verify |
-| `async_get_lights()` | `client.protect.get_lights()` | ⏳ | Verify |
-| `async_get_sensors()` | `client.protect.get_sensors()` | ⏳ | Verify |
-| `async_get_nvrs()` | `client.protect.get_nvrs()` | ⏳ | Verify |
-| `async_get_chimes()` | `client.protect.get_chimes()` | ⏳ | Verify |
-| `async_get_viewers()` | `client.protect.get_viewers()` | ⏳ | Verify |
-| `async_get_liveviews()` | `client.protect.get_liveviews()` | ⏳ | Verify |
-| `async_get_camera_snapshot(camera_id, high_quality)` | `client.protect.get_snapshot(...)` | ⏳ | Verify params |
-| `async_get_camera_rtsps_stream(camera_id, qualities)` | `client.protect.get_stream_url(...)` | ⏳ | Verify format |
-| `async_update_camera(camera_id, data)` | `client.protect.update_camera(...)` | ⏳ | Verify |
-| `async_update_light(light_id, data)` | `client.protect.update_light(...)` | ⏳ | Verify |
-| `async_set_light_mode(light_id, mode)` | `client.protect.set_light_mode(...)` | ⏳ | Verify |
-| `async_set_light_level(light_id, level)` | `client.protect.set_light_brightness(...)` | ⏳ | Method naming |
-| `async_set_camera_recording_mode(camera_id, mode)` | `client.protect.set_recording_mode(...)` | ⏳ | Verify |
-| `async_set_camera_hdr_mode(camera_id, mode)` | `client.protect.set_hdr_mode(...)` | ⏳ | Verify |
-| `async_set_camera_video_mode(camera_id, mode)` | `client.protect.set_video_mode(...)` | ⏳ | Verify |
-| `async_set_microphone_volume(camera_id, volume)` | `client.protect.set_microphone_volume(...)` | ⏳ | Verify |
-| `async_ptz_move(camera_id, preset_slot)` | `client.protect.ptz_move_to_preset(...)` | ⏳ | Verify naming |
-| `async_ptz_patrol_start(camera_id, patrol_slot)` | `client.protect.ptz_start_patrol(...)` | ⏳ | Verify naming |
-| `async_ptz_patrol_stop(camera_id)` | `client.protect.ptz_stop_patrol(...)` | ⏳ | Verify |
-| `async_play_chime(chime_id)` | `client.protect.play_chime(...)` | ⏳ | Verify |
-| `async_set_chime_volume(chime_id, volume)` | `client.protect.set_chime_volume(...)` | ⏳ | Verify |
-| `async_set_chime_ringtone(chime_id, ringtone_id)` | `client.protect.set_chime_ringtone(...)` | ⏳ | Verify |
+| Custom Method                                         | Library Equivalent                          | Status | Notes               |
+| ----------------------------------------------------- | ------------------------------------------- | ------ | ------------------- |
+| `async_validate_api_key()`                            | `client.validate()`                         | ⏳     | Shared with Network |
+| `async_get_cameras()`                                 | `client.protect.get_cameras()`              | ⏳     | Verify              |
+| `async_get_lights()`                                  | `client.protect.get_lights()`               | ⏳     | Verify              |
+| `async_get_sensors()`                                 | `client.protect.get_sensors()`              | ⏳     | Verify              |
+| `async_get_nvrs()`                                    | `client.protect.get_nvrs()`                 | ⏳     | Verify              |
+| `async_get_chimes()`                                  | `client.protect.get_chimes()`               | ⏳     | Verify              |
+| `async_get_viewers()`                                 | `client.protect.get_viewers()`              | ⏳     | Verify              |
+| `async_get_liveviews()`                               | `client.protect.get_liveviews()`            | ⏳     | Verify              |
+| `async_get_camera_snapshot(camera_id, high_quality)`  | `client.protect.get_snapshot(...)`          | ⏳     | Verify params       |
+| `async_get_camera_rtsps_stream(camera_id, qualities)` | `client.protect.get_stream_url(...)`        | ⏳     | Verify format       |
+| `async_update_camera(camera_id, data)`                | `client.protect.update_camera(...)`         | ⏳     | Verify              |
+| `async_update_light(light_id, data)`                  | `client.protect.update_light(...)`          | ⏳     | Verify              |
+| `async_set_light_mode(light_id, mode)`                | `client.protect.set_light_mode(...)`        | ⏳     | Verify              |
+| `async_set_light_level(light_id, level)`              | `client.protect.set_light_brightness(...)`  | ⏳     | Method naming       |
+| `async_set_camera_recording_mode(camera_id, mode)`    | `client.protect.set_recording_mode(...)`    | ⏳     | Verify              |
+| `async_set_camera_hdr_mode(camera_id, mode)`          | `client.protect.set_hdr_mode(...)`          | ⏳     | Verify              |
+| `async_set_camera_video_mode(camera_id, mode)`        | `client.protect.set_video_mode(...)`        | ⏳     | Verify              |
+| `async_set_microphone_volume(camera_id, volume)`      | `client.protect.set_microphone_volume(...)` | ⏳     | Verify              |
+| `async_ptz_move(camera_id, preset_slot)`              | `client.protect.ptz_move_to_preset(...)`    | ⏳     | Verify naming       |
+| `async_ptz_patrol_start(camera_id, patrol_slot)`      | `client.protect.ptz_start_patrol(...)`      | ⏳     | Verify naming       |
+| `async_ptz_patrol_stop(camera_id)`                    | `client.protect.ptz_stop_patrol(...)`       | ⏳     | Verify              |
+| `async_play_chime(chime_id)`                          | `client.protect.play_chime(...)`            | ⏳     | Verify              |
+| `async_set_chime_volume(chime_id, volume)`            | `client.protect.set_chime_volume(...)`      | ⏳     | Verify              |
+| `async_set_chime_ringtone(chime_id, ringtone_id)`     | `client.protect.set_chime_ringtone(...)`    | ⏳     | Verify              |
 
 #### WebSocket Methods (4 critical methods)
 
-| Custom Method | Library Equivalent | Status | Notes |
-|---------------|-------------------|--------|-------|
-| `async_start_websocket()` | `client.protect.subscribe_devices(callback)` | ⚠️ | **CRITICAL: Verify WebSocket support** |
-| `async_stop_websocket()` | `client.protect.unsubscribe_all()` | ⚠️ | **CRITICAL: Verify WebSocket support** |
-| `register_device_update_callback(callback)` | `callback parameter` | ⚠️ | **CRITICAL: Verify callback pattern** |
-| `register_event_update_callback(callback)` | `client.protect.subscribe_events(callback)` | ⚠️ | **CRITICAL: Verify event support** |
+| Custom Method                               | Library Equivalent                           | Status | Notes                                  |
+| ------------------------------------------- | -------------------------------------------- | ------ | -------------------------------------- |
+| `async_start_websocket()`                   | `client.protect.subscribe_devices(callback)` | ⚠️     | **CRITICAL: Verify WebSocket support** |
+| `async_stop_websocket()`                    | `client.protect.unsubscribe_all()`           | ⚠️     | **CRITICAL: Verify WebSocket support** |
+| `register_device_update_callback(callback)` | `callback parameter`                         | ⚠️     | **CRITICAL: Verify callback pattern**  |
+| `register_event_update_callback(callback)`  | `client.protect.subscribe_events(callback)`  | ⚠️     | **CRITICAL: Verify event support**     |
 
 ### 1.3 Missing Functionality Assessment
 
 **To be determined after library review**:
+
 - ❓ Port power cycling support
 - ❓ Guest authorization support
 - ❓ Voucher management support
@@ -123,6 +126,7 @@ await client.protect.get_lights()
 - ❓ WebSocket subscriptions support
 
 **Mitigation Strategies**:
+
 1. **If feature exists in library**: Update mapping matrix
 2. **If feature missing**: Contribute upstream or implement thin wrapper
 3. **If feature deprecated in UniFi API**: Remove from integration
@@ -134,6 +138,7 @@ await client.protect.get_lights()
 ### 2.1 Network Device Data Structures
 
 #### Custom API Response Format
+
 ```python
 # Current custom client response
 {
@@ -154,6 +159,7 @@ await client.protect.get_lights()
 ```
 
 #### Library Response Format (Expected)
+
 ```python
 # To be verified against actual library
 {
@@ -174,6 +180,7 @@ await client.protect.get_lights()
 ```
 
 #### Mapping Logic Required
+
 ```python
 # Coordinator transformation layer
 def map_network_device(lib_data: dict) -> dict:
@@ -198,6 +205,7 @@ def map_network_device(lib_data: dict) -> dict:
 ### 2.2 Protect Device Data Structures
 
 #### Camera Data Structure
+
 ```python
 # Current vs Library (to be verified)
 {
@@ -224,6 +232,7 @@ def map_network_device(lib_data: dict) -> dict:
 ```
 
 #### Light Data Structure
+
 ```python
 # Current vs Library (to be verified)
 {
@@ -248,10 +257,12 @@ def map_network_device(lib_data: dict) -> dict:
 ### 2.3 Transformation Strategy
 
 **Decision**: Implement transformation layer in coordinator
+
 - **Pros**: Entities remain unchanged, migration isolated
 - **Cons**: Additional complexity, performance overhead
 
 **Alternative**: Update entities to consume library format directly
+
 - **Pros**: Simpler, more direct
 - **Cons**: Touches more files, riskier migration
 
@@ -264,6 +275,7 @@ def map_network_device(lib_data: dict) -> dict:
 ### 3.1 Library Exception Types
 
 **Expected Library Exceptions** (to be verified):
+
 ```python
 from unifi_official_api.exceptions import (
     UniFiAuthError,       # Authentication failures
@@ -275,14 +287,14 @@ from unifi_official_api.exceptions import (
 
 ### 3.2 Exception Mapping Matrix
 
-| Library Exception | Home Assistant Error | Handling Strategy |
-|-------------------|----------------------|-------------------|
-| `UniFiAuthError` | `ConfigEntryAuthFailed` | Trigger reauth flow |
-| `UniFiConnectionError` (startup) | `ConfigEntryNotReady` | Retry coordinator setup |
+| Library Exception                | Home Assistant Error     | Handling Strategy         |
+| -------------------------------- | ------------------------ | ------------------------- |
+| `UniFiAuthError`                 | `ConfigEntryAuthFailed`  | Trigger reauth flow       |
+| `UniFiConnectionError` (startup) | `ConfigEntryNotReady`    | Retry coordinator setup   |
 | `UniFiConnectionError` (runtime) | Log + entity unavailable | Mark entities unavailable |
-| `UniFiTimeoutError` | Log + retry | Exponential backoff |
-| `UniFiAPIError` (4xx) | Log + entity unavailable | Mark entities unavailable |
-| `UniFiAPIError` (5xx) | Log + retry | Exponential backoff |
+| `UniFiTimeoutError`              | Log + retry              | Exponential backoff       |
+| `UniFiAPIError` (4xx)            | Log + entity unavailable | Mark entities unavailable |
+| `UniFiAPIError` (5xx)            | Log + retry              | Exponential backoff       |
 
 ### 3.3 Implementation Pattern
 
@@ -375,6 +387,7 @@ async def async_setup_entry(hass, entry):
 ### 4.1 Current WebSocket Implementation
 
 **Custom WebSocket Features**:
+
 - Two separate connections (devices + events)
 - Heartbeat mechanism (30-45s interval)
 - Exponential backoff (8-120s delays)
@@ -391,6 +404,7 @@ async def async_setup_entry(hass, entry):
 **Status**: ⚠️ **CRITICAL RESEARCH REQUIRED**
 
 **Questions to Answer**:
+
 1. Does unifi-official-api 1.0.0 support WebSocket subscriptions?
 2. If yes, what's the API surface?
 3. If no, is WebSocket support planned?
@@ -399,8 +413,10 @@ async def async_setup_entry(hass, entry):
 ### 4.3 Migration Scenarios
 
 #### Scenario A: Library Has Full WebSocket Support ✅
+
 **Decision**: Migrate to library WebSockets
 **Implementation**:
+
 ```python
 # In coordinator
 await self.client.protect.subscribe_devices(
@@ -410,17 +426,21 @@ await self.client.protect.subscribe_events(
     callback=self._handle_event_update
 )
 ```
+
 **Impact**: Minimal, straightforward migration
 **Timeline**: +2 days
 
 #### Scenario B: Library Has Partial WebSocket Support ⚠️
+
 **Decision**: Use library where available, maintain custom for gaps
 **Implementation**: Hybrid approach
 **Impact**: Moderate, increased complexity
 **Timeline**: +5 days
 
 #### Scenario C: Library Has No WebSocket Support ❌
+
 **Decision Options**:
+
 1. **Contribute upstream** (preferred if library maintainer receptive)
    - Fork library, implement WebSockets, submit PR
    - Timeline: +15 days
@@ -438,6 +458,7 @@ await self.client.protect.subscribe_events(
    - Risk: User experience degradation (no real-time updates)
 
 **Recommended Decision Tree**:
+
 ```
 Is WebSocket in library?
 ├─ Yes (Scenario A) → Migrate to library
@@ -465,12 +486,14 @@ Is WebSocket in library?
 ### 5.1 Test Infrastructure
 
 **Pytest Configuration** (existing):
+
 - `pytest.ini` configured
 - `asyncio_mode = auto`
 - Coverage minimum: 80%
 - Timeout: 30s
 
 **New Test Structure**:
+
 ```
 tests/
 ├── conftest.py                # Fixtures + library mocks
@@ -493,6 +516,7 @@ tests/
 ### 5.2 Mock Strategy
 
 #### Library Client Mock
+
 ```python
 # conftest.py
 import pytest
@@ -516,6 +540,7 @@ def mock_unifi_client():
 ```
 
 #### Coordinator Test Pattern
+
 ```python
 # test_coordinator.py
 async def test_coordinator_update(hass, mock_unifi_client):
@@ -534,6 +559,7 @@ async def test_coordinator_update(hass, mock_unifi_client):
 ```
 
 #### Entity Test Pattern
+
 ```python
 # test_sensor.py
 async def test_cpu_sensor(hass, mock_coordinator):
@@ -551,6 +577,7 @@ async def test_cpu_sensor(hass, mock_coordinator):
 ### 5.3 Test Data Fixtures
 
 #### Sample Device Data
+
 ```python
 # fixtures/device_data.py
 SAMPLE_NETWORK_DEVICE = {
@@ -583,17 +610,18 @@ SAMPLE_PROTECT_CAMERA = {
 
 ### 5.4 Test Coverage Requirements
 
-| Component | Minimum Coverage | Critical Paths |
-|-----------|-----------------|----------------|
-| Coordinator | 90% | Data updates, exception handling |
-| Config Flow | 85% | Setup, reauth, options |
-| Entities | 80% | State, attributes, availability |
-| Services | 85% | Service calls, error handling |
-| **Overall** | **80%** | **All critical paths** |
+| Component   | Minimum Coverage | Critical Paths                   |
+| ----------- | ---------------- | -------------------------------- |
+| Coordinator | 90%              | Data updates, exception handling |
+| Config Flow | 85%              | Setup, reauth, options           |
+| Entities    | 80%              | State, attributes, availability  |
+| Services    | 85%              | Service calls, error handling    |
+| **Overall** | **80%**          | **All critical paths**           |
 
 ### 5.5 Integration Testing
 
 **Manual Test Plan**:
+
 1. Fresh installation with library
 2. Upgrade from custom client version
 3. Reauth flow with expired API key
@@ -604,6 +632,7 @@ SAMPLE_PROTECT_CAMERA = {
 8. Diagnostics include library version
 
 **Automated Integration Tests**:
+
 - Full coordinator update cycle
 - Entity availability transitions
 - Service execution end-to-end
@@ -660,22 +689,24 @@ SAMPLE_PROTECT_CAMERA = {
 
 ### 7.1 Key Decisions
 
-| Decision Point | Recommendation | Rationale |
-|----------------|---------------|-----------|
-| Data transformation | Implement in coordinator | Isolates changes, safer migration |
-| Exception handling | Translate at coordinator level | HA-standard error patterns |
-| WebSocket migration | **PENDING RESEARCH** | Depends on library support |
-| Test coverage target | 80% minimum | HA standard, realistic for migration |
-| Migration approach | Atomic (confirmed) | Per clarifications, single release |
+| Decision Point       | Recommendation                 | Rationale                            |
+| -------------------- | ------------------------------ | ------------------------------------ |
+| Data transformation  | Implement in coordinator       | Isolates changes, safer migration    |
+| Exception handling   | Translate at coordinator level | HA-standard error patterns           |
+| WebSocket migration  | **PENDING RESEARCH**           | Depends on library support           |
+| Test coverage target | 80% minimum                    | HA standard, realistic for migration |
+| Migration approach   | Atomic (confirmed)             | Per clarifications, single release   |
 
 ### 7.2 Risk Mitigation
 
 **High-Risk Items**:
+
 1. WebSocket support → Research immediately, have fallback plan
 2. Missing API methods → Identify early, plan upstream contribution
 3. Data structure mismatches → Complete mapping before coding
 
 **Medium-Risk Items**:
+
 1. Performance regression → Benchmark during implementation
 2. Exception handling gaps → Comprehensive testing
 3. Config entry migration → Test upgrade path early

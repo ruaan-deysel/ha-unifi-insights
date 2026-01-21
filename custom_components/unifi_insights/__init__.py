@@ -56,10 +56,13 @@ PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.CAMERA,
+    Platform.DEVICE_TRACKER,
+    Platform.EVENT,
     Platform.LIGHT,
     Platform.SWITCH,
     Platform.SELECT,
     Platform.NUMBER,
+    Platform.UPDATE,
 ]
 
 # Add CONFIG_SCHEMA definition

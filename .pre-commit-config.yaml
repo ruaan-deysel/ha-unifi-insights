@@ -1,14 +1,17 @@
+---
 # Pre-commit hooks for ha-unifi-insights
+# Aligned with Home Assistant Core pre-commit configuration
+# See: https://github.com/home-assistant/core/blob/dev/.pre-commit-config.yaml
+
 repos:
-  # Ruff - align with Home Assistant Core
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.13.0
+    rev: v0.14.13
     hooks:
       - id: ruff-check
-        args: [--fix]
+        args:
+          - --fix
       - id: ruff-format
-
-  # Codespell - align with Home Assistant Core
+        files: ^((custom_components|tests|scripts)/.+)?[^/]+\.(py|pyi)$
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
@@ -18,52 +21,50 @@ repos:
           - --skip="./.*,*.csv,*.json,*.ambr"
           - --quiet-level=2
         exclude_types: [csv, json, html]
-        exclude: ^tests/fixtures/|homeassistant/generated/|tests/components/.*/snapshots/
-
-  # Security checks
-  - repo: https://github.com/PyCQA/bandit
-    rev: 1.7.10
-    hooks:
-      - id: bandit
-        args: [-c, pyproject.toml]
-        additional_dependencies: ["bandit[toml]"]
-
-  # Checks for Python code quality
+        exclude: ^tests/fixtures/
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
-      - id: check-ast
-      - id: check-builtin-literals
-      - id: check-case-conflict
-      - id: check-docstring-first
-      - id: check-merge-conflict
-      - id: check-toml
-      - id: check-yaml
-      - id: debug-statements
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-      - id: mixed-line-ending
-
-  # YAML linting (HA core uses this)
+      - id: check-executables-have-shebangs
+        stages: [manual]
+      - id: check-json
+        exclude: (.vscode|.devcontainer)
+      - id: no-commit-to-branch
+        args:
+          - --branch=main
   - repo: https://github.com/adrienverge/yamllint.git
     rev: v1.37.1
     hooks:
       - id: yamllint
-
-  # Type checking with mypy
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: v3.6.2
+    hooks:
+      - id: prettier
+        additional_dependencies:
+          - prettier@3.6.2
+          - prettier-plugin-sort-json@4.2.0
+  - repo: https://github.com/cdce8p/python-typing-update
+    rev: v0.6.0
+    hooks:
+      # Run `python-typing-update` hook manually from time to time
+      # to update python typing syntax.
+      # Will require manual work, before submitting changes!
+      # prek run --hook-stage manual python-typing-update --all-files
+      - id: python-typing-update
+        stages: [manual]
+        args:
+          - --py311-plus
+          - --force
+          - --keep-updates
+        files: ^(custom_components|tests|scripts)/.+\.py$
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.13.0
     hooks:
       - id: mypy
-        args: [--ignore-missing-imports, --no-strict-optional]
+        args:
+          - --ignore-missing-imports
+          - --no-strict-optional
+          - --check-untyped-defs
+        files: ^custom_components/.+\.py$
         additional_dependencies:
           - types-aiofiles
-
-  # Check for common security issues
-  - repo: https://github.com/pre-commit/pygrep-hooks
-    rev: v1.10.0
-    hooks:
-      - id: python-check-blanket-noqa
-      - id: python-check-mock-methods
-      - id: python-no-eval
-      - id: python-no-log-warn

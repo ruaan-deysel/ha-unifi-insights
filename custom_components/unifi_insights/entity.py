@@ -312,11 +312,9 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
             elif device_type == DEVICE_TYPE_SENSOR:
                 device_info["suggested_area"] = "Security"
 
-            # Add MAC connection if available
-            if "mac" in lookup_device_data:
-                device_info["connections"] = {
-                    (CONNECTION_NETWORK_MAC, lookup_device_data.get("mac"))
-                }
+            # Add MAC connection if available and not None
+            if mac := lookup_device_data.get("mac"):
+                device_info["connections"] = {(CONNECTION_NETWORK_MAC, mac)}
 
             _LOGGER.debug(
                 "Created new device info for %s device %s", device_type, device_id

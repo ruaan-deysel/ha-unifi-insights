@@ -45,6 +45,26 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+
+def _get_client_type(client: dict[str, Any]) -> str:
+    """
+    Extract client type from client data.
+
+    As of unifi-official-api v1.1.0, the API properly serializes the ClientType
+    enum to string values ("WIRED" or "WIRELESS"). This helper normalizes the
+    value for comparison and handles edge cases.
+    """
+    client_type = client.get("type") or client.get("connection_type", "")
+    # Normalize to uppercase string
+    type_str = str(client_type).upper()
+    # Handle both direct values and any legacy enum format
+    if "WIRED" in type_str:
+        return "WIRED"
+    if "WIRELESS" in type_str:
+        return "WIRELESS"
+    return type_str
+
+
 # Coordinator handles updates centrally (Gold/Platinum requirement)
 PARALLEL_UPDATES = 0
 
@@ -54,6 +74,9 @@ class UnifiInsightsSensorEntityDescription(SensorEntityDescription):  # type: ig
     """Class describing UniFi Insights sensor entities."""
 
     value_fn: Callable[[dict[str, Any]], StateType] | None = None
+    # Device feature required for this sensor (e.g., 'switching', 'accessPoint')
+    # If None, sensor applies to all devices
+    required_feature: str | None = None
 
 
 @dataclass
@@ -249,14 +272,10 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         name="Wired Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:network",
+        # Only show on switch devices (devices with 'switching' feature)
+        required_feature="switching",
         value_fn=lambda stats: len(
-            [
-                c
-                for c in stats.get("clients", [])
-                if (c.get("type") or c.get("connection_type", "")).upper() == "WIRED"
-                and (c.get("uplinkDeviceId") or c.get("uplink_device_id"))
-                == stats.get("id")
-            ]
+            [c for c in stats.get("clients", []) if _get_client_type(c) == "WIRED"]
         ),
     ),
     UnifiInsightsSensorEntityDescription(
@@ -265,14 +284,10 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         name="Wireless Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wifi",
+        # Only show on access point devices (devices with 'accessPoint' feature)
+        required_feature="accessPoint",
         value_fn=lambda stats: len(
-            [
-                c
-                for c in stats.get("clients", [])
-                if (c.get("type") or c.get("connection_type", "")).upper() == "WIRELESS"
-                and (c.get("uplinkDeviceId") or c.get("uplink_device_id"))
-                == stats.get("id")
-            ]
+            [c for c in stats.get("clients", []) if _get_client_type(c) == "WIRELESS"]
         ),
     ),
 )
@@ -371,7 +386,7 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
 )
 
 
-async def async_setup_entry(  # noqa: PLR0912
+async def async_setup_entry(  # noqa: PLR0912, PLR0915
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -398,17 +413,35 @@ async def async_setup_entry(  # noqa: PLR0912
                 coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
             )
             device_name = device_data.get("name", device_id)
+            # Get device features for filtering (e.g., ['switching'], ['accessPoint'])
+            device_features = device_data.get("features", [])
+            if not isinstance(device_features, list):
+                device_features = []
 
             _LOGGER.debug(
-                "Creating sensors for device %s (%s) in site %s (%s)",
+                "Creating sensors for device %s (%s) in site %s (%s), features: %s",
                 device_id,
                 device_name,
                 site_id,
                 site_name,
+                device_features,
             )
 
             for description in SENSOR_TYPES:
-                entities.append(  # noqa: PERF401
+                # Skip sensor if it requires a specific feature the device doesn't have
+                if (
+                    description.required_feature is not None
+                    and description.required_feature not in device_features
+                ):
+                    _LOGGER.debug(
+                        "Skipping sensor %s for %s - needs feature %s",
+                        description.key,
+                        device_name,
+                        description.required_feature,
+                    )
+                    continue
+
+                entities.append(
                     UnifiInsightsSensor(
                         coordinator=coordinator,
                         description=description,

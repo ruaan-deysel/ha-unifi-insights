@@ -14,7 +14,7 @@
 - Q: Library version compatibility strategy → A: Pin minor version - Allow patch updates with unifi-official-api~=1.0.0 (permits 1.0.x but not 1.1.0)
 - Q: Diagnostic information detail for library troubleshooting → A: Standard - Include library version, redacted connection info, and sanitized error messages from library
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Seamless Existing Functionality (Priority: P1)
 
@@ -78,7 +78,7 @@ The integration follows Home Assistant core patterns for external library usage,
 - What happens if beta testers discover issues during pre-release validation?
 - How does the system handle diagnostic data collection if the library fails to initialize or import?
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -107,7 +107,7 @@ The integration follows Home Assistant core patterns for external library usage,
 - **Protect Camera**: Represents a UniFi Protect camera with video/image streaming and control capabilities
 - **Device Metrics**: CPU usage, memory usage, uptime, network throughput for monitored devices
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 

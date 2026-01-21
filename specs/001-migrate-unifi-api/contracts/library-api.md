@@ -43,12 +43,12 @@ await client.validate()
 
 ### Parameters
 
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `host` | str | Yes | None | UniFi controller URL |
-| `api_key` | str | Yes | None | API key from controller |
-| `verify_ssl` | bool | No | True | Verify SSL certificates |
-| `timeout` | int | No | 30 | Request timeout in seconds |
+| Parameter    | Type | Required | Default | Description                |
+| ------------ | ---- | -------- | ------- | -------------------------- |
+| `host`       | str  | Yes      | None    | UniFi controller URL       |
+| `api_key`    | str  | Yes      | None    | API key from controller    |
+| `verify_ssl` | bool | No       | True    | Verify SSL certificates    |
+| `timeout`    | int  | No       | 30      | Request timeout in seconds |
 
 ---
 
@@ -63,42 +63,49 @@ network = client.network
 ### Methods (To Be Documented)
 
 #### Get Sites
+
 ```python
 sites = await client.network.get_sites()
 # Returns: List[dict]
 ```
 
 #### Get Devices
+
 ```python
 devices = await client.network.get_devices(site_id: str)
 # Returns: List[dict]
 ```
 
 #### Get Device Info
+
 ```python
 device = await client.network.get_device(site_id: str, device_id: str)
 # Returns: dict
 ```
 
 #### Get Device Stats
+
 ```python
 stats = await client.network.get_device_stats(site_id: str, device_id: str)
 # Returns: dict
 ```
 
 #### Get Clients
+
 ```python
 clients = await client.network.get_clients(site_id: str)
 # Returns: List[dict]
 ```
 
 #### Restart Device
+
 ```python
 await client.network.restart_device(site_id: str, device_id: str)
 # Returns: None
 ```
 
 #### Power Cycle Port
+
 ```python
 await client.network.power_cycle_port(
     site_id: str,
@@ -123,12 +130,14 @@ protect = client.protect
 ### Methods (To Be Documented)
 
 #### Get Cameras
+
 ```python
 cameras = await client.protect.get_cameras()
 # Returns: List[dict]
 ```
 
 #### Get Camera Snapshot
+
 ```python
 snapshot_bytes = await client.protect.get_snapshot(
     camera_id: str,
@@ -138,6 +147,7 @@ snapshot_bytes = await client.protect.get_snapshot(
 ```
 
 #### Get Stream URL
+
 ```python
 stream_url = await client.protect.get_stream_url(
     camera_id: str,
@@ -147,6 +157,7 @@ stream_url = await client.protect.get_stream_url(
 ```
 
 #### Update Camera
+
 ```python
 await client.protect.update_camera(
     camera_id: str,
@@ -156,12 +167,14 @@ await client.protect.update_camera(
 ```
 
 #### Get Lights
+
 ```python
 lights = await client.protect.get_lights()
 # Returns: List[dict]
 ```
 
 #### Update Light
+
 ```python
 await client.protect.update_light(
     light_id: str,
@@ -240,12 +253,12 @@ Exception
 
 ### Exception Details
 
-| Exception | When Raised | Attributes | Recommended Action |
-|-----------|-------------|------------|-------------------|
-| `UniFiAuthError` | Invalid API key, expired credentials | `message`, `status_code` | Trigger reauth |
-| `UniFiConnectionError` | Network unreachable, DNS failure | `message`, `original_error` | Mark unavailable |
-| `UniFiAPIError` | API errors (4xx/5xx responses) | `message`, `status_code`, `response` | Log + retry |
-| `UniFiTimeoutError` | Request exceeds timeout | `message`, `timeout` | Retry with backoff |
+| Exception              | When Raised                          | Attributes                           | Recommended Action |
+| ---------------------- | ------------------------------------ | ------------------------------------ | ------------------ |
+| `UniFiAuthError`       | Invalid API key, expired credentials | `message`, `status_code`             | Trigger reauth     |
+| `UniFiConnectionError` | Network unreachable, DNS failure     | `message`, `original_error`          | Mark unavailable   |
+| `UniFiAPIError`        | API errors (4xx/5xx responses)       | `message`, `status_code`, `response` | Log + retry        |
+| `UniFiTimeoutError`    | Request exceeds timeout              | `message`, `timeout`                 | Retry with backoff |
 
 **[Verify and complete during research Task 4]**
 

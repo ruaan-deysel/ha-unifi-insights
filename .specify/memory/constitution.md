@@ -3,7 +3,9 @@
 ## Core Principles
 
 ### I. Home Assistant First
+
 Every feature must align with Home Assistant's integration quality scale and best practices:
+
 - Follow the [Home Assistant Integration Quality Scale](https://developers.home-assistant.io/docs/integration_quality_scale_index/)
 - Adhere to HA entity naming conventions and device classes
 - Use config flows for setup (no YAML configuration)
@@ -12,7 +14,9 @@ Every feature must align with Home Assistant's integration quality scale and bes
 - **Non-negotiable**: Must pass `hassfest` validation before any release
 
 ### II. API Abstraction Layer
+
 Clean separation between UniFi Network API and Home Assistant entities:
+
 - All UniFi API calls isolated in dedicated client modules
 - Entities consume data through coordinator, never call API directly
 - API client must be independently testable without HA
@@ -21,7 +25,9 @@ Clean separation between UniFi Network API and Home Assistant entities:
 - Handle API rate limiting and connection resilience gracefully
 
 ### III. Test-First Development (NON-NEGOTIABLE)
+
 TDD mandatory for all features and bug fixes:
+
 - **Red**: Write failing test first (unit or integration)
 - **Green**: Implement minimal code to pass test
 - **Refactor**: Clean up while keeping tests green
@@ -34,7 +40,9 @@ TDD mandatory for all features and bug fixes:
   - Service call execution
 
 ### IV. User-Centric Design
+
 Every user interaction must be intuitive and helpful:
+
 - Clear, descriptive entity names (no cryptic abbreviations)
 - Sensible default update intervals (balance freshness vs. API load)
 - Helpful error messages that guide users to solutions
@@ -44,7 +52,9 @@ Every user interaction must be intuitive and helpful:
 - **Golden Rule**: If it requires looking at code to understand, it's not user-centric
 
 ### V. Defensive Reliability
+
 Assume everything can and will fail:
+
 - Graceful degradation when UniFi controller unavailable
 - Entity availability reflects actual device/API state
 - No crashes on malformed API responses
@@ -54,7 +64,9 @@ Assume everything can and will fail:
 - **Principle**: Users should never see Python tracebacks in their logs
 
 ### VI. Versioning & Release Discipline
+
 Semantic versioning with Home Assistant compatibility:
+
 - **Format**: `YYYY.MM.PATCH` (aligns with HA release calendar)
 - **Breaking changes**: Must include migration path in release notes
 - **Deprecations**: Warn in logs for 2 releases before removal
@@ -63,7 +75,9 @@ Semantic versioning with Home Assistant compatibility:
 - **HACS compliance**: Validate with HACS action before release
 
 ### VII. Code Quality & Maintainability
+
 High standards for readability and sustainability:
+
 - Type hints required for all functions and methods
 - Docstrings for all public APIs (Google style)
 - Ruff + Pylint compliance mandatory (no exceptions without justification)
@@ -74,6 +88,7 @@ High standards for readability and sustainability:
 ## Architecture Constraints
 
 ### Entity Structure
+
 ```
 Platform        | Purpose                    | Update Source
 ----------------|----------------------------|------------------
@@ -83,6 +98,7 @@ switch          | Device restart control     | Service call + state
 ```
 
 ### Data Flow Pattern
+
 ```
 UniFi API → API Client → Coordinator → Entities
               ↑              ↑            ↑
@@ -90,6 +106,7 @@ UniFi API → API Client → Coordinator → Entities
 ```
 
 ### Coordinator Responsibilities
+
 - Single source of truth for UniFi data
 - Handles update intervals (default: 30s, configurable: 10s-300s)
 - Implements exponential backoff on failures
@@ -97,6 +114,7 @@ UniFi API → API Client → Coordinator → Entities
 - Manages API session lifecycle
 
 ### Configuration Management
+
 - **Config Flow**: All user setup (host, API key, site selection)
 - **Options Flow**: Update interval, monitored device filters
 - **Storage**: Encrypted credentials via config entries
@@ -105,6 +123,7 @@ UniFi API → API Client → Coordinator → Entities
 ## Code Quality Standards
 
 ### Python Style
+
 - **Formatter**: Ruff (line length: 100)
 - **Linter**: Ruff + Pylint (strict mode)
 - **Type Checker**: mypy in strict mode (phased adoption)
@@ -116,6 +135,7 @@ UniFi API → API Client → Coordinator → Entities
   - Private: `_leading_underscore`
 
 ### Documentation Requirements
+
 - **README**: Quick start, features, screenshots, troubleshooting
 - **CONTRIBUTING**: Setup, testing, PR guidelines
 - **Code comments**: Why, not what (code should explain what)
@@ -123,6 +143,7 @@ UniFi API → API Client → Coordinator → Entities
 - **Inline comments**: Only for non-obvious logic or gotchas
 
 ### Testing Standards
+
 ```python
 # Required test structure
 tests/
@@ -137,6 +158,7 @@ tests/
 ```
 
 ### Git Workflow
+
 - **Branch naming**: `feature/description`, `fix/issue-number`, `docs/topic`
 - **Commits**: Conventional Commits format
   - `feat:` - New features
@@ -154,6 +176,7 @@ tests/
 ## Development Workflow
 
 ### Feature Development Cycle
+
 1. **Issue Creation**: Describe problem/feature with user impact
 2. **Design Discussion**: For complex features, outline approach first
 3. **Test Writing**: Create failing tests that define success
@@ -165,7 +188,9 @@ tests/
 9. **Merge**: Squash and merge with clean commit message
 
 ### Quality Gates
+
 Before merging any PR:
+
 - ✅ All tests pass (100% of the time)
 - ✅ Code coverage ≥80% overall
 - ✅ No ruff/pylint violations
@@ -175,6 +200,7 @@ Before merging any PR:
 - ✅ Breaking changes documented in PR and release notes
 
 ### Release Process
+
 1. **Version Bump**: Update `manifest.json` version
 2. **Changelog**: Consolidate changes since last release
 3. **Tag**: Create git tag with version number
@@ -183,6 +209,7 @@ Before merging any PR:
 6. **Monitoring**: Watch for issues in first 48 hours post-release
 
 ### Debugging & Support
+
 - **Debug Logging**: Enable via HA logger config
 - **Diagnostics**: Implement `async_get_config_entry_diagnostics`
 - **Issue Template**: Guide users to provide logs, versions, configuration
@@ -192,18 +219,21 @@ Before merging any PR:
 ## Security Requirements
 
 ### Credential Handling
+
 - API keys stored encrypted via HA config entry
 - Never log credentials (even in debug mode)
 - Support for HA secrets in config (for manual YAML tweaks)
 - Secure defaults (verify SSL unless explicitly disabled)
 
 ### API Communication
+
 - Default to HTTPS for UniFi controller connections
 - Option to disable SSL verification (with warning)
 - No credential transmission over unencrypted connections
 - Rate limiting to prevent API abuse/DOS
 
 ### User Data
+
 - No telemetry or data collection
 - All data stays local to user's HA instance
 - Device information not shared with third parties
@@ -212,12 +242,14 @@ Before merging any PR:
 ## Governance
 
 ### Constitution Authority
+
 - This constitution supersedes all other practices and documentation
 - All PRs must demonstrate compliance with these principles
 - Violations require justification and approval from maintainer
 - Regular reviews (every 6 months) to ensure relevance
 
 ### Amendment Process
+
 1. Propose change via GitHub issue with rationale
 2. Discussion period (minimum 2 weeks for major changes)
 3. Approval required from maintainer
@@ -226,12 +258,14 @@ Before merging any PR:
 6. Allow adaptation period before strict enforcement
 
 ### Exceptions
+
 - Exceptions to these rules require documented justification
 - Security fixes may bypass normal workflow (emergency process)
 - Temporary exceptions must have sunset date
 - All exceptions tracked in EXCEPTIONS.md
 
 ### Conflict Resolution
+
 - Constitution > Home Assistant Guidelines > Personal Preference
 - When guidelines conflict, prioritize:
   1. User safety and privacy

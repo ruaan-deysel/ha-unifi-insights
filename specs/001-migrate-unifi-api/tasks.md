@@ -25,10 +25,10 @@
 
 **Purpose**: Project initialization and dependency management
 
-- [X] T001 Add unifi-official-api~=1.0.0 to custom_components/unifi_insights/manifest.json requirements array
-- [X] T002 Update requirements.txt to include unifi-official-api~=1.0.0 for development
-- [X] T003 [P] Create tests directory structure (tests/conftest.py, tests/fixtures/)
-- [X] T004 [P] Create test fixtures for library mocks in tests/fixtures/library_responses.py
+- [x] T001 Add unifi-official-api~=1.0.0 to custom_components/unifi_insights/manifest.json requirements array
+- [x] T002 Update requirements.txt to include unifi-official-api~=1.0.0 for development
+- [x] T003 [P] Create tests directory structure (tests/conftest.py, tests/fixtures/)
+- [x] T004 [P] Create test fixtures for library mocks in tests/fixtures/library_responses.py
 
 ---
 
@@ -38,15 +38,15 @@
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [X] T005 Create data transformation module in custom_components/unifi_insights/data_transforms.py with transform_network_device() and transform_protect_camera() stubs
-- [X] T006 [P] Research unifi-official-api library documentation and complete contracts/library-api.md with verified method signatures
-- [X] T007 [P] Update research.md Section 1 with complete library API method mapping matrix (verify all 42+ methods)
-- [X] T008 [P] Update research.md Section 4 with exception handling patterns and complete exception mapping matrix
-- [X] T009 Verify library WebSocket support and update research.md Section 4 with WebSocket migration decision (Scenario A/B/C)
-- [X] T010 Update data-model.md with actual library field names (replace all "?" placeholders with verified library response schemas)
-- [X] T011 [P] Implement all transformation functions in data_transforms.py (transform_network_device, transform_protect_camera, transform_protect_light, transform_protect_sensor, transform_protect_chime)
-- [X] T012 [P] Create pytest fixtures for mocking UniFiClient in tests/conftest.py with mock_unifi_client fixture
-- [X] T013 [P] Write unit tests for data transformation functions in tests/test_data_transforms.py
+- [x] T005 Create data transformation module in custom_components/unifi_insights/data_transforms.py with transform_network_device() and transform_protect_camera() stubs
+- [x] T006 [P] Research unifi-official-api library documentation and complete contracts/library-api.md with verified method signatures
+- [x] T007 [P] Update research.md Section 1 with complete library API method mapping matrix (verify all 42+ methods)
+- [x] T008 [P] Update research.md Section 4 with exception handling patterns and complete exception mapping matrix
+- [x] T009 Verify library WebSocket support and update research.md Section 4 with WebSocket migration decision (Scenario A/B/C)
+- [x] T010 Update data-model.md with actual library field names (replace all "?" placeholders with verified library response schemas)
+- [x] T011 [P] Implement all transformation functions in data_transforms.py (transform_network_device, transform_protect_camera, transform_protect_light, transform_protect_sensor, transform_protect_chime)
+- [x] T012 [P] Create pytest fixtures for mocking UniFiClient in tests/conftest.py with mock_unifi_client fixture
+- [x] T013 [P] Write unit tests for data transformation functions in tests/test_data_transforms.py
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -59,6 +59,7 @@
 **Independent Test**: Upgrade existing installation and verify all entities maintain state, attributes, and responsiveness exactly as before
 
 **TDD Enforcement (Constitution Principle IV - NON-NEGOTIABLE)**:
+
 - Tests MUST be written BEFORE or ALONGSIDE implementation (Red-Green-Refactor cycle)
 - Recommended execution order:
   1. Write test fixtures and mocks (T003-T004, T012 already done in Phase 2)
@@ -71,59 +72,59 @@
 
 ### Core Coordinator Migration for User Story 1
 
-- [X] T014 [US1] Update custom_components/unifi_insights/__init__.py imports (remove custom API imports, add UniFiClient from unifi_official_api)
-- [X] T015 [US1] Replace custom client initialization with UniFiClient in custom_components/unifi_insights/__init__.py async_setup_entry()
-- [X] T016 [US1] Add library validation call in custom_components/unifi_insights/__init__.py with exception translation (UniFiAuthError → ConfigEntryAuthFailed)
-- [X] T017 [US1] Update custom_components/unifi_insights/coordinator.py __init__() to accept single UniFiClient instead of two custom clients
-- [X] T018 [US1] Refactor custom_components/unifi_insights/coordinator.py _async_update_data() Network API section to use client.network.get_sites() and apply transform_network_device()
-- [X] T019 [US1] Refactor custom_components/unifi_insights/coordinator.py _async_update_data() Protect API section to use client.protect.get_cameras() and apply transformation functions
-- [X] T020 [US1] Update exception handling in custom_components/unifi_insights/coordinator.py _async_update_data() to catch library exceptions and translate to UpdateFailed
-- [X] T021 [US1] Update custom_components/unifi_insights/config_flow.py async_step_user() to use UniFiClient.validate() for API key validation
-- [X] T022 [US1] Update custom_components/unifi_insights/config_flow.py async_step_reauth() to use library exceptions (UniFiAuthError)
+- [x] T014 [US1] Update custom_components/unifi_insights/**init**.py imports (remove custom API imports, add UniFiClient from unifi_official_api)
+- [x] T015 [US1] Replace custom client initialization with UniFiClient in custom_components/unifi_insights/**init**.py async_setup_entry()
+- [x] T016 [US1] Add library validation call in custom_components/unifi_insights/**init**.py with exception translation (UniFiAuthError → ConfigEntryAuthFailed)
+- [x] T017 [US1] Update custom_components/unifi_insights/coordinator.py **init**() to accept single UniFiClient instead of two custom clients
+- [x] T018 [US1] Refactor custom_components/unifi_insights/coordinator.py \_async_update_data() Network API section to use client.network.get_sites() and apply transform_network_device()
+- [x] T019 [US1] Refactor custom_components/unifi_insights/coordinator.py \_async_update_data() Protect API section to use client.protect.get_cameras() and apply transformation functions
+- [x] T020 [US1] Update exception handling in custom_components/unifi_insights/coordinator.py \_async_update_data() to catch library exceptions and translate to UpdateFailed
+- [x] T021 [US1] Update custom_components/unifi_insights/config_flow.py async_step_user() to use UniFiClient.validate() for API key validation
+- [x] T022 [US1] Update custom_components/unifi_insights/config_flow.py async_step_reauth() to use library exceptions (UniFiAuthError)
 
 ### Entity Platform Updates for User Story 1
 
-- [X] T023 [P] [US1] Update custom_components/unifi_insights/entity.py base entity classes to handle transformed data structures
-- [X] T024 [P] [US1] Verify custom_components/unifi_insights/sensor.py entities consume transformed data correctly (no changes needed if transformation layer works)
-- [X] T025 [P] [US1] Verify custom_components/unifi_insights/binary_sensor.py entities consume transformed data correctly
-- [X] T026 [P] [US1] Update custom_components/unifi_insights/camera.py async_camera_image() to use client.protect.get_snapshot()
-- [X] T027 [P] [US1] Update custom_components/unifi_insights/camera.py async_stream_source() to use client.protect.get_stream_url()
-- [X] T028 [P] [US1] Update custom_components/unifi_insights/light.py async_turn_on/off() to use client.protect.update_light()
-- [X] T029 [P] [US1] Update custom_components/unifi_insights/switch.py async_turn_on/off() to use client.protect.update_camera() for microphone control
-- [X] T030 [P] [US1] Update custom_components/unifi_insights/select.py async_select_option() to use client.protect.set_*_mode() methods
-- [X] T031 [P] [US1] Update custom_components/unifi_insights/number.py async_set_native_value() to use client.protect.set_*_volume() and client.protect.set_*_brightness() methods
-- [X] T032 [P] [US1] Update custom_components/unifi_insights/button.py async_press() to use client.network.restart_device() and client.protect.play_chime()
+- [x] T023 [P] [US1] Update custom_components/unifi_insights/entity.py base entity classes to handle transformed data structures
+- [x] T024 [P] [US1] Verify custom_components/unifi_insights/sensor.py entities consume transformed data correctly (no changes needed if transformation layer works)
+- [x] T025 [P] [US1] Verify custom_components/unifi_insights/binary_sensor.py entities consume transformed data correctly
+- [x] T026 [P] [US1] Update custom_components/unifi_insights/camera.py async_camera_image() to use client.protect.get_snapshot()
+- [x] T027 [P] [US1] Update custom_components/unifi_insights/camera.py async_stream_source() to use client.protect.get_stream_url()
+- [x] T028 [P] [US1] Update custom_components/unifi_insights/light.py async_turn_on/off() to use client.protect.update_light()
+- [x] T029 [P] [US1] Update custom_components/unifi_insights/switch.py async_turn_on/off() to use client.protect.update_camera() for microphone control
+- [x] T030 [P] [US1] Update custom*components/unifi_insights/select.py async_select_option() to use client.protect.set*\*\_mode() methods
+- [x] T031 [P] [US1] Update custom*components/unifi_insights/number.py async_set_native_value() to use client.protect.set*_*volume() and client.protect.set*_\_brightness() methods
+- [x] T032 [P] [US1] Update custom_components/unifi_insights/button.py async_press() to use client.network.restart_device() and client.protect.play_chime()
 
 ### Services Migration for User Story 1
 
-- [X] T033 [P] [US1] Update custom_components/unifi_insights/services.py async_restart_device() to use client.network.restart_device()
-- [X] T034 [P] [US1] Update custom_components/unifi_insights/services.py async_power_cycle_port() to use client.network.power_cycle_port()
-- [X] T035 [P] [US1] Update custom_components/unifi_insights/services.py async_authorize_guest() to use client.network.authorize_guest()
-- [X] T036 [P] [US1] Update custom_components/unifi_insights/services.py voucher-related services to use client.network.*_voucher() methods
-- [X] T037 [P] [US1] Update custom_components/unifi_insights/services.py Protect camera services to use client.protect.set_*_mode() methods
-- [X] T038 [P] [US1] Update custom_components/unifi_insights/services.py PTZ services to use client.protect.ptz_*() methods
-- [X] T039 [P] [US1] Update custom_components/unifi_insights/services.py chime services to use client.protect.*_chime() methods
+- [x] T033 [P] [US1] Update custom_components/unifi_insights/services.py async_restart_device() to use client.network.restart_device()
+- [x] T034 [P] [US1] Update custom_components/unifi_insights/services.py async_power_cycle_port() to use client.network.power_cycle_port()
+- [x] T035 [P] [US1] Update custom_components/unifi_insights/services.py async_authorize_guest() to use client.network.authorize_guest()
+- [x] T036 [P] [US1] Update custom_components/unifi_insights/services.py voucher-related services to use client.network.\*\_voucher() methods
+- [x] T037 [P] [US1] Update custom*components/unifi_insights/services.py Protect camera services to use client.protect.set*\*\_mode() methods
+- [x] T038 [P] [US1] Update custom*components/unifi_insights/services.py PTZ services to use client.protect.ptz*\*() methods
+- [x] T039 [P] [US1] Update custom_components/unifi_insights/services.py chime services to use client.protect.\*\_chime() methods
 
 ### WebSocket Migration for User Story 1
 
-- [X] T040 [US1] Implement WebSocket migration based on research.md Section 4 decision (Scenario A: migrate to library, Scenario B: hybrid, or Scenario C: maintain custom)
-- [X] T041 [US1] Update custom_components/unifi_insights/coordinator.py WebSocket callback handlers (_handle_device_update, _handle_event_update) to work with library WebSocket events (if Scenario A)
-- [X] T042 [US1] Test WebSocket reconnection and message handling with library (if Scenario A)
+- [x] T040 [US1] Implement WebSocket migration based on research.md Section 4 decision (Scenario A: migrate to library, Scenario B: hybrid, or Scenario C: maintain custom)
+- [x] T041 [US1] Update custom_components/unifi_insights/coordinator.py WebSocket callback handlers (\_handle_device_update, \_handle_event_update) to work with library WebSocket events (if Scenario A)
+- [x] T042 [US1] Test WebSocket reconnection and message handling with library (if Scenario A)
 
 ### Diagnostics and Cleanup for User Story 1
 
-- [X] T043 [US1] Update custom_components/unifi_insights/diagnostics.py async_get_config_entry_diagnostics() to include library version from unifi_official_api.__version__
-- [X] T044 [US1] Add sanitized library connection info (host with redacted credentials) to diagnostics output
-- [X] T045 [US1] Remove custom_components/unifi_insights/unifi_network_api.py (601 lines)
-- [X] T046 [US1] Remove custom_components/unifi_insights/unifi_protect_api.py (1840 lines)
-- [X] T047 [US1] Remove unused imports from all files (search for UnifiInsightsClient, UnifiProtectClient references)
+- [x] T043 [US1] Update custom_components/unifi_insights/diagnostics.py async_get_config_entry_diagnostics() to include library version from unifi_official_api.**version**
+- [x] T044 [US1] Add sanitized library connection info (host with redacted credentials) to diagnostics output
+- [x] T045 [US1] Remove custom_components/unifi_insights/unifi_network_api.py (601 lines)
+- [x] T046 [US1] Remove custom_components/unifi_insights/unifi_protect_api.py (1840 lines)
+- [x] T047 [US1] Remove unused imports from all files (search for UnifiInsightsClient, UnifiProtectClient references)
 
 ### Tests for User Story 1 (REQUIRED - TDD: Write FIRST)
 
 > **CRITICAL**: Per Constitution Principle IV (NON-NEGOTIABLE), these tests MUST be written BEFORE or ALONGSIDE implementation tasks T014-T047. Follow Red-Green-Refactor: write failing tests first, implement to pass, refactor. Start T048-T058 before or in parallel with T014-T047.
 
-- [X] T048 [P] [US1] Write config flow tests in tests/test_config_flow.py with mocked library (test setup, reauth, validation)
-- [X] T049 [P] [US1] Write coordinator tests in tests/test_coordinator.py with mocked library (test _async_update_data, exception handling, data transformation)
+- [x] T048 [P] [US1] Write config flow tests in tests/test_config_flow.py with mocked library (test setup, reauth, validation)
+- [x] T049 [P] [US1] Write coordinator tests in tests/test_coordinator.py with mocked library (test \_async_update_data, exception handling, data transformation)
 - [~] T050 [P] [US1] Write sensor entity tests in tests/test_sensor.py (test state, attributes, availability)
 - [ ] T051 [P] [US1] Write binary sensor entity tests in tests/test_binary_sensor.py
 - [ ] T052 [P] [US1] Write camera entity tests in tests/test_camera.py (test snapshot, stream URL generation)
@@ -185,7 +186,7 @@
 ### Architecture Compliance for User Story 3
 
 - [ ] T075 [P] [US3] Audit all entity files to verify ZERO direct library imports (only coordinator access allowed)
-- [ ] T076 [P] [US3] Verify coordinator is sole interface to library (grep for "from unifi_official_api import" outside coordinator and __init__)
+- [ ] T076 [P] [US3] Verify coordinator is sole interface to library (grep for "from unifi_official_api import" outside coordinator and **init**)
 - [ ] T077 [P] [US3] Review exception handling patterns against HA core integrations (compare with similar integrations)
 - [ ] T078 [P] [US3] Verify entity unique IDs follow HA conventions and are preserved from pre-migration
 
@@ -259,6 +260,7 @@
 ### Within Each User Story
 
 **User Story 1 Internal Order (TDD-Compliant)**:
+
 1. **Tests (T048-T058)** - Write FIRST or in parallel with implementation (TDD: Red-Green-Refactor)
 2. Core Coordinator Migration (T014-T022) - MUST complete with corresponding tests (T048-T049)
 3. Entity Platform Updates (T023-T032) - Can run in parallel after coordinator done, with tests (T050-T057)
@@ -268,12 +270,14 @@
 7. Coverage Validation (T059-T060) - Final check after all implementation complete
 
 **User Story 2 Internal Order**:
+
 1. Error Handling (T061-T064) - Can run in parallel
 2. Connection Management (T065-T068) - Can run in parallel with error handling
 3. Documentation (T069-T071) - Can run in parallel with tests
 4. Tests (T072-T074) - Can run after error handling and connection management
 
 **User Story 3 Internal Order**:
+
 1. Architecture Compliance (T075-T078) - Can run in parallel
 2. Code Quality (T079-T082) - Can run in parallel with architecture audit
 3. Integration Quality Scale (T083-T086) - Sequential, depends on code quality passing
@@ -284,11 +288,13 @@
 **Phase 1 (Setup)**: All 4 tasks marked [P] can run in parallel
 
 **Phase 2 (Foundational)**:
+
 - T006, T007, T008, T009 can run in parallel (research tasks, different sections)
 - T010 waits for T006-T009 (needs library documentation)
 - T011, T012, T013 can run in parallel after T010 (different files)
 
 **Phase 3 (User Story 1)**:
+
 - Coordinator migration (T014-T022) MUST be sequential
 - After coordinator done, these groups can run in parallel:
   - Entity updates: T023-T032 (10 tasks, different files)
@@ -297,17 +303,20 @@
   - Test writing: T048-T060 (13 tasks, different test files)
 
 **Phase 4 (User Story 2)**:
+
 - T061-T064 can run in parallel (error handling, different aspects)
 - T065-T068 can run in parallel (connection management tests)
 - T069-T071 can run in parallel (documentation updates)
 - T072-T073 can run in parallel (different test files)
 
 **Phase 5 (User Story 3)**:
+
 - T075-T078 can run in parallel (architecture audits, different aspects)
 - T079-T082 can run in parallel (code quality tools, different aspects)
 - T087-T088 can run in parallel (different test files)
 
 **Phase 6 (Polish)**:
+
 - T090-T095 can run in parallel (different documentation files)
 - T096-T105 are mostly sequential (manual testing and release prep)
 
@@ -446,14 +455,17 @@ With multiple developers following strict TDD:
 ## Independent Test Criteria
 
 ### User Story 1 (P1): Seamless Existing Functionality
+
 **Test**: Upgrade existing installation, verify all entities maintain exact same state/attributes/responsiveness
 **Success**: Zero user-facing changes, all 8 platforms working, custom API code removed, tests >=80% coverage
 
 ### User Story 2 (P2): Improved Reliability and Maintainability
+
 **Test**: Monitor error logs over 4+ hours with network disruptions, verify graceful error handling
 **Success**: No crashes, entity availability reflects connection state, library handles retries transparently
 
 ### User Story 3 (P3): Standards-Compliant Architecture
+
 **Test**: Code review against HA integration quality scale, verify coordinator pattern compliance
 **Success**: Hassfest passes, coordinator sole library interface, entities never call library, HA patterns followed
 
@@ -464,6 +476,7 @@ With multiple developers following strict TDD:
 **Minimum Viable Product = User Story 1 Only (T001-T060)**
 
 This delivers:
+
 - ✅ Complete migration to unifi-official-api library
 - ✅ All 8 entity platforms working
 - ✅ All services functional
@@ -474,6 +487,7 @@ This delivers:
 **Rationale**: US1 alone provides the core value (library adoption, code cleanup, HA best practices). US2 and US3 are enhancements that can follow incrementally.
 
 **Recommended Release Strategy**:
+
 1. **Alpha Release**: US1 complete (internal testing)
 2. **Beta Release**: US1 + US2 complete (beta testers)
 3. **RC Release**: US1 + US2 + US3 complete (final validation)
@@ -484,6 +498,7 @@ This delivers:
 **End of Tasks**
 
 **Next Steps**:
+
 1. Execute Phase 1 (Setup) - T001-T004
 2. Execute Phase 2 (Foundational) - T005-T013 - **CRITICAL CHECKPOINT**
 3. Begin User Story 1 implementation - T014-T060

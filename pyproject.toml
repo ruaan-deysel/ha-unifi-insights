@@ -1,6 +1,6 @@
 [project]
 name = "ha-unifi-insights"
-version = "2026.02.0"
+version = "2026.2.0"
 description = "UniFi Insights Home Assistant Integration"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -92,7 +92,14 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["ARG", "S101", "ANN001"]  # Allow unused arguments, asserts, and missing annotations in tests
+"tests/*" = [
+    "ARG",      # Allow unused arguments in tests (fixtures)
+    "S101",     # Allow asserts in tests
+    "ANN",      # Allow missing annotations in tests
+    "PLR0913",  # Allow many function arguments (fixtures)
+    "PLR0915",  # Allow many statements in setup helpers
+    "PLR2004",  # Allow magic values in tests
+]
 
 [tool.ruff.lint.isort]
 force-sort-within-sections = true

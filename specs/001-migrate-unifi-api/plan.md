@@ -11,6 +11,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 
 **Language/Version**: Python 3.11+ (Home Assistant 2025.9.0+ requirement)
 **Primary Dependencies**:
+
 - Home Assistant >= 2025.9.0
 - unifi-official-api ~= 1.0.0 (new, to be added)
 - aiohttp (HA-provided, async HTTP)
@@ -21,11 +22,13 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 **Target Platform**: Home Assistant OS, Container, Core installations
 **Project Type**: Single project (Home Assistant custom integration)
 **Performance Goals**:
+
 - Coordinator update cycles <= 30s (maintain current performance)
 - No increase in memory footprint
 - WebSocket reconnection within 8-120s (exponential backoff)
 
 **Constraints**:
+
 - Must pass hassfest validation
 - Zero user-facing breaking changes
 - Entity unique IDs must remain unchanged (preserve history)
@@ -33,6 +36,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - All 8 platforms must maintain feature parity
 
 **Scale/Scope**:
+
 - ~7,900 LOC current integration
 - Remove ~2,441 LOC (custom API clients)
 - Modify ~450 LOC (coordinator)
@@ -41,9 +45,10 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
 ### ✅ Principle I: Home Assistant First
+
 - **Status**: PASS
 - **Evidence**:
   - Integration follows HA coordinator pattern
@@ -53,6 +58,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: Verify hassfest passes with unifi-official-api dependency
 
 ### ✅ Principle II: External Library Dependency (NON-NEGOTIABLE)
+
 - **Status**: PASS (this is the migration goal)
 - **Evidence**:
   - Migration specifically adopts unifi-official-api library
@@ -61,6 +67,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: Core objective of this migration
 
 ### ✅ Principle III: API Abstraction Layer
+
 - **Status**: PASS
 - **Evidence**:
   - Coordinator already serves as abstraction layer
@@ -69,6 +76,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: Update coordinator to wrap library instead of custom clients
 
 ### ✅ Principle IV: Test-First Development (NON-NEGOTIABLE)
+
 - **Status**: PASS - Strict TDD will be enforced
 - **Evidence**:
   - pytest.ini configured
@@ -80,6 +88,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Enforcement**: Tasks.md restructured to ensure test-first approach for all new code
 
 ### ✅ Principle V: User-Centric Design
+
 - **Status**: PASS
 - **Evidence**:
   - Migration is internal only
@@ -88,6 +97,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: None (user experience unchanged)
 
 ### ✅ Principle VI: Defensive Reliability
+
 - **Status**: PASS
 - **Evidence**:
   - Current integration has robust error handling
@@ -96,6 +106,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: Map library exceptions to ConfigEntryAuthFailed/ConfigEntryNotReady
 
 ### ✅ Principle VII: Versioning & Release Discipline
+
 - **Status**: PASS
 - **Evidence**:
   - Version format follows YYYY.MM.PATCH
@@ -104,6 +115,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: Update manifest.json version, create changelog
 
 ### ✅ Principle VIII: Code Quality & Maintainability
+
 - **Status**: PASS
 - **Evidence**:
   - Existing code uses type hints
@@ -112,6 +124,7 @@ Migrate the ha-unifi-insights Home Assistant integration from custom UniFi API c
 - **Action**: Maintain code quality standards during migration
 
 ### Gate Status: ✅ **PASS**
+
 All constitution principles satisfied. Principle IV (Test-First Development) compliance ensured through strict TDD task ordering in tasks.md - tests written before implementation for all new code.
 
 ## Project Structure
@@ -209,16 +222,19 @@ tests/                          # New directory structure
 ## Research Tasks
 
 ### Task 1: Library API Documentation Review
+
 **Goal**: Understand complete unifi-official-api 1.0.0 interface
 **Method**: Review library source code, documentation, examples
 **Output**: Comprehensive API reference in `contracts/library-api.md`
 
 ### Task 2: Custom API to Library Method Mapping
+
 **Goal**: Create 1:1 mapping of all custom client methods to library equivalents
 **Method**: Compare UnifiInsightsClient + UnifiProtectClient methods with library
 **Output**: Migration matrix in `research.md`
 
 **Known Custom Methods (Network API - 17 methods):**
+
 - `async_validate_api_key()` → ?
 - `async_get_sites()` → ?
 - `async_get_devices(site_id)` → ?
@@ -235,6 +251,7 @@ tests/                          # New directory structure
 - `async_delete_vouchers_by_filter(site_id, ...)` → ?
 
 **Known Custom Methods (Protect API - 24+ methods):**
+
 - `async_validate_api_key()` → ?
 - `async_get_cameras()` → ?
 - `async_get_lights()` → ?
@@ -265,11 +282,13 @@ tests/                          # New directory structure
 - `register_event_update_callback(callback)` → ?
 
 ### Task 3: WebSocket Capability Assessment
+
 **Goal**: Determine library WebSocket support and migration strategy
 **Method**: Review library WebSocket implementation
 **Output**: WebSocket migration plan in `research.md`
 
 **Current Custom WebSocket Features:**
+
 - Two separate WebSocket connections (devices + events)
 - Heartbeat mechanism (30-45s interval)
 - Exponential backoff with jitter (8-120s delays)
@@ -280,33 +299,39 @@ tests/                          # New directory structure
 - Connection state tracking (5 states)
 
 **Decision Point**: If library doesn't support WebSockets, determine:
+
 - Can we contribute WebSocket support upstream?
 - Should we maintain hybrid approach (library for HTTP, custom for WebSocket)?
 - What's the impact on real-time updates?
 
 ### Task 4: Exception Handling Strategy
+
 **Goal**: Define exception translation layer
 **Method**: Review library exception types, plan mapping
 **Output**: Exception handling matrix in `research.md`
 
 **Required Mappings:**
+
 - Library auth exceptions → `ConfigEntryAuthFailed`
 - Library connection exceptions → `ConfigEntryNotReady`
 - Library API errors → log + entity unavailability
 - Library timeout exceptions → retry with backoff
 
 ### Task 5: Testing Approach Definition
+
 **Goal**: Plan test implementation strategy
 **Method**: Review HA testing patterns, define mock approach
 **Output**: Testing strategy section in `research.md`
 
 **Test Categories:**
+
 1. **Unit Tests** - Mock library at coordinator level
 2. **Integration Tests** - Test coordinator with mocked library responses
 3. **Config Flow Tests** - Test setup/reauth with library validation
 4. **Entity Tests** - Test entity state/attributes with mocked coordinator
 
 **Mock Strategy:**
+
 - Create fixtures for library client objects
 - Mock async library methods with sample responses
 - Use pytest-asyncio for async test support
@@ -328,6 +353,7 @@ tests/                          # New directory structure
 **File**: `data-model.md`
 
 **Content Structure:**
+
 1. **Coordinator Data Structure** - Current vs. post-migration
 2. **Entity Attribute Mappings** - Custom API fields → Library fields
 3. **Data Transformation Logic** - Required conversions
@@ -336,6 +362,7 @@ tests/                          # New directory structure
 **Key Mappings Required:**
 
 ### Network Device Entities
+
 ```
 Custom API → Library
 ├── Device Status
@@ -357,6 +384,7 @@ Custom API → Library
 ```
 
 ### Protect Device Entities
+
 ```
 Custom API → Library
 ├── Camera
@@ -388,6 +416,7 @@ Custom API → Library
 **File**: `contracts/library-api.md`
 
 **Content**: Complete unifi-official-api 1.0.0 interface documentation including:
+
 - Class structure
 - Method signatures
 - Parameter types
@@ -400,6 +429,7 @@ Custom API → Library
 **File**: `quickstart.md`
 
 **Content**: Step-by-step migration reference for developers including:
+
 1. **Setup**: Install unifi-official-api library
 2. **Import Changes**: Update import statements
 3. **Client Initialization**: Library client setup
@@ -423,7 +453,7 @@ Custom API → Library
 
 2. **Coordinator Migration** (8-12 tasks)
    - Replace custom client initialization with library
-   - Update _async_update_data() method
+   - Update \_async_update_data() method
    - Migrate WebSocket handling (if supported)
    - Update exception handling
    - Add library diagnostics
@@ -552,6 +582,7 @@ Custom API → Library
 **End of Implementation Plan**
 
 Next steps:
+
 1. Execute Phase 0 research (create research.md)
 2. Execute Phase 1 design (create data-model.md, contracts/, quickstart.md)
 3. Update agent context with unifi-official-api library

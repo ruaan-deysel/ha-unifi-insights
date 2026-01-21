@@ -9,7 +9,6 @@ from homeassistant.components.light import (
     ATTR_BRIGHTNESS,
     ColorMode,
     LightEntity,
-    LightEntityFeature,
 )
 
 from .const import (
@@ -83,8 +82,7 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):  # type: ignore[misc]
         """Initialize the light."""
         super().__init__(coordinator, DEVICE_TYPE_LIGHT, light_id)
 
-        # Set up light features
-        self._attr_supported_features = LightEntityFeature.BRIGHTNESS
+        # Set up light features - brightness is indicated via ColorMode, not features
         self._attr_color_mode = ColorMode.BRIGHTNESS
         self._attr_supported_color_modes = {ColorMode.BRIGHTNESS}
 

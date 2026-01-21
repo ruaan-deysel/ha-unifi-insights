@@ -80,7 +80,7 @@ Force an immediate refresh of UniFi Insights data.
 ```yaml
 service: unifi_insights.refresh_data
 data:
-  site_id: optional-site-id  # Optional
+  site_id: optional-site-id # Optional
 ```
 
 ### `unifi_insights.restart_device`

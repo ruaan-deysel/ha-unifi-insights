@@ -401,7 +401,7 @@ logger:
   default: info
   logs:
     custom_components.unifi_insights: debug
-    unifi_official_api: debug  # Library logs
+    unifi_official_api: debug # Library logs
 ```
 
 ### Test Library Directly
@@ -475,13 +475,13 @@ print("Library:", json.dumps(lib_device, indent=2))
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| Import errors | Verify library installed: `pip list \| grep unifi` |
-| Auth failures | Check API key valid, not expired |
-| Connection errors | Verify host URL, SSL settings |
-| Missing methods | Check library version (should be ~=1.0.0) |
-| Test failures | Update mocks to match library interface |
+| Issue             | Solution                                           |
+| ----------------- | -------------------------------------------------- |
+| Import errors     | Verify library installed: `pip list \| grep unifi` |
+| Auth failures     | Check API key valid, not expired                   |
+| Connection errors | Verify host URL, SSL settings                      |
+| Missing methods   | Check library version (should be ~=1.0.0)          |
+| Test failures     | Update mocks to match library interface            |
 
 ---
 

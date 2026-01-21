@@ -1,10 +1,11 @@
+---
 name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   unit-test:
@@ -23,7 +24,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: 3.11
-          cache: 'pip'
+          cache: "pip"
 
       - name: Install dependencies
         run: |

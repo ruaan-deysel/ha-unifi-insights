@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -10,7 +11,6 @@ from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
-from homeassistant.const import EntityCategory
 
 from .const import (
     ATTR_CHIME_ID,
@@ -19,11 +19,10 @@ from .const import (
     CHIME_RINGTONE_DEFAULT,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
+    DOMAIN,
+    MANUFACTURER,
 )
 from .entity import UnifiInsightsEntity, UnifiProtectEntity
-
-# Client device type for buttons
-DEVICE_TYPE_CLIENT = "client"
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -109,20 +108,50 @@ async def async_setup_entry(  # noqa: PLR0912
                 coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
             )
 
-            # Check if device has PoE ports
-            port_table = device_data.get("port_table", [])
-            for port in port_table:
-                # Only add power cycle button for ports that support PoE
-                if port.get("poe_enable"):
-                    port_idx = port.get("port_idx")
-                    entities.append(
-                        UnifiPortPowerCycleButton(
-                            coordinator=coordinator,
-                            site_id=site_id,
-                            device_id=device_id,
-                            port_idx=port_idx,
+            # Check if device has switching feature and ports
+            features = device_data.get("features", [])
+            if "switching" not in features:
+                continue
+
+            # Get ports from interfaces structure (new API format)
+            # Note: interfaces can be a list (from get_all) or dict (from get)
+            # When it's a list like ['ports'], it only indicates interface types
+            # When it's a dict like {'ports': [...]}, it contains actual port data
+            interfaces = device_data.get("interfaces", {})
+            # interfaces is a list from get_all(), dict from get()
+            ports = interfaces.get("ports", []) if isinstance(interfaces, dict) else []
+            for port in ports:
+                # Only add power cycle button for ports that have PoE enabled
+                poe_config = port.get("poe", {})
+                if poe_config.get("enabled"):
+                    port_idx = port.get("idx") or port.get("portIdx")
+                    if port_idx is not None:
+                        entities.append(
+                            UnifiPortPowerCycleButton(
+                                coordinator=coordinator,
+                                site_id=site_id,
+                                device_id=device_id,
+                                port_idx=port_idx,
+                            )
                         )
-                    )
+
+    # Add reconnect buttons for connected clients
+    for site_id, clients in coordinator.data.get("clients", {}).items():
+        for client_id, client_data in clients.items():
+            client_name = (
+                client_data.get("name")
+                or client_data.get("hostname")
+                or client_data.get("mac", client_id)
+            )
+
+            _LOGGER.debug("Adding reconnect button for client %s", client_name)
+            entities.append(
+                UnifiClientReconnectButton(
+                    coordinator=coordinator,
+                    site_id=site_id,
+                    client_id=client_id,
+                )
+            )
 
     # Add UniFi Protect chime play buttons
     if coordinator.protect_client:
@@ -164,40 +193,6 @@ async def async_setup_entry(  # noqa: PLR0912
                         camera_id=camera_id,
                     )
                 )
-
-    # Add client block/unblock buttons for each connected client
-    for site_id, clients in coordinator.data.get("clients", {}).items():
-        for client_id, client_data in clients.items():
-            client_name = (
-                client_data.get("name")
-                or client_data.get("hostname")
-                or client_data.get("mac", client_id)
-            )
-            is_blocked = client_data.get("blocked", False)
-
-            _LOGGER.debug(
-                "Adding block/unblock buttons for client %s (blocked=%s)",
-                client_name,
-                is_blocked,
-            )
-
-            # Add block button (only if not already blocked)
-            entities.append(
-                UnifiClientBlockButton(
-                    coordinator=coordinator,
-                    site_id=site_id,
-                    client_id=client_id,
-                )
-            )
-
-            # Add unblock button (only if blocked)
-            entities.append(
-                UnifiClientUnblockButton(
-                    coordinator=coordinator,
-                    site_id=site_id,
-                    client_id=client_id,
-                )
-            )
 
     _LOGGER.info("Adding %d UniFi Insights buttons", len(entities))
     async_add_entities(entities)
@@ -362,7 +357,13 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
         self._attr_name = f"Port {port_idx} Power Cycle"
 
     async def async_press(self) -> None:
-        """Power cycle the port."""
+        """
+        Power cycle the PoE port.
+
+        This performs a power cycle by disabling PoE, waiting briefly,
+        then re-enabling PoE. This is useful for rebooting PoE devices
+        like IP cameras or access points.
+        """
         _LOGGER.debug(
             "Power cycling port %s on device %s in site %s",
             self._port_idx,
@@ -371,11 +372,25 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
         )
 
         try:
-            await self.coordinator.network_client.power_cycle_port(
-                site_id=self._site_id,
-                device_id=self._device_id,
-                port_idx=self._port_idx,
+            # Disable PoE on the port
+            await self.coordinator.network_client.devices.execute_port_action(
+                self._site_id,
+                self._device_id,
+                self._port_idx,
+                poe_mode="off",
             )
+
+            # Wait briefly for the port to power down
+            await asyncio.sleep(2)
+
+            # Re-enable PoE on the port
+            await self.coordinator.network_client.devices.execute_port_action(
+                self._site_id,
+                self._device_id,
+                self._port_idx,
+                poe_mode="auto",
+            )
+
             _LOGGER.info(
                 "Successfully power cycled port %s on device %s in site %s",
                 self._port_idx,
@@ -392,7 +407,7 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
 
     @property
     def available(self) -> bool:  # noqa: PLR0911
-        """Return if the port is available."""
+        """Return if the port is available for power cycling."""
         devices = self.coordinator.data.get("devices", {})
         if not isinstance(devices, dict):
             return False
@@ -408,16 +423,108 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
         if not isinstance(state, str) or state != "ONLINE":
             return False
 
-        # Check if port exists and has PoE enabled
-        port_table = device_data.get("port_table", [])
-        if not isinstance(port_table, list):
+        # Check if port exists and has PoE enabled (new API format)
+        interfaces = device_data.get("interfaces", {})
+        if not isinstance(interfaces, dict):
+            return False
+        ports = interfaces.get("ports", [])
+        if not isinstance(ports, list):
             return False
 
-        for port in port_table:
-            if isinstance(port, dict) and port.get("port_idx") == self._port_idx:
-                poe_enabled = port.get("poe_enable", False)
-                return isinstance(poe_enabled, bool) and poe_enabled
+        for port in ports:
+            if not isinstance(port, dict):
+                continue
+            port_idx = port.get("idx") or port.get("portIdx")
+            if port_idx == self._port_idx:
+                poe_config = port.get("poe", {})
+                if isinstance(poe_config, dict):
+                    return poe_config.get("enabled", False) is True
         return False
+
+
+class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
+    """Button to force a client to reconnect."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:refresh"
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        site_id: str,
+        client_id: str,
+    ) -> None:
+        """Initialize the button."""
+        self.coordinator = coordinator
+        self._site_id = site_id
+        self._client_id = client_id
+
+        # Get client info for naming
+        client_data = self._get_client_data()
+        client_name = (
+            client_data.get("name")
+            or client_data.get("hostname")
+            or client_data.get("mac", client_id)
+        )
+
+        self._attr_unique_id = f"{site_id}_{client_id}_reconnect"
+        self._attr_name = f"{client_name} Reconnect"
+
+        # Device info - associate with the connected network device (switch/AP)
+        uplink_device_id = client_data.get("uplinkDeviceId") or client_data.get(
+            "uplink_device_id"
+        )
+        if uplink_device_id:
+            # Use the network device's identifiers to group under it
+            self._attr_device_info: dict[str, Any] = {
+                "identifiers": {(DOMAIN, f"{site_id}_{uplink_device_id}")},
+            }
+        else:
+            # Fallback: create a standalone client device if no uplink found
+            self._attr_device_info = {
+                "identifiers": {(DOMAIN, f"client_{client_id}")},
+                "name": client_name,
+                "manufacturer": MANUFACTURER,
+                "model": "Network Client",
+                "via_device": (DOMAIN, site_id),
+            }
+
+    def _get_client_data(self) -> dict[str, Any]:
+        """Get client data from coordinator."""
+        result: dict[str, Any] = (
+            self.coordinator.data.get("clients", {})
+            .get(self._site_id, {})
+            .get(self._client_id, {})
+        )
+        return result
+
+    @property
+    def available(self) -> bool:
+        """Return if button is available."""
+        client_data = self._get_client_data()
+        return bool(client_data)
+
+    async def async_press(self) -> None:
+        """Force client to reconnect."""
+        _LOGGER.debug(
+            "Reconnecting client %s in site %s", self._client_id, self._site_id
+        )
+
+        try:
+            await self.coordinator.network_client.clients.reconnect(
+                self._site_id, self._client_id
+            )
+            _LOGGER.info(
+                "Successfully reconnected client %s in site %s",
+                self._client_id,
+                self._site_id,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Error reconnecting client %s in site %s",
+                self._client_id,
+                self._site_id,
+            )
 
 
 class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # type: ignore[misc]
@@ -483,155 +590,4 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
         except Exception:
             _LOGGER.exception(
                 "Error stopping PTZ patrol for camera %s", self._device_id
-            )
-
-
-class UnifiClientBlockButton(ButtonEntity):  # type: ignore[misc]
-    """Button to block a network client."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:account-cancel"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(
-        self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
-        site_id: str,
-        client_id: str,
-    ) -> None:
-        """Initialize the button."""
-        self.coordinator = coordinator
-        self._site_id = site_id
-        self._client_id = client_id
-
-        # Get client data for naming
-        client_data = self._get_client_data()
-        client_name = (
-            client_data.get("name")
-            or client_data.get("hostname")
-            or client_data.get("mac", client_id)
-        )
-
-        self._attr_unique_id = f"{site_id}_{client_id}_block"
-        self._attr_name = f"Block {client_name}"
-
-        # Device info - associate with the client
-        self._attr_device_info = {
-            "identifiers": {("unifi_insights", f"client_{client_id}")},
-            "name": client_name,
-            "manufacturer": "Ubiquiti",
-            "model": "Network Client",
-            "via_device": ("unifi_insights", site_id),
-        }
-
-    def _get_client_data(self) -> dict[str, Any]:
-        """Get client data from coordinator."""
-        result: dict[str, Any] = (
-            self.coordinator.data.get("clients", {})
-            .get(self._site_id, {})
-            .get(self._client_id, {})
-        )
-        return result
-
-    @property
-    def available(self) -> bool:
-        """Return if button is available (client not already blocked)."""
-        client_data = self._get_client_data()
-        # Only available if client exists and is not blocked
-        return bool(client_data) and not client_data.get("blocked", False)
-
-    async def async_press(self) -> None:
-        """Block the client."""
-        _LOGGER.debug("Blocking client %s in site %s", self._client_id, self._site_id)
-
-        try:
-            await self.coordinator.network_client.clients.block(
-                self._site_id, self._client_id
-            )
-            _LOGGER.info(
-                "Successfully blocked client %s in site %s",
-                self._client_id,
-                self._site_id,
-            )
-            # Request coordinator refresh to update state
-            await self.coordinator.async_request_refresh()
-        except Exception:
-            _LOGGER.exception(
-                "Error blocking client %s in site %s", self._client_id, self._site_id
-            )
-
-
-class UnifiClientUnblockButton(ButtonEntity):  # type: ignore[misc]
-    """Button to unblock a network client."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:account-check"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(
-        self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
-        site_id: str,
-        client_id: str,
-    ) -> None:
-        """Initialize the button."""
-        self.coordinator = coordinator
-        self._site_id = site_id
-        self._client_id = client_id
-
-        # Get client data for naming
-        client_data = self._get_client_data()
-        client_name = (
-            client_data.get("name")
-            or client_data.get("hostname")
-            or client_data.get("mac", client_id)
-        )
-
-        self._attr_unique_id = f"{site_id}_{client_id}_unblock"
-        self._attr_name = f"Unblock {client_name}"
-
-        # Device info - associate with the client
-        self._attr_device_info = {
-            "identifiers": {("unifi_insights", f"client_{client_id}")},
-            "name": client_name,
-            "manufacturer": "Ubiquiti",
-            "model": "Network Client",
-            "via_device": ("unifi_insights", site_id),
-        }
-
-    def _get_client_data(self) -> dict[str, Any]:
-        """Get client data from coordinator."""
-        result: dict[str, Any] = (
-            self.coordinator.data.get("clients", {})
-            .get(self._site_id, {})
-            .get(self._client_id, {})
-        )
-        return result
-
-    @property
-    def available(self) -> bool:
-        """Return if button is available (client is blocked)."""
-        client_data = self._get_client_data()
-        # Only available if client exists and is blocked
-        blocked = client_data.get("blocked", False)
-        return bool(client_data) and bool(blocked)
-
-    async def async_press(self) -> None:
-        """Unblock the client."""
-        _LOGGER.debug("Unblocking client %s in site %s", self._client_id, self._site_id)
-
-        try:
-            await self.coordinator.network_client.clients.unblock(
-                self._site_id, self._client_id
-            )
-            _LOGGER.info(
-                "Successfully unblocked client %s in site %s",
-                self._client_id,
-                self._site_id,
-            )
-            # Request coordinator refresh to update state
-            await self.coordinator.async_request_refresh()
-        except Exception:
-            _LOGGER.exception(
-                "Error unblocking client %s in site %s", self._client_id, self._site_id
             )

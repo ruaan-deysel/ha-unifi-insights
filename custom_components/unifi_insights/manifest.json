@@ -4,6 +4,7 @@
   "bluetooth": [],
   "codeowners": ["@ruaan-deysel"],
   "config_flow": true,
+  "dependencies": ["ffmpeg", "stream"],
   "dhcp": [],
   "documentation": "https://github.com/ruaan-deysel/ha-unifi-insights",
   "integration_type": "hub",

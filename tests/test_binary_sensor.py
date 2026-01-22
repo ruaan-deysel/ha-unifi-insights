@@ -110,6 +110,22 @@ class TestBinarySensorTypes:
         assert door.device_class == BinarySensorDeviceClass.DOOR
         assert door.device_type == DEVICE_TYPE_SENSOR
 
+    def test_sensor_tamper_sensor(self):
+        """Test sensor tamper sensor is defined."""
+        tamper = next(
+            (s for s in BINARY_SENSOR_TYPES if s.key == "sensor_tamper"), None
+        )
+        assert tamper is not None
+        assert tamper.device_class == BinarySensorDeviceClass.TAMPER
+        assert tamper.device_type == DEVICE_TYPE_SENSOR
+
+    def test_sensor_leak_sensor(self):
+        """Test sensor leak sensor is defined."""
+        leak = next((s for s in BINARY_SENSOR_TYPES if s.key == "sensor_leak"), None)
+        assert leak is not None
+        assert leak.device_class == BinarySensorDeviceClass.MOISTURE
+        assert leak.device_type == DEVICE_TYPE_SENSOR
+
 
 class TestUnifiInsightsBinarySensor:
     """Tests for UnifiInsightsBinarySensor."""
@@ -304,6 +320,23 @@ class TestUnifiProtectBinarySensor:
                         "motionDetectedAt": 1234567890,
                         "isOpened": True,
                         "openStatusChangedAt": 1234567800,
+                        "isTamperingDetected": True,
+                        "tamperingDetectedAt": 1234567850,
+                        "isLeakDetected": False,
+                        "leakDetectedAt": 0,
+                    },
+                    "sensor2": {
+                        "id": "sensor2",
+                        "name": "Water Leak Sensor",
+                        "state": "CONNECTED",
+                        "isMotionDetected": False,
+                        "motionDetectedAt": 0,
+                        "isOpened": False,
+                        "openStatusChangedAt": 0,
+                        "isTamperingDetected": False,
+                        "tamperingDetectedAt": 0,
+                        "isLeakDetected": True,
+                        "leakDetectedAt": 1234567900,
                     },
                 },
                 "nvrs": {},
@@ -409,6 +442,58 @@ class TestUnifiProtectBinarySensor:
         )
 
         assert sensor.is_on is True
+
+    async def test_sensor_tamper_detected(self, hass: HomeAssistant, mock_coordinator):
+        """Test sensor tamper detection."""
+        description = next(s for s in BINARY_SENSOR_TYPES if s.key == "sensor_tamper")
+
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="sensor1",
+        )
+
+        assert sensor.is_on is True
+
+    async def test_sensor_tamper_not_detected(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test sensor tamper when not detected."""
+        description = next(s for s in BINARY_SENSOR_TYPES if s.key == "sensor_tamper")
+
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="sensor2",
+        )
+
+        assert sensor.is_on is False
+
+    async def test_sensor_leak_detected(self, hass: HomeAssistant, mock_coordinator):
+        """Test leak sensor detection."""
+        description = next(s for s in BINARY_SENSOR_TYPES if s.key == "sensor_leak")
+
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="sensor2",
+        )
+
+        assert sensor.is_on is True
+
+    async def test_sensor_leak_not_detected(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test leak sensor when no leak detected."""
+        description = next(s for s in BINARY_SENSOR_TYPES if s.key == "sensor_leak")
+
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="sensor1",
+        )
+
+        assert sensor.is_on is False
 
     async def test_protect_sensor_no_data(self, hass: HomeAssistant, mock_coordinator):
         """Test protect sensor when data removed."""

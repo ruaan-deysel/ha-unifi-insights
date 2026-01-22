@@ -14,8 +14,12 @@ CONNECTION_TYPE_LOCAL: Final = "local"
 CONNECTION_TYPE_REMOTE: Final = "remote"
 
 # Options
-CONF_TRACK_CLIENTS: Final = "track_clients"
+CONF_TRACK_CLIENTS: Final = "track_clients"  # Deprecated, kept for migration
+CONF_TRACK_WIFI_CLIENTS: Final = "track_wifi_clients"
+CONF_TRACK_WIRED_CLIENTS: Final = "track_wired_clients"
 DEFAULT_TRACK_CLIENTS: Final = False
+DEFAULT_TRACK_WIFI_CLIENTS: Final = False
+DEFAULT_TRACK_WIRED_CLIENTS: Final = False
 
 DEFAULT_API_HOST = "https://192.168.10.1"
 SCAN_INTERVAL_NORMAL = timedelta(seconds=30)
@@ -44,6 +48,9 @@ ATTR_HDR_MODE: Final = "hdr_mode"
 ATTR_VIDEO_MODE: Final = "video_mode"
 ATTR_LAST_MOTION: Final = "last_motion"
 ATTR_SMART_DETECT_TYPES: Final = "smart_detect_types"
+ATTR_PRIVACY_MODE: Final = "privacy_mode"
+ATTR_STATUS_LIGHT: Final = "status_light"
+ATTR_HIGH_FPS_MODE: Final = "high_fps_mode"
 
 # Light attributes
 ATTR_LIGHT_ID: Final = "light_id"
@@ -197,12 +204,21 @@ ATTR_SENSOR_OPEN_STATUS_CHANGED_AT: Final = "open_status_changed_at"
 ATTR_SENSOR_LIGHT_VALUE: Final = "light_value"
 ATTR_SENSOR_HUMIDITY_VALUE: Final = "humidity_value"
 ATTR_SENSOR_TEMPERATURE_VALUE: Final = "temperature_value"
+ATTR_SENSOR_TAMPER_DETECTED: Final = "tamper_detected"
+ATTR_SENSOR_TAMPER_DETECTED_AT: Final = "tamper_detected_at"
+ATTR_SENSOR_ALARM_ENABLED: Final = "alarm_enabled"
+ATTR_SENSOR_LEAK_DETECTED: Final = "leak_detected"
+ATTR_SENSOR_LEAK_DETECTED_AT: Final = "leak_detected_at"
 
 # NVR attributes
 ATTR_NVR_ID: Final = "nvr_id"
 ATTR_NVR_NAME: Final = "nvr_name"
 ATTR_NVR_STATE: Final = "nvr_state"
 ATTR_NVR_VERSION: Final = "nvr_version"
+ATTR_NVR_STORAGE_USED: Final = "storage_used"
+ATTR_NVR_STORAGE_TOTAL: Final = "storage_total"
+ATTR_NVR_STORAGE_AVAILABLE: Final = "storage_available"
+ATTR_NVR_STORAGE_USED_PERCENT: Final = "storage_used_percent"
 
 # Chime attributes
 ATTR_CHIME_ID: Final = "chime_id"

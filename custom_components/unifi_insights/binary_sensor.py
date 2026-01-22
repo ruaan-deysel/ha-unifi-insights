@@ -22,10 +22,14 @@ from .const import (
     ATTR_LAST_MOTION,
     ATTR_SENSOR_ID,
     ATTR_SENSOR_IS_OPENED,
+    ATTR_SENSOR_LEAK_DETECTED,
+    ATTR_SENSOR_LEAK_DETECTED_AT,
     ATTR_SENSOR_MOTION_DETECTED,
     ATTR_SENSOR_MOTION_DETECTED_AT,
     ATTR_SENSOR_NAME,
     ATTR_SENSOR_OPEN_STATUS_CHANGED_AT,
+    ATTR_SENSOR_TAMPER_DETECTED,
+    ATTR_SENSOR_TAMPER_DETECTED_AT,
     CAMERA_TYPE_DOORBELL,
     CAMERA_TYPE_DOORBELL_MAIN,
     CAMERA_TYPE_DOORBELL_PACKAGE,
@@ -262,6 +266,38 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.DOOR,
         value_fn=lambda device: get_field(
             device, "isOpened", "is_opened", "opened", default=False
+        ),
+        device_type=DEVICE_TYPE_SENSOR,
+        entity_type="protect",
+    ),
+    # Sensor tamper detection
+    UnifiInsightsBinarySensorEntityDescription(
+        key="sensor_tamper",
+        translation_key="sensor_tamper",
+        name="Tamper Detection",
+        device_class=BinarySensorDeviceClass.TAMPER,
+        value_fn=lambda device: get_field(
+            device,
+            "isTamperingDetected",
+            "is_tampering_detected",
+            "tampering_detected",
+            default=False,
+        ),
+        device_type=DEVICE_TYPE_SENSOR,
+        entity_type="protect",
+    ),
+    # Sensor leak detection (for water leak sensors)
+    UnifiInsightsBinarySensorEntityDescription(
+        key="sensor_leak",
+        translation_key="sensor_leak",
+        name="Leak Detection",
+        device_class=BinarySensorDeviceClass.MOISTURE,
+        value_fn=lambda device: get_field(
+            device,
+            "isLeakDetected",
+            "is_leak_detected",
+            "leak_detected",
+            default=False,
         ),
         device_type=DEVICE_TYPE_SENSOR,
         entity_type="protect",
@@ -506,4 +542,12 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
                 ATTR_SENSOR_OPEN_STATUS_CHANGED_AT: device_data.get(
                     "openStatusChangedAt", 0
                 ),
+                ATTR_SENSOR_TAMPER_DETECTED: device_data.get(
+                    "isTamperingDetected", False
+                ),
+                ATTR_SENSOR_TAMPER_DETECTED_AT: device_data.get(
+                    "tamperingDetectedAt", 0
+                ),
+                ATTR_SENSOR_LEAK_DETECTED: device_data.get("isLeakDetected", False),
+                ATTR_SENSOR_LEAK_DETECTED_AT: device_data.get("leakDetectedAt", 0),
             }

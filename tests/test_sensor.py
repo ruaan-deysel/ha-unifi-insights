@@ -7,13 +7,18 @@ from homeassistant.const import PERCENTAGE, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.sensor import (
+    NVR_SENSOR_TYPES,
     PARALLEL_UPDATES,
     PORT_SENSOR_TYPES,
     PROTECT_SENSOR_TYPES,
     SENSOR_TYPES,
     UnifiInsightsSensor,
     UnifiPortSensor,
+    UnifiProtectNVRSensor,
     UnifiProtectSensor,
+    _bytes_to_gb,
+    _calculate_storage_available,
+    _calculate_storage_percent,
     async_setup_entry,
     bytes_to_megabits,
     format_uptime,
@@ -124,7 +129,16 @@ def mock_coordinator():
             },
             "cameras": {},
             "lights": {},
-            "nvrs": {},
+            "nvrs": {
+                "nvr1": {
+                    "id": "nvr1",
+                    "name": "Test NVR",
+                    "state": "CONNECTED",
+                    "version": "4.0.0",
+                    "storageUsedBytes": 500000000000,  # 500 GB
+                    "storageTotalBytes": 1000000000000,  # 1 TB
+                }
+            },
             "viewers": {},
             "chimes": {},
             "liveviews": {},
@@ -922,3 +936,259 @@ class TestUnifiProtectSensorAttributes:
         assert attrs["sensor_name"] == "Kitchen Sensor"
         assert attrs["battery_percentage"] == 85
         assert attrs["battery_low"] is False
+
+
+class TestNVRStorageHelpers:
+    """Tests for NVR storage helper functions."""
+
+    def test_bytes_to_gb(self):
+        """Test bytes to GB conversion."""
+        # 1 GB
+        assert _bytes_to_gb(1073741824) == 1.0
+        # 500 GB
+        assert _bytes_to_gb(536870912000) == 500.0
+        # None input
+        assert _bytes_to_gb(None) is None
+        # Small value
+        assert _bytes_to_gb(1000000) == 0.0
+
+    def test_calculate_storage_percent(self):
+        """Test storage percentage calculation."""
+        # Test 50% used storage
+        nvr_data = {
+            "storageUsedBytes": 500000000000,
+            "storageTotalBytes": 1000000000000,
+        }
+        assert _calculate_storage_percent(nvr_data) == 50.0
+
+        # Snake case keys
+        nvr_data_snake = {
+            "storage_used_bytes": 250000000000,
+            "storage_total_bytes": 1000000000000,
+        }
+        assert _calculate_storage_percent(nvr_data_snake) == 25.0
+
+        # Missing data
+        assert _calculate_storage_percent({}) is None
+        assert _calculate_storage_percent({"storageUsedBytes": 100}) is None
+        assert _calculate_storage_percent({"storageTotalBytes": 100}) is None
+
+        # Zero total (division by zero protection)
+        assert (
+            _calculate_storage_percent({"storageUsedBytes": 0, "storageTotalBytes": 0})
+            is None
+        )
+
+    def test_calculate_storage_available(self):
+        """Test storage available calculation."""
+        # 500 GB available
+        nvr_data = {
+            "storageUsedBytes": 500000000000,
+            "storageTotalBytes": 1000000000000,
+        }
+        result = _calculate_storage_available(nvr_data)
+        assert result is not None
+        assert abs(result - 465.66) < 1  # ~465 GB (500 GB in decimal)
+
+        # Snake case keys
+        nvr_data_snake = {
+            "storage_used_bytes": 250000000000,
+            "storage_total_bytes": 1000000000000,
+        }
+        result = _calculate_storage_available(nvr_data_snake)
+        assert result is not None
+
+        # Missing data
+        assert _calculate_storage_available({}) is None
+
+
+class TestNVRSensorTypes:
+    """Tests for NVR sensor type definitions."""
+
+    def test_nvr_sensor_types_defined(self):
+        """Test that NVR sensor types are properly defined."""
+        assert len(NVR_SENSOR_TYPES) == 4
+
+        keys = [s.key for s in NVR_SENSOR_TYPES]
+        assert "storage_used" in keys
+        assert "storage_total" in keys
+        assert "storage_available" in keys
+        assert "storage_used_percent" in keys
+
+    def test_nvr_sensor_types_have_device_type(self):
+        """Test that all NVR sensor types have device_type set."""
+        for sensor_type in NVR_SENSOR_TYPES:
+            assert sensor_type.device_type == "nvr"
+
+
+class TestUnifiProtectNVRSensor:
+    """Tests for UnifiProtectNVRSensor class."""
+
+    async def test_storage_used_sensor(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR storage used sensor."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_used")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        # Check native value (500 GB = ~465.66 GB in binary)
+        value = sensor.native_value
+        assert value is not None
+        assert abs(value - 465.66) < 1
+
+    async def test_storage_total_sensor(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR storage total sensor."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_total")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        # Check native value (1 TB = ~931.32 GB in binary)
+        value = sensor.native_value
+        assert value is not None
+        assert abs(value - 931.32) < 1
+
+    async def test_storage_available_sensor(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test NVR storage available sensor."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_available")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        # Check native value (~465.66 GB available)
+        value = sensor.native_value
+        assert value is not None
+        assert abs(value - 465.66) < 1
+
+    async def test_storage_percent_sensor(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR storage percentage sensor."""
+        description = next(
+            s for s in NVR_SENSOR_TYPES if s.key == "storage_used_percent"
+        )
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        # Check native value (50% used)
+        value = sensor.native_value
+        assert value == 50.0
+
+    async def test_nvr_sensor_no_data(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR sensor with missing data."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_used")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nonexistent_nvr",
+        )
+
+        assert sensor.native_value is None
+
+    async def test_nvr_sensor_unique_id(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR sensor unique ID format."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_used")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        assert sensor._attr_unique_id == "unifi_insights_nvr_nvr1_storage_used"
+
+    async def test_nvr_sensor_name(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR sensor name."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_used")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        assert sensor._attr_name == "Storage Used"
+
+
+class TestUnifiProtectNVRSensorAttributes:
+    """Tests for NVR sensor extra state attributes."""
+
+    async def test_nvr_sensor_attributes(self, hass: HomeAssistant, mock_coordinator):
+        """Test NVR sensor extra state attributes."""
+        description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_used")
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nvr1",
+        )
+
+        attrs = sensor._attr_extra_state_attributes
+        assert attrs["nvr_id"] == "nvr1"
+        assert attrs["nvr_name"] == "Test NVR"
+        assert attrs["nvr_version"] == "4.0.0"
+        assert attrs["storage_used"] is not None
+        assert attrs["storage_total"] is not None
+        assert attrs["storage_available"] is not None
+        assert attrs["storage_used_percent"] == 50.0
+
+
+class TestAsyncSetupEntryWithNVRSensors:
+    """Tests for async_setup_entry with NVR sensors."""
+
+    async def test_setup_entry_creates_nvr_sensors(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test that setup creates NVR sensors."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Should have NVR sensors (4 sensors per NVR)
+        nvr_sensors = [e for e in entities if isinstance(e, UnifiProtectNVRSensor)]
+        assert len(nvr_sensors) == 4
+
+        # Check sensor keys
+        nvr_sensor_keys = [s.entity_description.key for s in nvr_sensors]
+        assert "storage_used" in nvr_sensor_keys
+        assert "storage_total" in nvr_sensor_keys
+        assert "storage_available" in nvr_sensor_keys
+        assert "storage_used_percent" in nvr_sensor_keys
+
+    async def test_setup_entry_without_nvrs(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test setup when there are no NVRs."""
+        # Remove NVR data
+        mock_coordinator.data["protect"]["nvrs"] = {}
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Should have no NVR sensors
+        nvr_sensors = [e for e in entities if isinstance(e, UnifiProtectNVRSensor)]
+        assert len(nvr_sensors) == 0

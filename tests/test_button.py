@@ -7,6 +7,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
+    UnifiClientReconnectButton,
     UnifiInsightsButton,
     UnifiPortPowerCycleButton,
     UnifiProtectChimePlayButton,
@@ -182,7 +183,8 @@ class TestUnifiPortPowerCycleButton:
         coordinator.hass = hass
         coordinator.network_client = MagicMock()
         coordinator.network_client.base_url = "https://192.168.1.1"
-        coordinator.network_client.power_cycle_port = AsyncMock()
+        coordinator.network_client.devices = MagicMock()
+        coordinator.network_client.devices.execute_port_action = AsyncMock()
         coordinator.protect_client = None
         coordinator.data = {
             "sites": {"site1": {"id": "site1"}},
@@ -195,10 +197,13 @@ class TestUnifiPortPowerCycleButton:
                         "state": "ONLINE",
                         "macAddress": "AA:BB:CC:DD:EE:FF",
                         "ipAddress": "192.168.1.10",
-                        "port_table": [
-                            {"port_idx": 1, "poe_enable": True},
-                            {"port_idx": 2, "poe_enable": False},
-                        ],
+                        "features": ["switching"],
+                        "interfaces": {
+                            "ports": [
+                                {"idx": 1, "poe": {"enabled": True}},
+                                {"idx": 2, "poe": {"enabled": False}},
+                            ],
+                        },
                     },
                 },
             },
@@ -265,17 +270,34 @@ class TestUnifiPortPowerCycleButton:
 
         await button.async_press()
 
-        mock_coordinator.network_client.power_cycle_port.assert_called_once_with(
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
+        # Power cycle uses two calls: first disable PoE, then re-enable
+        assert (
+            mock_coordinator.network_client.devices.execute_port_action.call_count == 2
         )
+
+        # First call should disable PoE
+        first_call = (
+            mock_coordinator.network_client.devices.execute_port_action.call_args_list[
+                0
+            ]
+        )
+        assert first_call[0] == ("site1", "device1", 1)
+        assert first_call[1] == {"poe_mode": "off"}
+
+        # Second call should re-enable PoE
+        second_call = (
+            mock_coordinator.network_client.devices.execute_port_action.call_args_list[
+                1
+            ]
+        )
+        assert second_call[0] == ("site1", "device1", 1)
+        assert second_call[1] == {"poe_mode": "auto"}
 
     async def test_port_button_press_exception(
         self, hass: HomeAssistant, mock_coordinator
     ):
         """Test port button handles exception."""
-        mock_coordinator.network_client.power_cycle_port = AsyncMock(
+        mock_coordinator.network_client.devices.execute_port_action = AsyncMock(
             side_effect=Exception("API Error")
         )
 
@@ -284,6 +306,129 @@ class TestUnifiPortPowerCycleButton:
             site_id="site1",
             device_id="device1",
             port_idx=1,
+        )
+
+        # Should not raise
+        await button.async_press()
+
+
+class TestUnifiClientReconnectButton:
+    """Tests for UnifiClientReconnectButton."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.network_client.clients = MagicMock()
+        coordinator.network_client.clients.reconnect = AsyncMock()
+        coordinator.protect_client = None
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
+                    },
+                },
+            },
+            "stats": {},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "name": "My Laptop",
+                        "mac": "11:22:33:44:55:66",
+                        "hostname": "laptop",
+                        "uplinkDeviceId": "device1",
+                    },
+                    "client2": {
+                        "id": "client2",
+                        "mac": "AA:BB:CC:DD:EE:00",
+                        "hostname": "unknown",
+                    },
+                },
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    async def test_reconnect_button_init(self, hass: HomeAssistant, mock_coordinator):
+        """Test client reconnect button initialization."""
+        button = UnifiClientReconnectButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        assert button._client_id == "client1"
+        assert "My Laptop" in button._attr_name
+        assert "Reconnect" in button._attr_name
+
+    async def test_reconnect_button_available(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test button available when client exists."""
+        button = UnifiClientReconnectButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        assert button.available is True
+
+    async def test_reconnect_button_unavailable_no_client(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test button unavailable when client doesn't exist."""
+        button = UnifiClientReconnectButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="nonexistent",
+        )
+
+        assert button.available is False
+
+    async def test_reconnect_button_press(self, hass: HomeAssistant, mock_coordinator):
+        """Test client reconnect button press."""
+        button = UnifiClientReconnectButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        await button.async_press()
+
+        mock_coordinator.network_client.clients.reconnect.assert_called_once_with(
+            "site1", "client1"
+        )
+
+    async def test_reconnect_button_press_exception(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test reconnect button handles exception."""
+        mock_coordinator.network_client.clients.reconnect = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        button = UnifiClientReconnectButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
         )
 
         # Should not raise
@@ -510,9 +655,12 @@ class TestAsyncSetupEntry:
                         "state": "ONLINE",
                         "macAddress": "AA:BB:CC:DD:EE:FF",
                         "ipAddress": "192.168.1.10",
-                        "port_table": [
-                            {"port_idx": 1, "poe_enable": True},
-                        ],
+                        "features": ["switching"],
+                        "interfaces": {
+                            "ports": [
+                                {"idx": 1, "poe": {"enabled": True}},
+                            ],
+                        },
                     },
                 },
             },

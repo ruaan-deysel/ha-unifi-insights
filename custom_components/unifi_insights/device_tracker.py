@@ -10,7 +10,14 @@ from homeassistant.components.device_tracker.const import SourceType
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import CONF_TRACK_CLIENTS, DEFAULT_TRACK_CLIENTS, DOMAIN, MANUFACTURER
+from .const import (
+    CONF_TRACK_CLIENTS,
+    CONF_TRACK_WIFI_CLIENTS,
+    CONF_TRACK_WIRED_CLIENTS,
+    DEFAULT_TRACK_CLIENTS,
+    DOMAIN,
+    MANUFACTURER,
+)
 from .entity import get_field
 
 if TYPE_CHECKING:
@@ -26,6 +33,25 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 0
 
 
+def _get_client_type(client: dict[str, Any]) -> str:
+    """
+    Extract client type from client data.
+
+    As of unifi-official-api v1.1.0, the API properly serializes the ClientType
+    enum to string values ("WIRED" or "WIRELESS"). This helper normalizes the
+    value for comparison and handles edge cases.
+    """
+    client_type = client.get("type") or client.get("connection_type", "")
+    # Normalize to uppercase string
+    type_str = str(client_type).upper()
+    # Handle both direct values and any legacy enum format
+    if "WIRED" in type_str:
+        return "WIRED"
+    if "WIRELESS" in type_str:
+        return "WIRELESS"
+    return type_str
+
+
 async def async_setup_entry(
     hass: HomeAssistant,  # noqa: ARG001
     entry: UnifiInsightsConfigEntry,
@@ -34,11 +60,19 @@ async def async_setup_entry(
     """Set up device tracker for UniFi Insights integration."""
     coordinator = entry.runtime_data.coordinator
 
-    # Check if client tracking is enabled (disabled by default)
-    track_clients = entry.options.get(CONF_TRACK_CLIENTS, DEFAULT_TRACK_CLIENTS)
-    if not track_clients:
+    # Check which client types to track (support both old and new options)
+    # Migrate from old single option if new options not set
+    old_track_clients = entry.options.get(CONF_TRACK_CLIENTS, DEFAULT_TRACK_CLIENTS)
+    track_wifi = entry.options.get(CONF_TRACK_WIFI_CLIENTS, old_track_clients)
+    track_wired = entry.options.get(CONF_TRACK_WIRED_CLIENTS, old_track_clients)
+
+    if not track_wifi and not track_wired:
         _LOGGER.debug("Client tracking is disabled, skipping device_tracker setup")
         return
+
+    _LOGGER.debug(
+        "Client tracking enabled - WiFi: %s, Wired: %s", track_wifi, track_wired
+    )
 
     @callback  # type: ignore[misc]
     def async_add_clients() -> None:
@@ -46,7 +80,7 @@ async def async_setup_entry(
         entities: list[UnifiClientTracker] = []
 
         for site_id, clients in coordinator.data.get("clients", {}).items():
-            for client_id in clients:
+            for client_id, client_data in clients.items():
                 # Create unique tracker ID
                 tracker_id = f"{site_id}_{client_id}"
 
@@ -54,6 +88,19 @@ async def async_setup_entry(
                 if tracker_id in coordinator.hass.data.get(
                     f"{DOMAIN}_tracked_clients", set()
                 ):
+                    continue
+
+                # Filter by client type based on options
+                client_type = _get_client_type(client_data)
+                if client_type == "WIRELESS" and not track_wifi:
+                    _LOGGER.debug(
+                        "Skipping WiFi client %s (tracking disabled)", client_id
+                    )
+                    continue
+                if client_type == "WIRED" and not track_wired:
+                    _LOGGER.debug(
+                        "Skipping wired client %s (tracking disabled)", client_id
+                    )
                     continue
 
                 entities.append(
@@ -107,14 +154,25 @@ class UnifiClientTracker(ScannerEntity):  # type: ignore[misc]
             client_data, "name", "hostname", default=f"Client {client_id[:8]}"
         )
 
-        # Device info for grouping
-        model = get_field(client_data, "deviceName", "osName", default="Network Client")
-        self._device_info: DeviceInfo = DeviceInfo(
-            identifiers={(DOMAIN, f"client_{mac or client_id}")},
-            name=self._attr_name,
-            manufacturer=MANUFACTURER,
-            model=model,
-        )
+        # Device info - associate with connected network device (switch/AP)
+        # This groups client trackers under their uplink device for cleaner UI
+        uplink_device_id = get_field(client_data, "uplinkDeviceId", "uplink_device_id")
+        if uplink_device_id:
+            # Use the network device's identifiers to group under it
+            self._device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{site_id}_{uplink_device_id}")},
+            )
+        else:
+            # Fallback: create a standalone client device if no uplink found
+            model = get_field(
+                client_data, "deviceName", "osName", default="Network Client"
+            )
+            self._device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"client_{mac or client_id}")},
+                name=self._attr_name,
+                manufacturer=MANUFACTURER,
+                model=model,
+            )
 
     @property
     def device_info(self) -> DeviceInfo:

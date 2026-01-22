@@ -33,6 +33,8 @@ from .const import (
     CONF_CONNECTION_TYPE,
     CONF_CONSOLE_ID,
     CONF_TRACK_CLIENTS,
+    CONF_TRACK_WIFI_CLIENTS,
+    CONF_TRACK_WIRED_CLIENTS,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_REMOTE,
     DEFAULT_API_HOST,
@@ -402,15 +404,28 @@ class UnifiInsightsOptionsFlow(OptionsFlow):  # type: ignore[misc]
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        # Get current values, migrating from old CONF_TRACK_CLIENTS if needed
+        old_track_clients = self.config_entry.options.get(
+            CONF_TRACK_CLIENTS, DEFAULT_TRACK_CLIENTS
+        )
+        default_wifi = self.config_entry.options.get(
+            CONF_TRACK_WIFI_CLIENTS, old_track_clients
+        )
+        default_wired = self.config_entry.options.get(
+            CONF_TRACK_WIRED_CLIENTS, old_track_clients
+        )
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema(
                 {
                     vol.Optional(
-                        CONF_TRACK_CLIENTS,
-                        default=self.config_entry.options.get(
-                            CONF_TRACK_CLIENTS, DEFAULT_TRACK_CLIENTS
-                        ),
+                        CONF_TRACK_WIFI_CLIENTS,
+                        default=default_wifi,
+                    ): bool,
+                    vol.Optional(
+                        CONF_TRACK_WIRED_CLIENTS,
+                        default=default_wired,
                     ): bool,
                 }
             ),

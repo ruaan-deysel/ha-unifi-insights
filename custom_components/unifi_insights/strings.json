@@ -72,10 +72,12 @@
         "title": "UniFi Insights Options",
         "description": "Configure additional options for the UniFi Insights integration.",
         "data": {
-          "track_clients": "Track Network Clients"
+          "track_wifi_clients": "Track WiFi Clients",
+          "track_wired_clients": "Track Wired Clients"
         },
         "data_description": {
-          "track_clients": "Create device tracker entities for connected network clients (WiFi/LAN devices). This may create many entities."
+          "track_wifi_clients": "Create device tracker entities for connected WiFi clients. This may create many entities.",
+          "track_wired_clients": "Create device tracker entities for connected wired (LAN) clients. This may create many entities."
         }
       }
     }

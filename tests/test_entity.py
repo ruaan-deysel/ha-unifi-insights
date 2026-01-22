@@ -474,6 +474,31 @@ class TestUnifiProtectEntity:
         # Should match network device site1_device1
         assert (DOMAIN, "site1_device1") in identifiers
 
+    async def test_protect_entity_nvr_network_device_matching(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test protect NVR entity matches network device by MAC (UDM-Pro fix)."""
+        # Add NVR with MAC that matches a network device (like UDM-Pro)
+        mock_coordinator.data["protect"]["nvrs"]["nvr1"] = {
+            "id": "nvr1",
+            "name": "UDM-Pro NVR",
+            "state": "CONNECTED",
+            "mac": "AA:BB:CC:DD:EE:FF",  # Same MAC as device1
+        }
+
+        entity = UnifiProtectEntity(
+            coordinator=mock_coordinator,
+            device_type="nvr",
+            device_id="nvr1",
+        )
+
+        # Should use network device identifiers - both NVR and network device
+        # entities should appear under the same device in HA
+        device_info = entity.device_info
+        identifiers = device_info.get("identifiers", set())
+        # Should match network device site1_device1
+        assert (DOMAIN, "site1_device1") in identifiers
+
     async def test_protect_entity_no_network_match(
         self, hass: HomeAssistant, mock_coordinator
     ):

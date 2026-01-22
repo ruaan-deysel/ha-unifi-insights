@@ -80,6 +80,7 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "stats": {},
             "network_info": {},
             "vouchers": {},
+            "wifi": {},
             "protect": {
                 "cameras": {},
                 "lights": {},
@@ -392,6 +393,29 @@ class UnifiInsightsDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         len(devices_dict),
                         len(clients_dict),
                     )
+
+            # Fetch WiFi networks for each site
+            for site_id in self.data["sites"]:
+                try:
+                    _LOGGER.debug("Fetching WiFi networks for site %s", site_id)
+                    wifi_models = await self.network_client.wifi.get_all(site_id)
+                    wifi_dict = {}
+                    for wifi_model in wifi_models:
+                        wifi = self._model_to_dict(wifi_model)
+                        wifi_id = wifi.get("id")
+                        if wifi_id:
+                            wifi_dict[wifi_id] = wifi
+                    self.data["wifi"][site_id] = wifi_dict
+                    _LOGGER.debug(
+                        "Successfully fetched %d WiFi networks for site %s",
+                        len(wifi_dict),
+                        site_id,
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "Error fetching WiFi networks for site %s: %s", site_id, err
+                    )
+                    self.data["wifi"][site_id] = {}
 
             # Fetch Unifi Protect data if API is available
             if self.protect_client:

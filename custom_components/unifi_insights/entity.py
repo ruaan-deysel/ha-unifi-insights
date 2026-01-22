@@ -12,6 +12,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_LIGHT,
+    DEVICE_TYPE_NVR,
     DEVICE_TYPE_SENSOR,
     DOMAIN,
     MANUFACTURER,
@@ -220,26 +221,33 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):
         network_device_id = None
         network_site_id = None
 
-        # For cameras, try to find a matching network device by MAC address
+        # For cameras and NVRs, try to find a matching network device by MAC address
+        # This ensures devices like UDM-Pro show as a single device in HA
         # Use the original device ID for MAC lookup in case of dual-camera
         lookup_device_id = original_device_id if parent_camera_id else device_id
         lookup_device_data = coordinator.data["protect"][f"{device_type}s"].get(
             lookup_device_id, device_data
         )
 
-        if device_type == DEVICE_TYPE_CAMERA and "mac" in lookup_device_data:
-            camera_mac = lookup_device_data.get("mac")
-            if camera_mac:
+        # Match cameras and NVRs to network devices by MAC
+        should_match_mac = (
+            device_type in (DEVICE_TYPE_CAMERA, DEVICE_TYPE_NVR)
+            and "mac" in lookup_device_data
+        )
+        if should_match_mac:
+            device_mac = lookup_device_data.get("mac")
+            if device_mac:
                 # Search for a network device with the same MAC
                 for site_id, devices in coordinator.data["devices"].items():
                     for net_device_id, net_device in devices.items():
-                        if net_device.get("macAddress") == camera_mac:
+                        if net_device.get("macAddress") == device_mac:
                             network_device_id = net_device_id
                             network_site_id = site_id
                             _LOGGER.debug(
-                                "Matched network device %s at site %s for camera %s",
+                                "Matched network device %s at site %s for %s %s",
                                 net_device_id,
                                 site_id,
+                                device_type,
                                 lookup_device_id,
                             )
                             break

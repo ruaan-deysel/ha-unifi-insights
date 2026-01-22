@@ -22,6 +22,13 @@ from homeassistant.const import (
 )
 
 from .const import (
+    ATTR_NVR_ID,
+    ATTR_NVR_NAME,
+    ATTR_NVR_STORAGE_AVAILABLE,
+    ATTR_NVR_STORAGE_TOTAL,
+    ATTR_NVR_STORAGE_USED,
+    ATTR_NVR_STORAGE_USED_PERCENT,
+    ATTR_NVR_VERSION,
     ATTR_SENSOR_BATTERY,
     ATTR_SENSOR_BATTERY_LOW,
     ATTR_SENSOR_HUMIDITY_VALUE,
@@ -29,6 +36,7 @@ from .const import (
     ATTR_SENSOR_LIGHT_VALUE,
     ATTR_SENSOR_NAME,
     ATTR_SENSOR_TEMPERATURE_VALUE,
+    DEVICE_TYPE_NVR,
     DEVICE_TYPE_SENSOR,
 )
 from .entity import UnifiInsightsEntity, UnifiProtectEntity, get_field
@@ -169,6 +177,151 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda sensor: sensor.get("batteryStatus", {}).get("percentage"),
         device_type=DEVICE_TYPE_SENSOR,
+    ),
+)
+
+
+def _bytes_to_gb(bytes_value: int | None) -> float | None:
+    """Convert bytes to gigabytes."""
+    if bytes_value is None:
+        return None
+    return round(bytes_value / (1024**3), 2)
+
+
+def _has_storage_info(nvr_data: dict[str, Any]) -> bool:
+    """
+    Check if NVR data contains storage information.
+
+    The UniFi Protect Integration API v1 (public API with API keys) does not
+    return storage information. This function checks if storage data is available.
+    """
+    # Check for direct storage fields
+    if nvr_data.get("storageUsedBytes") or nvr_data.get("storageTotalBytes"):
+        return True
+    if nvr_data.get("storage_used_bytes") or nvr_data.get("storage_total_bytes"):
+        return True
+
+    # Check nested storageInfo
+    storage_info = nvr_data.get("storageInfo")
+    if isinstance(storage_info, dict):
+        # Check library model field names (usedSize, totalSize)
+        if storage_info.get("usedSize") or storage_info.get("totalSize"):
+            return True
+        # Check alternative field names
+        if storage_info.get("used_size") or storage_info.get("total_size"):
+            return True
+
+    return False
+
+
+def _get_storage_bytes(nvr_data: dict[str, Any], field: str) -> int | None:
+    """
+    Get storage bytes from NVR data, checking both direct and nested fields.
+
+    The API may return storage data in different formats:
+    - Direct: storageUsedBytes, storageTotalBytes
+    - Snake case: storage_used_bytes, storage_total_bytes
+    - Nested (library model): storageInfo.usedSize, storageInfo.totalSize
+    - Nested (snake_case): storageInfo.used_size, storageInfo.total_size
+    """
+    # Check direct camelCase fields
+    if field == "used":
+        value = nvr_data.get("storageUsedBytes") or nvr_data.get("storage_used_bytes")
+        if value is not None:
+            return value
+        # Check nested storageInfo (library model uses usedSize/totalSize)
+        storage_info = nvr_data.get("storageInfo")
+        if isinstance(storage_info, dict):
+            return (
+                storage_info.get("usedSize")
+                or storage_info.get("used_size")
+                or storage_info.get("usedSpaceBytes")
+                or storage_info.get("used_space_bytes")
+            )
+    elif field == "total":
+        value = nvr_data.get("storageTotalBytes") or nvr_data.get("storage_total_bytes")
+        if value is not None:
+            return value
+        # Check nested storageInfo (library model uses usedSize/totalSize)
+        storage_info = nvr_data.get("storageInfo")
+        if isinstance(storage_info, dict):
+            return (
+                storage_info.get("totalSize")
+                or storage_info.get("total_size")
+                or storage_info.get("totalSpaceBytes")
+                or storage_info.get("total_space_bytes")
+            )
+    return None
+
+
+def _calculate_storage_percent(nvr_data: dict[str, Any]) -> float | None:
+    """Calculate storage used percentage."""
+    used = _get_storage_bytes(nvr_data, "used")
+    total = _get_storage_bytes(nvr_data, "total")
+    if used is None or total is None or total == 0:
+        return None
+    result: float = round((used / total) * 100, 1)
+    return result
+
+
+def _calculate_storage_available(nvr_data: dict[str, Any]) -> float | None:
+    """Calculate available storage in GB."""
+    used = _get_storage_bytes(nvr_data, "used")
+    total = _get_storage_bytes(nvr_data, "total")
+    if used is None or total is None:
+        return None
+    return _bytes_to_gb(total - used)
+
+
+# Sensor descriptions for UniFi Protect NVR
+NVR_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
+    # Storage Used
+    UnifiProtectSensorEntityDescription(
+        key="storage_used",
+        translation_key="storage_used",
+        name="Storage Used",
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:harddisk",
+        value_fn=lambda nvr: _bytes_to_gb(_get_storage_bytes(nvr, "used")),
+        device_type=DEVICE_TYPE_NVR,
+    ),
+    # Storage Total
+    UnifiProtectSensorEntityDescription(
+        key="storage_total",
+        translation_key="storage_total",
+        name="Storage Total",
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:harddisk",
+        value_fn=lambda nvr: _bytes_to_gb(_get_storage_bytes(nvr, "total")),
+        device_type=DEVICE_TYPE_NVR,
+    ),
+    # Storage Available
+    UnifiProtectSensorEntityDescription(
+        key="storage_available",
+        translation_key="storage_available",
+        name="Storage Available",
+        native_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:harddisk",
+        value_fn=_calculate_storage_available,
+        device_type=DEVICE_TYPE_NVR,
+    ),
+    # Storage Used Percentage
+    UnifiProtectSensorEntityDescription(
+        key="storage_used_percent",
+        translation_key="storage_used_percent",
+        name="Storage Used Percentage",
+        native_unit_of_measurement=PERCENTAGE,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:harddisk",
+        value_fn=_calculate_storage_percent,
+        device_type=DEVICE_TYPE_NVR,
     ),
 )
 
@@ -571,6 +724,41 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                         )
                     )
 
+        # Add sensors for UniFi Protect NVRs
+        for nvr_id, nvr_data in coordinator.data["protect"]["nvrs"].items():
+            nvr_name = nvr_data.get("name", f"NVR {nvr_id}")
+
+            _LOGGER.debug(
+                "Creating sensors for UniFi Protect NVR %s (%s)",
+                nvr_id,
+                nvr_name,
+            )
+
+            # Check if storage information is available
+            # Note: The UniFi Protect Integration API v1 (public API) does not
+            # expose storage information. Storage sensors are only created when
+            # the data is actually available.
+            has_storage = _has_storage_info(nvr_data)
+            if not has_storage:
+                _LOGGER.debug(
+                    "NVR %s: Storage information not available via API, "
+                    "skipping storage sensors",
+                    nvr_name,
+                )
+
+            for description in NVR_SENSOR_TYPES:
+                if description.device_type == DEVICE_TYPE_NVR:
+                    # Skip storage sensors if storage info is not available
+                    if description.key.startswith("storage_") and not has_storage:
+                        continue
+                    entities.append(
+                        UnifiProtectNVRSensor(
+                            coordinator=coordinator,
+                            description=description,
+                            device_id=nvr_id,
+                        )
+                    )
+
     _LOGGER.info("Adding %d UniFi Insights sensors", len(entities))
     async_add_entities(entities)
 
@@ -708,7 +896,10 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             return None
 
         # Find the port data
-        ports = device_data.get("interfaces", {}).get("ports", [])
+        # Handle interfaces being a list (from get_all) vs dict (from get)
+        interfaces = device_data.get("interfaces", {})
+        # interfaces is a list from get_all(), dict from get()
+        ports = interfaces.get("ports", []) if isinstance(interfaces, dict) else []
         port_data = None
         for port in ports:
             if port.get("idx") == self._port_idx:
@@ -889,3 +1080,106 @@ class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc
                     "isLow", False
                 ),
             }
+
+
+class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc]
+    """Representation of a UniFi Protect NVR Sensor."""
+
+    entity_description: UnifiProtectSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: UnifiInsightsDataUpdateCoordinator,
+        description: UnifiProtectSensorEntityDescription,
+        device_id: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(
+            coordinator, description.device_type, device_id, description.key
+        )
+        self.entity_description = description
+
+        # Set name
+        self._attr_name = description.name
+
+        # Update initial state
+        self._update_from_data()
+
+        _LOGGER.debug(
+            "Initializing %s sensor for NVR %s",
+            description.key,
+            device_id,
+        )
+
+    @property
+    def available(self) -> bool:
+        """
+        Return True if entity is available.
+
+        NVR doesn't have a 'state' field like cameras, so we check if we have
+        valid NVR data and if storage info is available for storage sensors.
+        """
+        nvr_data = self.coordinator.data["protect"]["nvrs"].get(self._device_id)
+        if not nvr_data or not isinstance(nvr_data, dict):
+            return False
+
+        # For storage sensors, check if storage data is available
+        if self.entity_description.key in [
+            "storage_used",
+            "storage_total",
+            "storage_available",
+            "storage_used_percent",
+        ]:
+            # Check both direct fields and nested storageInfo
+            storage_info = nvr_data.get("storageInfo")
+            has_direct = (
+                nvr_data.get("storageUsedBytes") is not None
+                or nvr_data.get("storageTotalBytes") is not None
+            )
+            has_nested = storage_info is not None and isinstance(storage_info, dict)
+            return has_direct or has_nested
+
+        # For other NVR sensors, just check if we have data
+        return True
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        nvr_data = self.coordinator.data["protect"]["nvrs"].get(self._device_id)
+        if not nvr_data:
+            return None
+
+        value = self.entity_description.value_fn(nvr_data)
+
+        _LOGGER.debug(
+            "NVR sensor %s for device %s updated to %s %s",
+            self.entity_description.key,
+            self._device_id,
+            value,
+            self.native_unit_of_measurement or "",
+        )
+
+        return value
+
+    def _update_from_data(self) -> None:
+        """Update entity from data."""
+        nvr_data = self.coordinator.data["protect"]["nvrs"].get(self._device_id, {})
+
+        # Get storage values
+        storage_used = nvr_data.get("storageUsedBytes") or nvr_data.get(
+            "storage_used_bytes"
+        )
+        storage_total = nvr_data.get("storageTotalBytes") or nvr_data.get(
+            "storage_total_bytes"
+        )
+
+        # Set attributes
+        self._attr_extra_state_attributes = {
+            ATTR_NVR_ID: self._device_id,
+            ATTR_NVR_NAME: nvr_data.get("name"),
+            ATTR_NVR_VERSION: nvr_data.get("version"),
+            ATTR_NVR_STORAGE_USED: _bytes_to_gb(storage_used),
+            ATTR_NVR_STORAGE_TOTAL: _bytes_to_gb(storage_total),
+            ATTR_NVR_STORAGE_AVAILABLE: _calculate_storage_available(nvr_data),
+            ATTR_NVR_STORAGE_USED_PERCENT: _calculate_storage_percent(nvr_data),
+        }

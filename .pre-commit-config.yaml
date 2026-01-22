@@ -68,3 +68,15 @@ repos:
         files: ^custom_components/.+\.py$
         additional_dependencies:
           - types-aiofiles
+  # HACS Integration Preflight Check
+  # Validates Home Assistant custom integrations for HACS submission readiness
+  - repo: local
+    hooks:
+      - id: hacs-preflight
+        name: HACS Preflight Check
+        entry: python scripts/hacs_preflight.py
+        language: python
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+        verbose: true

@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### UniFi Network
+
 - **WiFi Network Switches**: Enable/disable WiFi networks directly from Home Assistant
 - **Client Block/Allow Switches**: Block or allow network clients
 - **Device Tracker Platform**: Track wireless and wired clients as device_tracker entities
@@ -25,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Update Platform**: Firmware update entities for network devices
 
 #### UniFi Protect
+
 - **Event Platform**: Motion, ring, and smart detection events as event entities
 - **Smart Detection Binary Sensors**: Person, vehicle, animal, and package detection
 - **Camera Switches**: Microphone, privacy mode, status light, and high FPS mode controls
@@ -32,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Chime Services**: Volume, ringtone, and repeat time controls
 
 #### Integration Features
+
 - **Connection Type Selection**: Support for both Local (direct) and Remote (cloud) connections
 - **Options Flow**: Configure WiFi and wired client tracking preferences
 - **Reauth Flow**: Handle expired API keys gracefully

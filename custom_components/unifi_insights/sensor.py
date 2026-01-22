@@ -228,29 +228,31 @@ def _get_storage_bytes(nvr_data: dict[str, Any], field: str) -> int | None:
     if field == "used":
         value = nvr_data.get("storageUsedBytes") or nvr_data.get("storage_used_bytes")
         if value is not None:
-            return value
+            return int(value) if isinstance(value, (int, float)) else None
         # Check nested storageInfo (library model uses usedSize/totalSize)
         storage_info = nvr_data.get("storageInfo")
         if isinstance(storage_info, dict):
-            return (
+            nested_value = (
                 storage_info.get("usedSize")
                 or storage_info.get("used_size")
                 or storage_info.get("usedSpaceBytes")
                 or storage_info.get("used_space_bytes")
             )
+            return int(nested_value) if isinstance(nested_value, (int, float)) else None
     elif field == "total":
         value = nvr_data.get("storageTotalBytes") or nvr_data.get("storage_total_bytes")
         if value is not None:
-            return value
+            return int(value) if isinstance(value, (int, float)) else None
         # Check nested storageInfo (library model uses usedSize/totalSize)
         storage_info = nvr_data.get("storageInfo")
         if isinstance(storage_info, dict):
-            return (
+            nested_value = (
                 storage_info.get("totalSize")
                 or storage_info.get("total_size")
                 or storage_info.get("totalSpaceBytes")
                 or storage_info.get("total_space_bytes")
             )
+            return int(nested_value) if isinstance(nested_value, (int, float)) else None
     return None
 
 

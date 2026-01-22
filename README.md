@@ -95,66 +95,66 @@ After setup, you can configure tracking options:
 
 ### Sensors
 
-| Entity | Description |
-|--------|-------------|
-| CPU Usage | Device CPU utilization percentage |
-| Memory Usage | Device memory utilization percentage |
-| Uptime | Device uptime in human-readable format |
-| TX Rate | Uplink transmit rate (Mbit/s) |
-| RX Rate | Uplink receive rate (Mbit/s) |
-| Firmware Version | Current firmware version |
-| Wired Clients | Count of wired clients (switches only) |
-| Wireless Clients | Count of wireless clients (APs only) |
-| Port PoE Power | PoE power consumption per port (W) |
-| Port Speed | Link speed per port (Mbps) |
-| Port TX/RX Bytes | Traffic counters per port |
-| Temperature | Protect sensor temperature (°C) |
-| Humidity | Protect sensor humidity (%) |
-| Light | Protect sensor light level (lux) |
-| Battery | Protect sensor battery level (%) |
-| Storage Used/Total/Available | NVR storage metrics (GB) |
+| Entity                       | Description                            |
+| ---------------------------- | -------------------------------------- |
+| CPU Usage                    | Device CPU utilization percentage      |
+| Memory Usage                 | Device memory utilization percentage   |
+| Uptime                       | Device uptime in human-readable format |
+| TX Rate                      | Uplink transmit rate (Mbit/s)          |
+| RX Rate                      | Uplink receive rate (Mbit/s)           |
+| Firmware Version             | Current firmware version               |
+| Wired Clients                | Count of wired clients (switches only) |
+| Wireless Clients             | Count of wireless clients (APs only)   |
+| Port PoE Power               | PoE power consumption per port (W)     |
+| Port Speed                   | Link speed per port (Mbps)             |
+| Port TX/RX Bytes             | Traffic counters per port              |
+| Temperature                  | Protect sensor temperature (°C)        |
+| Humidity                     | Protect sensor humidity (%)            |
+| Light                        | Protect sensor light level (lux)       |
+| Battery                      | Protect sensor battery level (%)       |
+| Storage Used/Total/Available | NVR storage metrics (GB)               |
 
 ### Binary Sensors
 
-| Entity | Description |
-|--------|-------------|
-| Device Status | Network device connectivity |
-| WAN Status | Gateway WAN connectivity |
-| Motion Detection | Camera/sensor motion detection |
-| Person Detection | AI person detection |
-| Vehicle Detection | AI vehicle detection |
-| Animal Detection | AI animal detection |
-| Package Detection | AI package detection |
-| Doorbell Ring | Doorbell ring detection |
-| Door/Window | Protect sensor open/close status |
-| Tamper | Protect sensor tamper detection |
-| Leak | Protect sensor water leak detection |
+| Entity            | Description                         |
+| ----------------- | ----------------------------------- |
+| Device Status     | Network device connectivity         |
+| WAN Status        | Gateway WAN connectivity            |
+| Motion Detection  | Camera/sensor motion detection      |
+| Person Detection  | AI person detection                 |
+| Vehicle Detection | AI vehicle detection                |
+| Animal Detection  | AI animal detection                 |
+| Package Detection | AI package detection                |
+| Doorbell Ring     | Doorbell ring detection             |
+| Door/Window       | Protect sensor open/close status    |
+| Tamper            | Protect sensor tamper detection     |
+| Leak              | Protect sensor water leak detection |
 
 ### Switches
 
-| Entity | Description |
-|--------|-------------|
-| Port Enable | Enable/disable switch ports |
-| Port PoE | Enable/disable PoE on ports |
-| WiFi Network | Enable/disable WiFi networks |
-| Client Allow | Block/allow network clients |
-| Camera Microphone | Enable/disable camera microphone |
-| Camera Privacy Mode | Enable/disable privacy mode |
-| Camera Status Light | Enable/disable status LED |
-| Camera High FPS | Enable/disable high frame rate mode |
+| Entity              | Description                         |
+| ------------------- | ----------------------------------- |
+| Port Enable         | Enable/disable switch ports         |
+| Port PoE            | Enable/disable PoE on ports         |
+| WiFi Network        | Enable/disable WiFi networks        |
+| Client Allow        | Block/allow network clients         |
+| Camera Microphone   | Enable/disable camera microphone    |
+| Camera Privacy Mode | Enable/disable privacy mode         |
+| Camera Status Light | Enable/disable status LED           |
+| Camera High FPS     | Enable/disable high frame rate mode |
 
 ### Other Entities
 
-| Platform | Description |
-|----------|-------------|
-| Button | Restart device, power cycle port |
-| Camera | Live view, snapshots, RTSPS streaming |
-| Device Tracker | Client presence detection |
-| Event | Motion, ring, and smart detection events |
-| Light | Protect light brightness control |
-| Number | Mic volume, chime volume, light level |
-| Select | Recording mode, HDR mode, video mode, light mode |
-| Update | Firmware update management |
+| Platform       | Description                                      |
+| -------------- | ------------------------------------------------ |
+| Button         | Restart device, power cycle port                 |
+| Camera         | Live view, snapshots, RTSPS streaming            |
+| Device Tracker | Client presence detection                        |
+| Event          | Motion, ring, and smart detection events         |
+| Light          | Protect light brightness control                 |
+| Number         | Mic volume, chime volume, light level            |
+| Select         | Recording mode, HDR mode, video mode, light mode |
+| Update         | Firmware update management                       |
 
 ## Services
 
@@ -265,13 +265,13 @@ logger:
 
 ### Common Issues
 
-| Issue | Solution |
-|-------|----------|
-| Cannot Connect | Verify host URL is accessible, check SSL settings |
-| Authentication Failed | Verify API key is valid and has appropriate permissions |
-| No Protect Data | Ensure you have UniFi Protect on your console |
-| Missing Entities | Check that devices are adopted in UniFi controller |
-| Storage Sensors Unavailable | The public API doesn't expose NVR storage data |
+| Issue                       | Solution                                                |
+| --------------------------- | ------------------------------------------------------- |
+| Cannot Connect              | Verify host URL is accessible, check SSL settings       |
+| Authentication Failed       | Verify API key is valid and has appropriate permissions |
+| No Protect Data             | Ensure you have UniFi Protect on your console           |
+| Missing Entities            | Check that devices are adopted in UniFi controller      |
+| Storage Sensors Unavailable | The public API doesn't expose NVR storage data          |
 
 ### Diagnostics
 

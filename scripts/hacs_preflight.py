@@ -300,7 +300,9 @@ def check_manifest_json(
             f"manifest.json domain '{manifest.get('domain')}' "
             f"doesn't match directory '{domain}'"
         )
-        print_error(f"Domain mismatch: manifest says '{manifest.get('domain')}', directory is '{domain}'")
+        print_error(
+            f"Domain mismatch: manifest says '{manifest.get('domain')}', directory is '{domain}'"
+        )
     else:
         print_success(f"Domain matches directory: {domain}")
 
@@ -309,7 +311,9 @@ def check_manifest_json(
     if version:
         # Allow calver (YYYY.M.V) or semver (X.Y.Z)
         if not re.match(r"^\d+\.\d+\.\d+(-\w+)?$", version):
-            result.warnings.append(f"Version '{version}' may not follow standard versioning")
+            result.warnings.append(
+                f"Version '{version}' may not follow standard versioning"
+            )
             print_warning(f"Version format: {version} (consider semver or calver)")
         else:
             print_success(f"Version: {version}")
@@ -387,9 +391,7 @@ def check_manifest_json(
         print_success("Key ordering is correct")
 
 
-def check_hacs_json(
-    root: Path, result: PreflightResult, autofix: bool = False
-) -> None:
+def check_hacs_json(root: Path, result: PreflightResult, autofix: bool = False) -> None:
     """Check hacs.json for HACS requirements."""
     print_header("hacs.json Validation")
 
@@ -493,11 +495,15 @@ def check_required_files(root: Path, domain: str, result: PreflightResult) -> No
         if config_flow.exists():
             print_success("config_flow.py (required when config_flow: true)")
         else:
-            result.errors.append("config_flow.py missing but config_flow: true in manifest")
+            result.errors.append(
+                "config_flow.py missing but config_flow: true in manifest"
+            )
             print_error("config_flow.py required when config_flow: true in manifest")
 
 
-def check_github_workflows(root: Path, result: PreflightResult, autofix: bool = False) -> None:
+def check_github_workflows(
+    root: Path, result: PreflightResult, autofix: bool = False
+) -> None:
     """Check for required GitHub workflows."""
     print_header("GitHub Workflows")
 
@@ -529,13 +535,20 @@ def check_github_workflows(root: Path, result: PreflightResult, autofix: bool = 
                 if "hacs/action" in content:
                     print_success("Uses official hacs/action")
                 else:
-                    result.warnings.append("HACS workflow doesn't use official hacs/action")
+                    result.warnings.append(
+                        "HACS workflow doesn't use official hacs/action"
+                    )
                     print_warning("Consider using official hacs/action")
 
-                if 'category: "integration"' in content or "category: integration" in content:
+                if (
+                    'category: "integration"' in content
+                    or "category: integration" in content
+                ):
                     print_success("Correct category: integration")
                 else:
-                    result.warnings.append("HACS workflow should specify category: integration")
+                    result.warnings.append(
+                        "HACS workflow should specify category: integration"
+                    )
                     print_warning("Should specify category: integration")
             except Exception:
                 pass
@@ -612,7 +625,9 @@ def check_branding(root: Path, domain: str, result: PreflightResult) -> None:
         if e.code == 404:
             result.info.append("Brand assets not yet registered (optional)")
             print_info("Brand icon not found in home-assistant/brands")
-            print_info("Consider submitting brand assets: https://github.com/home-assistant/brands")
+            print_info(
+                "Consider submitting brand assets: https://github.com/home-assistant/brands"
+            )
         else:
             print_warning(f"Could not check brands: HTTP {e.code}")
     except Exception as e:
@@ -729,9 +744,15 @@ Examples:
 
     args = parser.parse_args()
 
-    print(f"\n{BOLD}{CYAN}╔══════════════════════════════════════════════════════════╗{RESET}")
-    print(f"{BOLD}{CYAN}║        HACS Integration Preflight Check                  ║{RESET}")
-    print(f"{BOLD}{CYAN}╚══════════════════════════════════════════════════════════╝{RESET}")
+    print(
+        f"\n{BOLD}{CYAN}╔══════════════════════════════════════════════════════════╗{RESET}"
+    )
+    print(
+        f"{BOLD}{CYAN}║        HACS Integration Preflight Check                  ║{RESET}"
+    )
+    print(
+        f"{BOLD}{CYAN}╚══════════════════════════════════════════════════════════╝{RESET}"
+    )
 
     result = PreflightResult()
 

@@ -161,16 +161,6 @@
       "repeat_times": {
         "default": "mdi:repeat"
       }
-    },
-    "camera": {
-      "_": {
-        "default": "mdi:cctv"
-      }
-    },
-    "light": {
-      "_": {
-        "default": "mdi:lightbulb"
-      }
     }
   },
   "services": {

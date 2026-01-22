@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive linting with ruff/black
 - Pre-commit hooks for code quality
 
-## [1.0.0] - 2024-12-22
+## [2025.06.05] - 2025-06-05
 
 ### Added
 

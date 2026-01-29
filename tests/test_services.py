@@ -249,6 +249,37 @@ class TestRefreshDataService:
 
         await async_unload_services(hass)
 
+    async def test_refresh_data_site_not_found_skips_coordinator(
+        self, hass: HomeAssistant
+    ):
+        """Test refresh data skips coordinator when site_id not found."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_refresh = AsyncMock()
+        mock_coordinator.data = {"sites": {"site1": {}}}  # Only has site1
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            # Request refresh for site2, which doesn't exist
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REFRESH_DATA,
+                {"site_id": "site2"},  # Not in coordinator's sites
+                blocking=True,
+            )
+
+        # Coordinator should NOT be refreshed since site2 wasn't found
+        mock_coordinator.async_refresh.assert_not_called()
+
+        await async_unload_services(hass)
+
 
 class TestRestartDeviceService:
     """Tests for restart_device service handler."""
@@ -1608,6 +1639,60 @@ class TestServiceErrorHandling:
                 {"chime_id": "chime1", "repeat_times": 3},
                 blocking=True,
             )
+
+        await async_unload_services(hass)
+
+    async def test_set_chime_ringtone_success(self, hass: HomeAssistant):
+        """Test set_chime_ringtone success (covers line 784)."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.set_chime_ringtone = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_chime_ringtone",
+                {"chime_id": "chime1", "ringtone_id": "default"},
+                blocking=True,
+            )
+
+        mock_coordinator.protect_client.set_chime_ringtone.assert_called_once()
+
+        await async_unload_services(hass)
+
+    async def test_set_chime_repeat_times_success(self, hass: HomeAssistant):
+        """Test set_chime_repeat_times success (covers line 816)."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.set_chime_repeat = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_chime_repeat_times",
+                {"chime_id": "chime1", "repeat_times": 3},
+                blocking=True,
+            )
+
+        mock_coordinator.protect_client.set_chime_repeat.assert_called_once()
 
         await async_unload_services(hass)
 

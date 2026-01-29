@@ -22,7 +22,17 @@ DEFAULT_TRACK_WIFI_CLIENTS: Final = False
 DEFAULT_TRACK_WIRED_CLIENTS: Final = False
 
 DEFAULT_API_HOST = "https://192.168.10.1"
-SCAN_INTERVAL_NORMAL = timedelta(seconds=30)
+
+# Scan intervals for multi-coordinator architecture (Platinum compliance)
+# Device coordinator - fast updates for status, stats (30 seconds)
+SCAN_INTERVAL_DEVICE = timedelta(seconds=30)
+# Config coordinator - slow updates for sites, WiFi config (5 minutes)
+SCAN_INTERVAL_CONFIG = timedelta(minutes=5)
+# Protect coordinator - moderate updates for cameras, sensors (30 seconds)
+# Real-time updates via WebSocket when available
+SCAN_INTERVAL_PROTECT = timedelta(seconds=30)
+# Legacy alias for backward compatibility
+SCAN_INTERVAL_NORMAL = SCAN_INTERVAL_DEVICE
 
 UNIFI_API_HEADERS = {"Accept": "application/json", "Content-Type": "application/json"}
 

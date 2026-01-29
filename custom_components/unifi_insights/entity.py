@@ -17,7 +17,7 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
+from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,14 +48,14 @@ def is_device_online(data: dict[str, Any]) -> bool:
     return False
 
 
-class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):  # type: ignore[misc]
+class UnifiInsightsEntity(CoordinatorEntity[UnifiFacadeCoordinator]):  # type: ignore[misc]
     """Base class for UniFi Insights entities."""
 
     _attr_has_entity_name = True
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: EntityDescription,
         site_id: str,
         device_id: str,
@@ -174,14 +174,14 @@ class UnifiInsightsEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator])
         return result if isinstance(result, dict) else None
 
 
-class UnifiProtectEntity(CoordinatorEntity[UnifiInsightsDataUpdateCoordinator]):  # type: ignore[misc]
+class UnifiProtectEntity(CoordinatorEntity[UnifiFacadeCoordinator]):  # type: ignore[misc]
     """Base class for UniFi Protect entities."""
 
     _attr_has_entity_name = True
 
     def __init__(  # noqa: PLR0912, PLR0915
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         device_type: str,
         device_id: str,
         entity_type: str | None = None,

@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up select entities for UniFi Protect integration."""
     _ = hass
-    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
+    coordinator: UnifiFacadeCoordinator = entry.runtime_data.coordinator
 
     # Skip if Protect API is not available
     if not coordinator.protect_client:
@@ -139,7 +139,7 @@ class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):  # type: igno
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the select entity."""
@@ -198,7 +198,7 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):  # type: ig
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the select entity."""
@@ -261,7 +261,7 @@ class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):  # type
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         chime_id: str,
     ) -> None:
         """Initialize the select entity."""
@@ -322,7 +322,7 @@ class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):  # type: ig
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the select entity."""
@@ -378,7 +378,7 @@ class UnifiProtectViewerLiveviewSelect(UnifiProtectEntity, SelectEntity):  # typ
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         viewer_id: str,
     ) -> None:
         """Initialize the select entity."""

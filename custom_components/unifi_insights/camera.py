@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -38,7 +38,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up cameras for UniFi Protect integration."""
-    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
+    coordinator: UnifiFacadeCoordinator = entry.runtime_data.coordinator
     _ = hass  # hass is unused but kept for HA signature
 
     # Skip if Protect API is not available
@@ -70,7 +70,7 @@ class UnifiProtectCamera(UnifiProtectEntity, Camera):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the camera."""

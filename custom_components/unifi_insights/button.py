@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,9 +59,7 @@ async def async_setup_entry(  # noqa: PLR0912
 ) -> None:
     """Set up buttons for UniFi Insights integration."""
     _ = hass
-    coordinator: UnifiInsightsDataUpdateCoordinator = (
-        config_entry.runtime_data.coordinator
-    )
+    coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
     entities = []
 
     _LOGGER.debug("Setting up buttons for UniFi Insights")
@@ -205,7 +203,7 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[mi
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiInsightsButtonEntityDescription,
         site_id: str,
         device_id: str,
@@ -278,7 +276,7 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         chime_id: str,
     ) -> None:
         """Initialize the button."""
@@ -337,7 +335,7 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         device_id: str,
         port_idx: int,
@@ -450,7 +448,7 @@ class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         client_id: str,
     ) -> None:
@@ -535,7 +533,7 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the button."""
@@ -569,7 +567,7 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the button."""

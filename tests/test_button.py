@@ -804,3 +804,603 @@ class TestAsyncSetupEntry:
             e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)
         ]
         assert len(chime_buttons) == 0
+
+    async def test_setup_entry_skips_non_switching_devices(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test that setup skips devices without switching feature."""
+        # Add device without switching feature
+        mock_coordinator.data["devices"]["site1"]["device2"] = {
+            "id": "device2",
+            "name": "Access Point",
+            "model": "UAP-AC-PRO",
+            "state": "ONLINE",
+            "features": ["accessPoint"],  # No switching
+        }
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        # Port buttons should only be from device1 (with switching)
+        port_buttons = [
+            e for e in added_entities if isinstance(e, UnifiPortPowerCycleButton)
+        ]
+        for btn in port_buttons:
+            assert btn._device_id == "device1"
+
+
+class TestPortPowerCycleButtonEdgeCases:
+    """Test edge cases for UnifiPortPowerCycleButton availability."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.network_client.devices = MagicMock()
+        coordinator.network_client.devices.execute_port_action = AsyncMock()
+        coordinator.protect_client = None
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "PoE Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "features": ["switching"],
+                        "interfaces": {
+                            "ports": [
+                                {"idx": 1, "poe": {"enabled": True}},
+                            ],
+                        },
+                    },
+                },
+            },
+            "stats": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    async def test_availability_devices_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when devices is not a dict."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"] = []  # Not a dict
+        assert button.available is False
+
+    async def test_availability_site_devices_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when site devices is not a dict."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"]["site1"] = []  # Not a dict
+        assert button.available is False
+
+    async def test_availability_device_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when device data is not a dict."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"]["site1"]["device1"] = None
+        assert button.available is False
+
+    async def test_availability_device_state_not_string(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when device state is not a string."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"]["site1"]["device1"]["state"] = None
+        assert button.available is False
+
+    async def test_availability_interfaces_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when interfaces is not a dict."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = []
+        assert button.available is False
+
+    async def test_availability_ports_not_list(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when ports is not a list."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"]["ports"] = {}
+        assert button.available is False
+
+    async def test_availability_port_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when port entry is not a dict."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"]["ports"] = [
+            "not a dict"
+        ]
+        assert button.available is False
+
+    async def test_availability_port_idx_not_found(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test availability when port idx not found."""
+        button = UnifiPortPowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=99,  # Non-existent
+        )
+
+        assert button.available is False
+
+
+class TestClientReconnectButtonEdgeCases:
+    """Test edge cases for UnifiClientReconnectButton."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.network_client.clients = MagicMock()
+        coordinator.network_client.clients.reconnect = AsyncMock()
+        coordinator.protect_client = None
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                    },
+                },
+            },
+            "stats": {},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "name": None,
+                        "hostname": None,
+                        "mac": "11:22:33:44:55:66",
+                    },
+                },
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    async def test_reconnect_button_name_from_mac(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test button name defaults to MAC when no name or hostname."""
+        button = UnifiClientReconnectButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Name should include MAC address
+        assert "11:22:33:44:55:66" in button._attr_name
+
+
+class TestChimePlayButtonEdgeCases:
+    """Test edge cases for UnifiProtectChimePlayButton."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client = MagicMock()
+        coordinator.protect_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client.play_chime = AsyncMock()
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "stats": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {
+                    "chime1": {
+                        "id": "chime1",
+                        "name": "Front Door Chime",
+                        "state": "CONNECTED",
+                        "ringSettings": [],  # Empty ring settings
+                    },
+                },
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    async def test_chime_button_empty_ring_settings(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test chime button with empty ring settings defaults to 'default'."""
+        button = UnifiProtectChimePlayButton(
+            coordinator=mock_coordinator,
+            chime_id="chime1",
+        )
+
+        attrs = button.extra_state_attributes
+        # When ring settings are empty, defaults to "default"
+        assert attrs["chime_ringtone_id"] == "default"
+
+    async def test_chime_button_press_with_empty_ring_settings(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test chime button press with empty ring settings uses default."""
+        button = UnifiProtectChimePlayButton(
+            coordinator=mock_coordinator,
+            chime_id="chime1",
+        )
+
+        await button.async_press()
+
+        mock_coordinator.protect_client.play_chime.assert_called_once_with(
+            chime_id="chime1",
+            ringtone_id="default",  # Defaults to "default" when no ring settings
+        )
+
+
+class TestAsyncSetupEntryWithClients:
+    """Tests for async_setup_entry with client data."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator with clients."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client = None
+        coordinator.get_site = MagicMock(
+            return_value={"id": "site1", "meta": {"name": "Default"}}
+        )
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
+                        "ipAddress": "192.168.1.10",
+                        "features": ["switching"],
+                        "interfaces": {},
+                    },
+                },
+            },
+            "stats": {},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "name": "Test Client",
+                        "mac": "00:11:22:33:44:55",
+                    },
+                    "client2": {
+                        "id": "client2",
+                        "hostname": "laptop-hostname",
+                        "mac": "66:77:88:99:AA:BB",
+                    },
+                    "client3": {
+                        "id": "client3",
+                        "mac": "CC:DD:EE:FF:00:11",
+                    },
+                },
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    @pytest.fixture
+    def mock_config_entry(self, mock_coordinator):
+        """Create mock config entry."""
+        entry = MagicMock()
+        entry.runtime_data = MagicMock()
+        entry.runtime_data.coordinator = mock_coordinator
+        return entry
+
+    async def test_setup_entry_creates_client_reconnect_buttons(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test that setup creates client reconnect buttons."""
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        # Should have client reconnect buttons
+        reconnect_buttons = [
+            e for e in added_entities if isinstance(e, UnifiClientReconnectButton)
+        ]
+        assert len(reconnect_buttons) == 3
+
+    async def test_setup_entry_client_button_uses_name(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test client button uses name when available."""
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        reconnect_buttons = [
+            e for e in added_entities if isinstance(e, UnifiClientReconnectButton)
+        ]
+        # Find button for client1 which has a name
+        client1_button = next(
+            (b for b in reconnect_buttons if b._client_id == "client1"), None
+        )
+        assert client1_button is not None
+
+    async def test_setup_entry_client_button_uses_hostname_fallback(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test client button uses hostname when name not available."""
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        reconnect_buttons = [
+            e for e in added_entities if isinstance(e, UnifiClientReconnectButton)
+        ]
+        # Find button for client2 which has hostname but no name
+        client2_button = next(
+            (b for b in reconnect_buttons if b._client_id == "client2"), None
+        )
+        assert client2_button is not None
+
+    async def test_setup_entry_client_button_uses_mac_fallback(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test client button uses MAC when name and hostname not available."""
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        reconnect_buttons = [
+            e for e in added_entities if isinstance(e, UnifiClientReconnectButton)
+        ]
+        # Find button for client3 which only has MAC
+        client3_button = next(
+            (b for b in reconnect_buttons if b._client_id == "client3"), None
+        )
+        assert client3_button is not None
+
+
+class TestUnifiInsightsButtonAvailableEdgeCases:
+    """Tests for available property edge cases in UnifiInsightsButton."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client = None
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
+                    },
+                },
+            },
+            "stats": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    async def test_available_devices_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test available returns False when devices is not a dict."""
+        button = UnifiInsightsButton(
+            coordinator=mock_coordinator,
+            description=BUTTON_TYPES[0],
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Set devices to non-dict value
+        mock_coordinator.data["devices"] = "not a dict"
+        assert button.available is False
+
+    async def test_available_site_devices_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test available returns False when site_devices is not a dict."""
+        button = UnifiInsightsButton(
+            coordinator=mock_coordinator,
+            description=BUTTON_TYPES[0],
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Set site devices to non-dict value
+        mock_coordinator.data["devices"]["site1"] = "not a dict"
+        assert button.available is False
+
+    async def test_available_device_data_not_dict(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test available returns False when device_data is not a dict."""
+        button = UnifiInsightsButton(
+            coordinator=mock_coordinator,
+            description=BUTTON_TYPES[0],
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Set device data to non-dict value
+        mock_coordinator.data["devices"]["site1"]["device1"] = "not a dict"
+        assert button.available is False
+
+
+class TestPTZPatrolStopButtonException:
+    """Tests for PTZ patrol stop button exception handling."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client = MagicMock()
+        coordinator.protect_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client.ptz_stop_patrol = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "stats": {},
+            "clients": {},
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "id": "camera1",
+                        "name": "PTZ Camera",
+                        "state": "CONNECTED",
+                        "featureFlags": {"hasPtz": True},
+                    },
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    async def test_ptz_stop_patrol_exception(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test PTZ stop patrol handles exceptions."""
+        button = UnifiProtectPTZPatrolStopButton(
+            coordinator=mock_coordinator,
+            camera_id="camera1",
+        )
+
+        # Should not raise - exception is logged
+        await button.async_press()
+
+        mock_coordinator.protect_client.ptz_stop_patrol.assert_called_once_with(
+            camera_id="camera1",
+        )

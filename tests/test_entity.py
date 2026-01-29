@@ -102,6 +102,21 @@ class TestIsDeviceOnline:
         data = {"state": "online"}
         assert is_device_online(data) is True
 
+    def test_is_device_online_non_string_state(self):
+        """Test device is offline when state is not a string (returns False)."""
+        # Non-string state values should return False (covers line 48)
+        data_int = {"state": 123}
+        assert is_device_online(data_int) is False
+
+        data_list = {"state": ["online"]}
+        assert is_device_online(data_list) is False
+
+        data_dict = {"state": {"value": "online"}}
+        assert is_device_online(data_dict) is False
+
+        data_none = {"state": None}
+        assert is_device_online(data_none) is False
+
 
 class TestUnifiInsightsEntity:
     """Tests for UnifiInsightsEntity base class."""
@@ -547,6 +562,75 @@ class TestUnifiProtectEntity:
         identifiers = device_info.get("identifiers", set())
         # Uses parent ID for grouping
         assert (DOMAIN, "protect_camera_camera_main") in identifiers
+
+    async def test_protect_entity_dual_camera_package_name_stripping(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test protect entity strips Package Camera suffix (line 211)."""
+        # Add a package camera with " Package Camera" suffix but NO " Main Camera"
+        # This specifically tests the elif branch at line 211
+        mock_coordinator.data["protect"]["cameras"]["camera_pkg2"] = {
+            "id": "camera_pkg2",
+            # Has " Package Camera" but NOT " Main Camera"
+            "name": "Garage Package Camera",
+            "state": "CONNECTED",
+            "type": "UVC-G4-PRO",
+            # Has parent so stripping logic runs
+            "_parent_camera_id": "camera_garage_main",
+            "_is_package_camera": True,
+        }
+        # Add the parent camera
+        mock_coordinator.data["protect"]["cameras"]["camera_garage_main"] = {
+            "id": "camera_garage_main",
+            "name": "Garage",
+            "state": "CONNECTED",
+            "type": "UVC-G4-PRO",
+        }
+
+        entity = UnifiProtectEntity(
+            coordinator=mock_coordinator,
+            device_type=DEVICE_TYPE_CAMERA,
+            device_id="camera_pkg2",
+        )
+
+        # The device name should be stripped of " Package Camera" suffix
+        # device_info.name should be "Garage" not "Garage Package Camera"
+        device_info = entity.device_info
+        assert "Package Camera" not in device_info.get("name", "")
+
+    async def test_protect_entity_dual_camera_main_name_stripping(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test protect entity strips Main Camera suffix (line 209)."""
+        # Add a main camera with " Main Camera" suffix AND _parent_camera_id
+        # This specifically tests the if branch at line 209 (when the entity
+        # itself has " Main Camera" in its name but is referencing a parent)
+        mock_coordinator.data["protect"]["cameras"]["camera_main_sub"] = {
+            "id": "camera_main_sub",
+            "name": "Backyard Main Camera",  # Has " Main Camera"
+            "state": "CONNECTED",
+            "type": "UVC-G4-PRO",
+            "_parent_camera_id": "camera_backyard_parent",  # Has parent ID
+        }
+        # Add the parent camera
+        mock_coordinator.data["protect"]["cameras"]["camera_backyard_parent"] = {
+            "id": "camera_backyard_parent",
+            "name": "Backyard",
+            "state": "CONNECTED",
+            "type": "UVC-G4-PRO",
+        }
+
+        entity = UnifiProtectEntity(
+            coordinator=mock_coordinator,
+            device_type=DEVICE_TYPE_CAMERA,
+            device_id="camera_main_sub",
+        )
+
+        # The device name should be stripped of " Main Camera" suffix
+        # device_info.name should be "Backyard" not "Backyard Main Camera"
+        device_info = entity.device_info
+        assert "Main Camera" not in device_info.get("name", "")
+        assert device_info.get("name") == "Backyard"
 
     async def test_protect_entity_available_non_dict(
         self, hass: HomeAssistant, mock_coordinator

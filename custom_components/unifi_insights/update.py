@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class UnifiNetworkDeviceUpdate(UpdateEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         device_id: str,
     ) -> None:
@@ -219,7 +219,7 @@ class UnifiProtectDeviceUpdate(UnifiProtectEntity, UpdateEntity):  # type: ignor
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         device_type: str,
         device_id: str,
     ) -> None:

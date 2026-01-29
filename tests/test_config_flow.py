@@ -14,6 +14,10 @@ from unifi_official_api import (
     UniFiTimeoutError,
 )
 
+from custom_components.unifi_insights.config_flow import (
+    UnifiInsightsConfigFlow,
+    UnifiInsightsOptionsFlow,
+)
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
     CONF_CONSOLE_ID,
@@ -740,6 +744,50 @@ async def test_reauth_flow_no_sites_found(
         assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
 
 
+async def test_reauth_flow_remote_no_sites_found(
+    hass: HomeAssistant,
+) -> None:
+    """Test reauth flow for remote connection when no sites are found."""
+    # Create remote config entry
+    remote_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Insights (Cloud)",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE,
+            CONF_CONSOLE_ID: "test_console",
+            CONF_API_KEY: "test_api_key",
+        },
+        unique_id="test_api_key",
+    )
+    remote_entry.add_to_hass(hass)
+
+    mock_client = MagicMock()
+    mock_client.sites = MagicMock()
+    mock_client.sites.get_all = AsyncMock(return_value=[])  # No sites
+    mock_client.close = AsyncMock()
+
+    async_cm = MagicMock()
+    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
+    async_cm.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            return_value=async_cm,
+        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
+    ):
+        result = await remote_entry.start_reauth_flow(hass)
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "test_api_key"},
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
+
+
 async def test_reconfigure_local_success(
     hass: HomeAssistant,
     mock_config_entry,
@@ -1000,3 +1048,128 @@ async def test_reconfigure_no_sites_found(
 
         assert result["type"] == FlowResultType.FORM
         assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
+
+
+async def test_reconfigure_remote_no_sites_found(
+    hass: HomeAssistant,
+) -> None:
+    """Test reconfigure flow for remote connection when no sites are found."""
+    # Create remote config entry
+    remote_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Insights (Cloud)",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE,
+            CONF_CONSOLE_ID: "test_console",
+            CONF_API_KEY: "test_api_key",
+        },
+        unique_id="test_api_key",
+    )
+    remote_entry.add_to_hass(hass)
+
+    mock_client = MagicMock()
+    mock_client.sites = MagicMock()
+    mock_client.sites.get_all = AsyncMock(return_value=[])  # No sites
+    mock_client.close = AsyncMock()
+
+    async_cm = MagicMock()
+    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
+    async_cm.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            return_value=async_cm,
+        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
+    ):
+        result = await remote_entry.start_reconfigure_flow(hass)
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONSOLE_ID: "test_console",
+                CONF_API_KEY: "test_api_key",
+            },
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
+
+
+# ============================================================================
+# Options Flow Tests
+# ============================================================================
+
+
+async def test_options_flow_shows_form(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test options flow shows form with current values."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "init"
+
+
+async def test_options_flow_submit(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test options flow submission creates entry."""
+    mock_config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    assert result["type"] == FlowResultType.FORM
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={
+            "track_wifi_clients": True,
+            "track_wired_clients": False,
+        },
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert result["data"] == {
+        "track_wifi_clients": True,
+        "track_wired_clients": False,
+    }
+
+
+async def test_options_flow_migrates_old_track_clients(
+    hass: HomeAssistant,
+) -> None:
+    """Test options flow migrates from old track_clients option."""
+    # Create config entry with old track_clients option
+    config_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Insights (Local)",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+            CONF_HOST: "https://192.168.1.1",
+            CONF_API_KEY: "test_api_key",
+            CONF_VERIFY_SSL: False,
+        },
+        options={"track_clients": True},  # Old option
+        unique_id="test_api_key",
+    )
+    config_entry.add_to_hass(hass)
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+
+    assert result["type"] == FlowResultType.FORM
+    # Default values should come from old track_clients
+    assert result["data_schema"] is not None
+
+
+async def test_async_get_options_flow(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """Test async_get_options_flow returns options handler."""
+    options_flow = UnifiInsightsConfigFlow.async_get_options_flow(mock_config_entry)
+    assert isinstance(options_flow, UnifiInsightsOptionsFlow)

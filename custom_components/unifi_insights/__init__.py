@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
@@ -32,7 +33,12 @@ from .const import (
 from .const import (
     CONNECTION_TYPE_REMOTE as CONNECTION_TYPE_REMOTE,
 )
-from .coordinator import UnifiInsightsDataUpdateCoordinator
+from .coordinators import (
+    UnifiConfigCoordinator,
+    UnifiDeviceCoordinator,
+    UnifiFacadeCoordinator,
+    UnifiProtectCoordinator,
+)
 from .services import async_setup_services, async_unload_services
 
 if TYPE_CHECKING:
@@ -41,11 +47,29 @@ if TYPE_CHECKING:
 
 @dataclass
 class UnifiInsightsData:
-    """Runtime data for UniFi Insights integration."""
+    """Runtime data for UniFi Insights integration (Platinum multi-coordinator)."""
 
-    coordinator: UnifiInsightsDataUpdateCoordinator
+    config_coordinator: UnifiConfigCoordinator
+    device_coordinator: UnifiDeviceCoordinator
+    protect_coordinator: UnifiProtectCoordinator | None
     network_client: UniFiNetworkClient
     protect_client: UniFiProtectClient | None
+    # Facade coordinator for backward compatibility with entity classes
+    _facade_coordinator: UnifiFacadeCoordinator | None = None
+
+    @property
+    def coordinator(self) -> UnifiFacadeCoordinator:
+        """
+        Return facade coordinator for backward compatibility.
+
+        This property provides a unified view combining data from all
+        specialized coordinators, ensuring existing entity classes
+        continue to work without modifications.
+        """
+        if self._facade_coordinator is None:
+            msg = "Facade coordinator not initialized"
+            raise RuntimeError(msg)
+        return self._facade_coordinator
 
 
 # Use TypeAlias for proper mypy validation (Python 3.10+ style)
@@ -184,9 +208,8 @@ async def async_setup_entry(  # noqa: PLR0915
         else:
             _LOGGER.info("Protect API not available for remote connections")
 
-    except UniFiAuthenticationError as err:
-        _LOGGER.exception("Authentication error")
-        raise ConfigEntryAuthFailed from err
+    # Note: UniFiAuthenticationError is already handled in the inner try block
+    # at lines 176-179, which converts it to ConfigEntryAuthFailed
     except UniFiConnectionError as err:
         _LOGGER.exception("Connection error")
         msg = f"Error communicating with UniFi API: {err}"
@@ -196,23 +219,68 @@ async def async_setup_entry(  # noqa: PLR0915
         msg = f"Timeout connecting to UniFi API: {err}"
         raise ConfigEntryNotReady(msg) from err
 
-    _LOGGER.debug("Creating data update coordinator")
-    coordinator = UnifiInsightsDataUpdateCoordinator(
+    # Create multi-coordinator architecture (Platinum compliance)
+    _LOGGER.debug("Creating multi-coordinator architecture")
+
+    # 1. Config coordinator - slow updates (5 minutes) for sites, WiFi
+    config_coordinator = UnifiConfigCoordinator(
         hass=hass,
         network_client=network_client,
         protect_client=protect_client,
         entry=entry,
     )
 
-    # Fetch initial data
-    _LOGGER.debug("Fetching initial data")
-    await coordinator.async_config_entry_first_refresh()
+    # 2. Device coordinator - fast updates (30 seconds) for devices, stats
+    device_coordinator = UnifiDeviceCoordinator(
+        hass=hass,
+        network_client=network_client,
+        protect_client=protect_client,
+        entry=entry,
+        config_coordinator=config_coordinator,
+    )
+
+    # 3. Protect coordinator - fast updates (30 seconds) + WebSocket for events
+    protect_coordinator: UnifiProtectCoordinator | None = None
+    if protect_client:
+        protect_coordinator = UnifiProtectCoordinator(
+            hass=hass,
+            network_client=network_client,
+            protect_client=protect_client,
+            entry=entry,
+        )
+
+    # Fetch initial data - config first, then device/protect in parallel
+    _LOGGER.debug("Fetching initial data from coordinators")
+    await config_coordinator.async_config_entry_first_refresh()
+
+    # Device coordinator needs sites from config coordinator
+    refresh_tasks = [device_coordinator.async_config_entry_first_refresh()]
+    if protect_coordinator:
+        refresh_tasks.append(protect_coordinator.async_config_entry_first_refresh())
+    await asyncio.gather(*refresh_tasks)
+
+    # Create facade coordinator for backward compatibility with entity classes
+    _LOGGER.debug("Creating facade coordinator for backward compatibility")
+    facade_coordinator = UnifiFacadeCoordinator(
+        hass=hass,
+        network_client=network_client,
+        protect_client=protect_client,
+        entry=entry,
+        config_coordinator=config_coordinator,
+        device_coordinator=device_coordinator,
+        protect_coordinator=protect_coordinator,
+    )
+    # Initial aggregation of data
+    facade_coordinator._aggregate_data()  # noqa: SLF001
 
     # Store runtime data in config entry (Gold requirement)
     entry.runtime_data = UnifiInsightsData(
-        coordinator=coordinator,
+        config_coordinator=config_coordinator,
+        device_coordinator=device_coordinator,
+        protect_coordinator=protect_coordinator,
         network_client=network_client,
         protect_client=protect_client,
+        _facade_coordinator=facade_coordinator,
     )
 
     # Set up platforms
@@ -237,12 +305,13 @@ async def async_unload_entry(
         data = entry.runtime_data
         _LOGGER.debug("Closing API clients")
         if data.protect_client:
-            # Stop WebSocket if active
-            if (
-                hasattr(data.coordinator, "websocket_task")
-                and data.coordinator.websocket_task
-            ):
-                data.coordinator.websocket_task.cancel()
+            # Stop WebSocket if active (on protect coordinator)
+            if data.protect_coordinator:
+                websocket_task = getattr(
+                    data.protect_coordinator, "websocket_task", None
+                )
+                if websocket_task:
+                    websocket_task.cancel()
             # Close Protect client (await the async close)
             try:
                 await data.protect_client.close()

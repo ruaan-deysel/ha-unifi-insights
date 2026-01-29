@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.typing import StateType
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -550,9 +550,7 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
     _ = hass
     _LOGGER.debug("Setting up UniFi Insights sensors")
 
-    coordinator: UnifiInsightsDataUpdateCoordinator = (
-        config_entry.runtime_data.coordinator
-    )
+    coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
     entities = []
 
     # Add sensors for each device in each site
@@ -772,7 +770,7 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[mi
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiInsightsSensorEntityDescription,
         site_id: str,
         device_id: str,
@@ -853,7 +851,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiInsightsSensorEntityDescription,
         site_id: str,
         device_id: str,
@@ -991,7 +989,7 @@ class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiProtectSensorEntityDescription,
         device_id: str,
     ) -> None:
@@ -1091,7 +1089,7 @@ class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[m
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiProtectSensorEntityDescription,
         device_id: str,
     ) -> None:

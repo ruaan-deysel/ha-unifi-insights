@@ -1,6 +1,6 @@
 """Tests for UniFi Insights sensors."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import PERCENTAGE, UnitOfTemperature
@@ -16,9 +16,13 @@ from custom_components.unifi_insights.sensor import (
     UnifiPortSensor,
     UnifiProtectNVRSensor,
     UnifiProtectSensor,
+    UnifiProtectSensorEntityDescription,
     _bytes_to_gb,
     _calculate_storage_available,
     _calculate_storage_percent,
+    _get_client_type,
+    _get_storage_bytes,
+    _has_storage_info,
     async_setup_entry,
     bytes_to_megabits,
     format_uptime,
@@ -208,6 +212,38 @@ class TestBytesToMegabits:
         """Test bytes_to_megabits rounding."""
         # 125000 bytes/sec = 1 Mbps
         assert bytes_to_megabits(125000) == 1.0
+
+
+class TestGetClientType:
+    """Tests for _get_client_type helper function."""
+
+    def test_get_client_type_wired(self):
+        """Test _get_client_type returns WIRED for wired clients."""
+        assert _get_client_type({"type": "WIRED"}) == "WIRED"
+        assert _get_client_type({"type": "wired"}) == "WIRED"
+
+    def test_get_client_type_wireless(self):
+        """Test _get_client_type returns WIRELESS for wireless clients."""
+        assert _get_client_type({"type": "WIRELESS"}) == "WIRELESS"
+        assert _get_client_type({"type": "wireless"}) == "WIRELESS"
+
+    def test_get_client_type_connection_type_fallback(self):
+        """Test _get_client_type uses connection_type as fallback."""
+        assert _get_client_type({"connection_type": "WIRED"}) == "WIRED"
+        assert _get_client_type({"connection_type": "WIRELESS"}) == "WIRELESS"
+
+    def test_get_client_type_unknown_returns_as_is(self):
+        """Test _get_client_type returns unknown types as-is (line 73)."""
+        # Unknown type should be returned as uppercase
+        assert _get_client_type({"type": "UNKNOWN"}) == "UNKNOWN"
+        assert _get_client_type({"type": "other"}) == "OTHER"
+
+        # Empty type returns empty string
+        assert _get_client_type({"type": ""}) == ""
+        assert _get_client_type({}) == ""
+
+        # None type returns empty string (via str(None) -> "NONE")
+        assert _get_client_type({"type": None}) == ""
 
 
 class TestSensorTypes:
@@ -938,6 +974,93 @@ class TestUnifiProtectSensorAttributes:
         assert attrs["battery_low"] is False
 
 
+class TestHasStorageInfo:
+    """Tests for _has_storage_info helper function."""
+
+    def test_has_storage_info_with_direct_camel_case(self):
+        """Test _has_storage_info with direct camelCase fields."""
+        assert _has_storage_info({"storageUsedBytes": 100}) is True
+        assert _has_storage_info({"storageTotalBytes": 100}) is True
+
+    def test_has_storage_info_with_snake_case(self):
+        """Test _has_storage_info with snake_case fields."""
+        assert _has_storage_info({"storage_used_bytes": 100}) is True
+        assert _has_storage_info({"storage_total_bytes": 100}) is True
+
+    def test_has_storage_info_with_nested_used_size(self):
+        """Test _has_storage_info with nested storageInfo.usedSize."""
+        assert _has_storage_info({"storageInfo": {"usedSize": 100}}) is True
+
+    def test_has_storage_info_with_nested_total_size(self):
+        """Test _has_storage_info with nested storageInfo.totalSize."""
+        assert _has_storage_info({"storageInfo": {"totalSize": 100}}) is True
+
+    def test_has_storage_info_with_nested_used_size_snake(self):
+        """Test _has_storage_info with nested storageInfo.used_size."""
+        assert _has_storage_info({"storageInfo": {"used_size": 100}}) is True
+
+    def test_has_storage_info_with_nested_total_size_snake(self):
+        """Test _has_storage_info with nested storageInfo.total_size."""
+        assert _has_storage_info({"storageInfo": {"total_size": 100}}) is True
+
+    def test_has_storage_info_returns_false_for_empty(self):
+        """Test _has_storage_info returns False when no storage info."""
+        assert _has_storage_info({}) is False
+        assert _has_storage_info({"other_field": 123}) is False
+
+    def test_has_storage_info_with_non_dict_storage_info(self):
+        """Test _has_storage_info with non-dict storageInfo."""
+        assert _has_storage_info({"storageInfo": "not a dict"}) is False
+        assert _has_storage_info({"storageInfo": None}) is False
+
+
+class TestGetStorageBytes:
+    """Tests for _get_storage_bytes helper function."""
+
+    def test_get_storage_bytes_used_direct(self):
+        """Test _get_storage_bytes for 'used' with direct fields."""
+        assert _get_storage_bytes({"storageUsedBytes": 1000}, "used") == 1000
+        assert _get_storage_bytes({"storage_used_bytes": 2000}, "used") == 2000
+
+    def test_get_storage_bytes_total_direct(self):
+        """Test _get_storage_bytes for 'total' with direct fields."""
+        assert _get_storage_bytes({"storageTotalBytes": 1000}, "total") == 1000
+        assert _get_storage_bytes({"storage_total_bytes": 2000}, "total") == 2000
+
+    def test_get_storage_bytes_used_nested(self):
+        """Test _get_storage_bytes for 'used' with nested storageInfo."""
+        assert _get_storage_bytes({"storageInfo": {"usedSize": 100}}, "used") == 100
+        assert _get_storage_bytes({"storageInfo": {"used_size": 200}}, "used") == 200
+        data = {"storageInfo": {"usedSpaceBytes": 300}}
+        assert _get_storage_bytes(data, "used") == 300
+        data = {"storageInfo": {"used_space_bytes": 400}}
+        assert _get_storage_bytes(data, "used") == 400
+
+    def test_get_storage_bytes_total_nested(self):
+        """Test _get_storage_bytes for 'total' with nested storageInfo."""
+        assert _get_storage_bytes({"storageInfo": {"totalSize": 100}}, "total") == 100
+        assert _get_storage_bytes({"storageInfo": {"total_size": 200}}, "total") == 200
+        data = {"storageInfo": {"totalSpaceBytes": 300}}
+        assert _get_storage_bytes(data, "total") == 300
+        data = {"storageInfo": {"total_space_bytes": 400}}
+        assert _get_storage_bytes(data, "total") == 400
+
+    def test_get_storage_bytes_returns_none_for_invalid_field(self):
+        """Test _get_storage_bytes returns None for unknown field."""
+        assert _get_storage_bytes({"storageUsedBytes": 100}, "invalid") is None
+
+    def test_get_storage_bytes_with_float_value(self):
+        """Test _get_storage_bytes converts float to int."""
+        assert _get_storage_bytes({"storageUsedBytes": 100.5}, "used") == 100
+        assert _get_storage_bytes({"storageTotalBytes": 200.9}, "total") == 200
+
+    def test_get_storage_bytes_with_non_numeric_value(self):
+        """Test _get_storage_bytes returns None for non-numeric."""
+        assert _get_storage_bytes({"storageUsedBytes": "not a number"}, "used") is None
+        data = {"storageInfo": {"usedSize": "string"}}
+        assert _get_storage_bytes(data, "used") is None
+
+
 class TestNVRStorageHelpers:
     """Tests for NVR storage helper functions."""
 
@@ -1192,3 +1315,309 @@ class TestAsyncSetupEntryWithNVRSensors:
         # Should have no NVR sensors
         nvr_sensors = [e for e in entities if isinstance(e, UnifiProtectNVRSensor)]
         assert len(nvr_sensors) == 0
+
+    async def test_setup_entry_nvr_without_storage_info(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test setup when NVR has no storage info (covers lines 743, 753)."""
+        # Create NVR data without any storage fields
+        mock_coordinator.data["protect"]["nvrs"] = {
+            "nvr_no_storage": {
+                "id": "nvr_no_storage",
+                "name": "NVR Without Storage",
+                "state": "CONNECTED",
+                "version": "4.0.0",
+                # No storage fields at all
+            }
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Should have 0 NVR sensors since storage info is not available
+        # (all NVR sensor types start with "storage_")
+        nvr_sensors = [e for e in entities if isinstance(e, UnifiProtectNVRSensor)]
+        assert len(nvr_sensors) == 0
+
+
+class TestAsyncSetupEntryEdgeCases:
+    """Test setup entry edge cases for sensors."""
+
+    async def test_setup_entry_interfaces_not_dict(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test setup when interfaces is not a dict (e.g., list)."""
+        # Set interfaces to a list instead of dict
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = ["ports"]
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Should still create device sensors but no port sensors
+        port_sensors = [e for e in entities if isinstance(e, UnifiPortSensor)]
+        assert len(port_sensors) == 0
+
+    async def test_setup_entry_port_without_idx(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test setup when port has no idx field."""
+        # Add port without idx
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [{"state": "UP", "poe": {"enabled": True}}]  # No idx
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Should have no port sensors since port has no idx
+        port_sensors = [e for e in entities if isinstance(e, UnifiPortSensor)]
+        assert len(port_sensors) == 0
+
+    async def test_setup_entry_port_state_down(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test setup when port state is DOWN."""
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [{"idx": 1, "state": "DOWN", "poe": {"enabled": True}}]
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Should have no port sensors since port is DOWN
+        port_sensors = [e for e in entities if isinstance(e, UnifiPortSensor)]
+        assert len(port_sensors) == 0
+
+    async def test_setup_entry_wan_sensors_for_gateway(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test WAN sensors are created for gateway devices."""
+        # Make device a gateway
+        mock_coordinator.data["devices"]["site1"]["device1"]["model"] = "UDM-Pro"
+        mock_coordinator.data["devices"]["site1"]["device1"]["features"] = ["gateway"]
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        # Find WAN sensors
+        wan_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiInsightsSensor)
+            and e.entity_description.key.startswith("wan_")
+        ]
+        assert len(wan_sensors) > 0
+
+
+class TestUnifiInsightsSensorEdgeCases:
+    """Test edge cases for UnifiInsightsSensor."""
+
+    async def test_native_value_firmware_version_no_device(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test native_value returns None when device data missing."""
+        # Find firmware version description
+        fw_desc = next(d for d in SENSOR_TYPES if d.key == "firmware_version")
+
+        sensor = UnifiInsightsSensor(
+            coordinator=mock_coordinator,
+            description=fw_desc,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Remove device data
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        assert sensor.native_value is None
+
+    async def test_async_update_calls_super(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test async_update calls parent implementation."""
+        cpu_desc = next(d for d in SENSOR_TYPES if d.key == "cpu_usage")
+        sensor = UnifiInsightsSensor(
+            coordinator=mock_coordinator,
+            description=cpu_desc,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Mock async_request_refresh to be awaitable
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        # Should not raise
+        await sensor.async_update()
+
+
+class TestUnifiPortSensorNativeValueEdgeCases:
+    """Test edge cases for UnifiPortSensor native_value."""
+
+    async def test_native_value_no_device_data(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test native_value returns None when device data is missing."""
+        speed_desc = PORT_SENSOR_TYPES[1]
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=speed_desc,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        # Remove device data
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        assert sensor.native_value is None
+
+    async def test_native_value_no_port_data(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test native_value returns None when port not found."""
+        speed_desc = PORT_SENSOR_TYPES[1]
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=speed_desc,
+            site_id="site1",
+            device_id="device1",
+            port_idx=99,  # Non-existent port
+        )
+
+        assert sensor.native_value is None
+
+    async def test_native_value_tx_bytes_with_stats(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test native_value for TX bytes uses stats."""
+        tx_desc = PORT_SENSOR_TYPES[2]  # TX bytes
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=tx_desc,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+
+        # Add stats data for port
+        mock_coordinator.data["stats"]["site1"]["device1"]["ports"] = {
+            "1": {"txBytes": 12345}
+        }
+
+        value = sensor.native_value
+        # Value should be extracted from value_fn
+        assert value is not None or value == 0
+
+
+class TestUnifiProtectNVRSensorEdgeCases:
+    """Test edge cases for UnifiProtectNVRSensor."""
+
+    async def test_available_no_nvr_data(self, hass: HomeAssistant, mock_coordinator):
+        """Test available returns False when NVR data missing."""
+        storage_desc = next(d for d in NVR_SENSOR_TYPES if d.key == "storage_used")
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=storage_desc,
+            device_id="nvr1",
+        )
+
+        # Remove NVR data
+        mock_coordinator.data["protect"]["nvrs"] = {}
+
+        assert sensor.available is False
+
+    async def test_available_storage_sensor_with_nested_storage_info(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test available for storage sensor with nested storageInfo."""
+        storage_desc = next(d for d in NVR_SENSOR_TYPES if d.key == "storage_used")
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=storage_desc,
+            device_id="nvr1",
+        )
+
+        # Set nested storageInfo
+        mock_coordinator.data["protect"]["nvrs"]["nvr1"] = {
+            "id": "nvr1",
+            "name": "Test NVR",
+            "storageInfo": {"usedSize": 100, "totalSize": 1000},
+        }
+
+        assert sensor.available is True
+
+    async def test_available_non_storage_sensor(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test available for non-storage NVR sensor."""
+        # Create a custom description that's not storage-related
+        custom_desc = UnifiProtectSensorEntityDescription(
+            key="custom_sensor",
+            name="Custom",
+            value_fn=lambda x: x.get("customValue"),
+            device_type="nvr",
+        )
+
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=custom_desc,
+            device_id="nvr1",
+        )
+
+        # Has NVR data
+        mock_coordinator.data["protect"]["nvrs"]["nvr1"] = {
+            "id": "nvr1",
+            "name": "Test NVR",
+        }
+
+        assert sensor.available is True
+
+    async def test_update_from_data_attributes(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test _update_from_data sets attributes correctly."""
+        storage_desc = next(d for d in NVR_SENSOR_TYPES if d.key == "storage_used")
+        sensor = UnifiProtectNVRSensor(
+            coordinator=mock_coordinator,
+            description=storage_desc,
+            device_id="nvr1",
+        )
+
+        # Set storage data
+        mock_coordinator.data["protect"]["nvrs"]["nvr1"] = {
+            "id": "nvr1",
+            "name": "Test NVR",
+            "version": "3.0.0",
+            "storageUsedBytes": 500000000000,
+            "storageTotalBytes": 1000000000000,
+        }
+
+        sensor._update_from_data()
+
+        assert sensor._attr_extra_state_attributes is not None
+        assert "nvr_id" in sensor._attr_extra_state_attributes

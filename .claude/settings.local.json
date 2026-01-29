@@ -36,7 +36,8 @@
       "Bash(ruff check:*)",
       "Bash(gh issue create:*)",
       "Bash(gh issue list:*)",
-      "Bash(pre-commit run:*)"
+      "Bash(pre-commit run:*)",
+      "Bash(grep:*)"
     ]
   }
 }

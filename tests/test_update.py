@@ -171,6 +171,7 @@ class TestUnifiNetworkDeviceUpdate:
                         "state": "ONLINE",
                         "firmwareVersion": "6.5.55",
                         "firmwareUpdatable": True,
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
                     }
                 }
             },
@@ -405,6 +406,254 @@ class TestUnifiProtectDeviceUpdate:
         device_info = entity.device_info
         assert device_info is not None
         assert device_info.get("manufacturer") == "Ubiquiti Inc."
+
+
+class TestNetworkDeviceUpdateEdgeCases:
+    """Test edge cases for UnifiNetworkDeviceUpdate."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.last_update_success = True
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "meta": {"name": "Test Site"}}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "firmwareVersion": "6.5.55",
+                    }
+                }
+            },
+            "clients": {"site1": {}},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_device_without_mac(self, mock_coordinator) -> None:
+        """Test device initialization without MAC address."""
+        # Device has no MAC
+        mock_coordinator.data["devices"]["site1"]["device1"]["macAddress"] = None
+
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Should still initialize without connections
+        assert entity._attr_device_info is not None
+
+    def test_installed_version_no_device_data(self, mock_coordinator) -> None:
+        """Test installed version when device data is missing."""
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+        # Remove device data after entity creation
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        assert entity.installed_version is None
+
+    def test_latest_version_no_device_data(self, mock_coordinator) -> None:
+        """Test latest version when device data is missing."""
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+        # Remove device data after entity creation
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        assert entity.latest_version is None
+
+    def test_in_progress_when_upgrading(self, mock_coordinator) -> None:
+        """Test in_progress property when device is upgrading."""
+        mock_coordinator.data["devices"]["site1"]["device1"]["state"] = "UPGRADING"
+
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        assert entity.in_progress is True
+
+    def test_in_progress_when_not_upgrading(self, mock_coordinator) -> None:
+        """Test in_progress property when device is not upgrading."""
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        assert entity.in_progress is False
+
+    def test_in_progress_no_device_data(self, mock_coordinator) -> None:
+        """Test in_progress property when device data is missing."""
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+        # Remove device data after entity creation
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        assert entity.in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_async_added_to_hass(self, mock_coordinator) -> None:
+        """Test async_added_to_hass method."""
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Mock the HA methods
+        entity.async_on_remove = MagicMock()
+        mock_coordinator.async_add_listener = MagicMock(return_value="remove_callback")
+
+        await entity.async_added_to_hass()
+
+        mock_coordinator.async_add_listener.assert_called_once()
+        entity.async_on_remove.assert_called_once_with("remove_callback")
+
+    def test_handle_coordinator_update(self, mock_coordinator) -> None:
+        """Test _handle_coordinator_update method."""
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        # Mock async_write_ha_state
+        entity.async_write_ha_state = MagicMock()
+
+        entity._handle_coordinator_update()
+
+        entity.async_write_ha_state.assert_called_once()
+
+
+class TestProtectDeviceUpdateEdgeCases:
+    """Test edge cases for UnifiProtectDeviceUpdate."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.protect_client.base_url = "https://192.168.1.1"
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.last_update_success = True
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "id": "camera1",
+                        "name": "Test Camera",
+                        "type": "UVC-G4-PRO",
+                        "state": "CONNECTED",
+                        "firmwareVersion": "1.0.0",
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_installed_version_no_device_data(self, mock_coordinator) -> None:
+        """Test installed version when device data is missing."""
+        entity = UnifiProtectDeviceUpdate(
+            coordinator=mock_coordinator,
+            device_type="camera",
+            device_id="camera1",
+        )
+        # Remove device data after entity creation
+        mock_coordinator.data["protect"]["cameras"] = {}
+
+        assert entity.installed_version is None
+
+    def test_latest_version_no_device_data(self, mock_coordinator) -> None:
+        """Test latest version when device data is missing."""
+        entity = UnifiProtectDeviceUpdate(
+            coordinator=mock_coordinator,
+            device_type="camera",
+            device_id="camera1",
+        )
+        # Remove device data after entity creation
+        mock_coordinator.data["protect"]["cameras"] = {}
+
+        assert entity.latest_version is None
+
+    def test_latest_version_when_updating(self, mock_coordinator) -> None:
+        """Test latest version when device is currently updating."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isUpdating"] = True
+
+        entity = UnifiProtectDeviceUpdate(
+            coordinator=mock_coordinator,
+            device_type="camera",
+            device_id="camera1",
+        )
+
+        assert entity.latest_version == "Updating..."
+
+    def test_in_progress_when_updating(self, mock_coordinator) -> None:
+        """Test in_progress property when device is updating."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isUpdating"] = True
+
+        entity = UnifiProtectDeviceUpdate(
+            coordinator=mock_coordinator,
+            device_type="camera",
+            device_id="camera1",
+        )
+
+        assert entity.in_progress is True
+
+    def test_in_progress_when_not_updating(self, mock_coordinator) -> None:
+        """Test in_progress property when device is not updating."""
+        entity = UnifiProtectDeviceUpdate(
+            coordinator=mock_coordinator,
+            device_type="camera",
+            device_id="camera1",
+        )
+
+        assert entity.in_progress is False
+
+    def test_in_progress_no_device_data(self, mock_coordinator) -> None:
+        """Test in_progress property when device data is missing."""
+        entity = UnifiProtectDeviceUpdate(
+            coordinator=mock_coordinator,
+            device_type="camera",
+            device_id="camera1",
+        )
+        # Remove device data after entity creation
+        mock_coordinator.data["protect"]["cameras"] = {}
+
+        assert entity.in_progress is False
 
 
 class TestProtectDeviceTypes:

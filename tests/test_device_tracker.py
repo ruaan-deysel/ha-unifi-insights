@@ -10,6 +10,7 @@ from homeassistant.components.device_tracker import SourceType
 from custom_components.unifi_insights.device_tracker import (
     PARALLEL_UPDATES,
     UnifiClientTracker,
+    _get_client_type,
     async_setup_entry,
 )
 
@@ -338,6 +339,50 @@ class TestAsyncSetupEntry:
         entities = async_add_entities.call_args[0][0]
         assert len(entities) == 2
 
+    @pytest.mark.asyncio
+    async def test_setup_entry_skips_already_tracked_clients(
+        self, hass, mock_coordinator
+    ) -> None:
+        """Test setup skips clients that are already tracked."""
+        mock_coordinator.data["clients"]["site1"] = {
+            "client1": {
+                "id": "client1",
+                "mac": "AA:BB:CC:DD:EE:FF",
+                "name": "Already Tracked Client",
+                "connected": True,
+                "type": "WIRED",
+            },
+            "client2": {
+                "id": "client2",
+                "mac": "11:22:33:44:55:66",
+                "name": "New Client",
+                "connected": True,
+                "type": "WIRED",
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+        mock_entry.async_on_unload = MagicMock()
+        # Enable wired tracking
+        mock_entry.options = {"track_wifi_clients": False, "track_wired_clients": True}
+
+        # Pre-populate tracked clients set with client1 as already tracked
+        # The code uses coordinator.hass.data, so we need to set it there
+        mock_coordinator.hass = hass
+        hass.data = {"unifi_insights_tracked_clients": {"site1_client1"}}
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        async_add_entities.assert_called_once()
+        entities = async_add_entities.call_args[0][0]
+        # Only client2 should be added (client1 was already tracked)
+        assert len(entities) == 1
+        assert entities[0]._client_id == "client2"
+
 
 class TestUnifiClientTracker:
     """Tests for UnifiClientTracker entity."""
@@ -460,6 +505,21 @@ class TestUnifiClientTracker:
 
         assert tracker.is_connected is False
 
+    def test_available(self, mock_coordinator) -> None:
+        """Test entity availability based on coordinator update success."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Default: coordinator last_update_success is True
+        assert tracker.available is True
+
+        # Coordinator fails update
+        mock_coordinator.last_update_success = False
+        assert tracker.available is False
+
     def test_ip_address(self, mock_coordinator) -> None:
         """Test IP address property."""
         tracker = UnifiClientTracker(
@@ -523,3 +583,194 @@ class TestUnifiClientTracker:
         device_info = tracker.device_info
         assert device_info is not None
         assert device_info.get("manufacturer") == "Ubiquiti Inc."
+
+
+class TestGetClientType:
+    """Tests for _get_client_type helper function."""
+
+    def test_get_client_type_wired(self) -> None:
+        """Test _get_client_type returns WIRED for wired clients."""
+        result = _get_client_type({"type": "WIRED"})
+        assert result == "WIRED"
+
+    def test_get_client_type_wireless(self) -> None:
+        """Test _get_client_type returns WIRELESS for wireless clients."""
+        result = _get_client_type({"type": "WIRELESS"})
+        assert result == "WIRELESS"
+
+    def test_get_client_type_unknown(self) -> None:
+        """Test _get_client_type returns original type for unknown types."""
+        result = _get_client_type({"type": "UNKNOWN_TYPE"})
+        assert result == "UNKNOWN_TYPE"
+
+    def test_get_client_type_empty_string(self) -> None:
+        """Test _get_client_type returns empty string when no type."""
+        result = _get_client_type({"type": ""})
+        assert result == ""
+
+    def test_get_client_type_connection_type_field(self) -> None:
+        """Test _get_client_type uses connection_type field as fallback."""
+        result = _get_client_type({"connection_type": "WIRED"})
+        assert result == "WIRED"
+
+    def test_get_client_type_no_type_field(self) -> None:
+        """Test _get_client_type returns empty string when no type field."""
+        result = _get_client_type({})
+        assert result == ""
+
+
+class TestUnifiClientTrackerEdgeCases:
+    """Test edge cases for UnifiClientTracker."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.last_update_success = True
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "meta": {"name": "Test Site"}}},
+            "devices": {"site1": {"device1": {"id": "device1", "name": "Device"}}},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "mac": "AA:BB:CC:DD:EE:FF",
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
+                        "name": "Test Client",
+                        "hostname": "test-client",
+                        "connected": True,
+                        "type": "WIRELESS",
+                    }
+                }
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_source_type_no_client_data(self, mock_coordinator) -> None:
+        """Test source_type returns ROUTER when client data is missing."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Remove client data
+        mock_coordinator.data["clients"]["site1"] = {}
+
+        assert tracker.source_type == SourceType.ROUTER
+
+    def test_ip_address_no_client_data(self, mock_coordinator) -> None:
+        """Test ip_address returns None when client data is missing."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Remove client data
+        mock_coordinator.data["clients"]["site1"] = {}
+
+        assert tracker.ip_address is None
+
+    def test_mac_address_no_client_data(self, mock_coordinator) -> None:
+        """Test mac_address returns None when client data is missing."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Remove client data
+        mock_coordinator.data["clients"]["site1"] = {}
+
+        assert tracker.mac_address is None
+
+    def test_hostname_no_client_data(self, mock_coordinator) -> None:
+        """Test hostname returns None when client data is missing."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Remove client data
+        mock_coordinator.data["clients"]["site1"] = {}
+
+        assert tracker.hostname is None
+
+    def test_extra_state_attributes_no_client_data(self, mock_coordinator) -> None:
+        """Test extra_state_attributes returns empty dict when missing."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Remove client data
+        mock_coordinator.data["clients"]["site1"] = {}
+
+        assert tracker.extra_state_attributes == {}
+
+    def test_unique_id_without_mac(self, mock_coordinator) -> None:
+        """Test unique_id uses client_id when mac is not available."""
+        # Create client without mac
+        mock_coordinator.data["clients"]["site1"]["client_no_mac"] = {
+            "id": "client_no_mac",
+            "name": "Client Without MAC",
+            "connected": True,
+        }
+
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client_no_mac",
+        )
+
+        assert tracker._attr_unique_id == "unifi_insights_client_no_mac"
+
+    async def test_async_added_to_hass(self, mock_coordinator, hass) -> None:
+        """Test async_added_to_hass registers listener."""
+        mock_coordinator.async_add_listener = MagicMock(return_value=MagicMock())
+
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+        tracker.hass = hass
+
+        # Create a mock async_on_remove
+        remove_callbacks = []
+        tracker.async_on_remove = lambda callback: remove_callbacks.append(callback)
+
+        await tracker.async_added_to_hass()
+
+        # Verify listener was added
+        mock_coordinator.async_add_listener.assert_called_once()
+
+    def test_handle_coordinator_update(self, mock_coordinator, hass) -> None:
+        """Test _handle_coordinator_update writes state."""
+        tracker = UnifiClientTracker(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+        tracker.hass = hass
+
+        # Mock async_write_ha_state
+        tracker.async_write_ha_state = MagicMock()
+
+        tracker._handle_coordinator_update()
+
+        tracker.async_write_ha_state.assert_called_once()

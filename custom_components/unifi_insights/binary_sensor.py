@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -312,9 +312,7 @@ async def async_setup_entry(  # noqa: PLR0912
 ) -> None:
     """Set up binary sensors for UniFi Insights integration."""
     _ = hass
-    coordinator: UnifiInsightsDataUpdateCoordinator = (
-        config_entry.runtime_data.coordinator
-    )
+    coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
     entities = []
 
     _LOGGER.debug("Setting up binary sensors for UniFi Insights")
@@ -434,7 +432,7 @@ class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):  # typ
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiInsightsBinarySensorEntityDescription,
         site_id: str,
         device_id: str,
@@ -479,7 +477,7 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         description: UnifiInsightsBinarySensorEntityDescription,
         device_id: str,
     ) -> None:

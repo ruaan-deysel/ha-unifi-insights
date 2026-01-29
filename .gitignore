@@ -47,6 +47,7 @@ venv.bak/
 .project
 .pydevproject
 .settings/
+.serena
 *.sublime-project
 *.sublime-workspace
 

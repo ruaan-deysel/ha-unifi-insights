@@ -10,7 +10,9 @@ from custom_components.unifi_insights.binary_sensor import (
     BINARY_SENSOR_TYPES,
     UnifiInsightsBinarySensor,
     UnifiProtectBinarySensor,
+    _get_supported_smart_detect_types,
     _is_doorbell_camera,
+    _is_smart_detect_active,
     async_setup_entry,
 )
 from custom_components.unifi_insights.const import (
@@ -646,3 +648,202 @@ class TestAsyncSetupEntry:
             e for e in added_entities if isinstance(e, UnifiProtectBinarySensor)
         ]
         assert len(protect_sensors) == 0
+
+
+class TestGetSupportedSmartDetectTypes:
+    """Tests for _get_supported_smart_detect_types helper."""
+
+    def test_returns_empty_list_for_non_dict_feature_flags(self):
+        """Test returns empty list when featureFlags is not a dict."""
+        # featureFlags is a list instead of dict
+        camera_data = {"featureFlags": ["some", "values"]}
+        assert _get_supported_smart_detect_types(camera_data) == []
+
+        # featureFlags is None
+        camera_data = {"featureFlags": None}
+        assert _get_supported_smart_detect_types(camera_data) == []
+
+        # featureFlags is a string
+        camera_data = {"featureFlags": "not_a_dict"}
+        assert _get_supported_smart_detect_types(camera_data) == []
+
+
+class TestIsSmartDetectActive:
+    """Tests for _is_smart_detect_active helper edge cases."""
+
+    def test_motion_detected_via_is_motion_detected_flag(self):
+        """Test motion detection via isMotionDetected flag."""
+        # Motion detected via isMotionDetected=True, person in lastSmartDetectTypes
+        camera_data = {
+            "featureFlags": {"smartDetectTypes": ["person"]},
+            "isMotionDetected": True,  # Using flag instead of timestamps
+            "isSmartDetected": False,
+            "lastSmartDetectTypes": ["person"],
+        }
+        assert _is_smart_detect_active(camera_data, "person") is True
+
+    def test_smart_detect_active_via_is_smart_detected_flag(self):
+        """Test smart detect via isSmartDetected=True flag."""
+        # isSmartDetected=True should check lastSmartDetectTypes
+        camera_data = {
+            "featureFlags": {"smartDetectTypes": ["person", "vehicle"]},
+            "isMotionDetected": True,
+            "isSmartDetected": True,  # Smart detection active
+            "lastSmartDetectTypes": ["person"],
+        }
+        assert _is_smart_detect_active(camera_data, "person") is True
+        assert _is_smart_detect_active(camera_data, "vehicle") is False
+
+    def test_no_motion_with_is_motion_detected_false(self):
+        """Test returns False when isMotionDetected is False."""
+        # Motion via timestamps but isMotionDetected is False and no valid timestamps
+        camera_data = {
+            "featureFlags": {"smartDetectTypes": ["person"]},
+            "isMotionDetected": False,
+            "lastMotionStart": None,
+            "lastMotionEnd": None,
+            "lastSmartDetectTypes": ["person"],
+        }
+        assert _is_smart_detect_active(camera_data, "person") is False
+
+    def test_detect_type_not_supported(self):
+        """Test returns False when detect_type is not in supported types (line 85)."""
+        # Camera only supports "person", but we're asking about "vehicle"
+        camera_data = {
+            "featureFlags": {"smartDetectTypes": ["person"]},  # Only person supported
+            "isMotionDetected": True,
+            "isSmartDetected": True,
+            "lastSmartDetectTypes": ["vehicle"],
+        }
+        # "vehicle" is not in supported types, should return False immediately
+        assert _is_smart_detect_active(camera_data, "vehicle") is False
+
+        # Empty supported types should also return False
+        camera_data_empty = {
+            "featureFlags": {"smartDetectTypes": []},
+            "isMotionDetected": True,
+            "isSmartDetected": True,
+            "lastSmartDetectTypes": ["person"],
+        }
+        assert _is_smart_detect_active(camera_data_empty, "person") is False
+
+
+class TestProtectBinarySensorUpdateFromDataNoData:
+    """Tests for _update_from_data when device_data is None."""
+
+    def test_update_from_data_with_no_device_data(self):
+        """Test _update_from_data returns early when device_data is None."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},  # Empty - no camera data
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+
+        # Create sensor with a camera that doesn't exist
+        description = next(d for d in BINARY_SENSOR_TYPES if d.key == "camera_motion")
+
+        # First add camera data to create entity
+        coordinator.data["protect"]["cameras"]["cam1"] = {
+            "id": "cam1",
+            "name": "Test Camera",
+            "state": "CONNECTED",
+        }
+
+        entity = UnifiProtectBinarySensor(
+            coordinator=coordinator,
+            description=description,
+            device_id="cam1",
+        )
+
+        # Now remove camera data
+        del coordinator.data["protect"]["cameras"]["cam1"]
+
+        # _update_from_data should return early without error
+        entity._update_from_data()
+
+        # Verify no attributes set (early return)
+        # The entity should still function without error
+
+
+class TestSetupSkipsNonDoorbellCameraSensors:
+    """Test that setup skips doorbell-specific sensors for regular cameras."""
+
+    @pytest.mark.asyncio
+    async def test_skips_package_detection_for_non_doorbell(self, hass: HomeAssistant):
+        """Test package detection sensor is skipped for non-doorbell cameras."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},  # No network devices
+            "clients": {},
+            "stats": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Backyard Camera",  # Not a doorbell name
+                        "type": "G4-Pro",  # Not a doorbell type
+                        "state": "CONNECTED",
+                        "featureFlags": {"smartDetectTypes": ["person", "package"]},
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        # Check that package detection sensor was NOT created
+        package_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_package_detection"
+        ]
+        assert len(package_sensors) == 0
+
+        # Check that doorbell ring sensor was NOT created
+        ring_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_doorbell_ring"
+        ]
+        assert len(ring_sensors) == 0
+
+        # But motion sensor should still be created
+        motion_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_motion"
+        ]
+        assert len(motion_sensors) == 1

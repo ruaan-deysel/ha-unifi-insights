@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ async def async_setup_entry(  # noqa: PLR0912
 ) -> None:
     """Set up switches for UniFi integration."""
     _ = hass
-    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
+    coordinator: UnifiFacadeCoordinator = entry.runtime_data.coordinator
     entities: list[SwitchEntity] = []
 
     # Add PoE switches and port enable switches for network switch ports
@@ -205,7 +205,7 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the switch."""
@@ -275,7 +275,7 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the switch."""
@@ -353,7 +353,7 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the switch."""
@@ -425,7 +425,7 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         camera_id: str,
     ) -> None:
         """Initialize the switch."""
@@ -496,7 +496,7 @@ class UnifiPoESwitch(SwitchEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         device_id: str,
         port_idx: int,
@@ -636,7 +636,7 @@ class UnifiPortEnableSwitch(SwitchEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         device_id: str,
         port_idx: int,
@@ -779,7 +779,7 @@ class UnifiClientBlockSwitch(SwitchEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         client_id: str,
     ) -> None:
@@ -896,7 +896,7 @@ class UnifiWifiSwitch(SwitchEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         site_id: str,
         wifi_id: str,
         wifi_data: dict[str, Any],

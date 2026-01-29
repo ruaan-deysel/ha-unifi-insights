@@ -65,6 +65,8 @@ repos:
           - --ignore-missing-imports
           - --no-strict-optional
           - --check-untyped-defs
+          - --explicit-package-bases
+          - --namespace-packages
         files: ^custom_components/.+\.py$
         additional_dependencies:
           - types-aiofiles

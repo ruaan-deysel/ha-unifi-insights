@@ -1717,3 +1717,955 @@ class TestAsyncSetupEntryWithPortSwitches:
         ]
 
         assert len(port_switches) == 0
+
+
+class TestAsyncSetupEntryEdgeCases:
+    """Tests for async_setup_entry edge cases to improve coverage."""
+
+    @pytest.mark.asyncio
+    async def test_port_without_idx_skipped(self, hass) -> None:
+        """Test that ports without idx or portIdx are skipped (line 74)."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "switch1": {
+                        "id": "switch1",
+                        "name": "Test Switch",
+                        "features": ["switching"],
+                        "interfaces": {
+                            "ports": [
+                                # Port without idx or portIdx - should be skipped
+                                {"state": "UP", "enabled": True},
+                                # Port with idx - should be processed
+                                {"idx": 2, "state": "UP", "enabled": True},
+                            ]
+                        },
+                    }
+                }
+            },
+            "stats": {"site1": {"switch1": {"ports": []}}},
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        port_switches = [e for e in entities if isinstance(e, UnifiPortEnableSwitch)]
+
+        # Only one port should have switch (port 2)
+        assert len(port_switches) == 1
+        assert port_switches[0]._port_idx == 2
+
+    @pytest.mark.asyncio
+    async def test_poe_config_from_stats_ports_fallback(self, hass) -> None:
+        """Test PoE config found in stats_ports when not in interfaces."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "switch1": {
+                        "id": "switch1",
+                        "name": "Test Switch",
+                        "features": ["switching"],
+                        "interfaces": {
+                            "ports": [
+                                # Port without PoE in interfaces
+                                {"idx": 1, "state": "UP", "enabled": True},
+                            ]
+                        },
+                    }
+                }
+            },
+            "stats": {
+                "site1": {
+                    "switch1": {
+                        "ports": [
+                            # PoE config in stats with idx match
+                            {"idx": 1, "poe": {"enabled": True, "mode": "auto"}},
+                        ]
+                    }
+                }
+            },
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        poe_switches = [e for e in entities if isinstance(e, UnifiPoESwitch)]
+
+        # Should have PoE switch from stats_ports
+        assert len(poe_switches) == 1
+        assert poe_switches[0]._port_idx == 1
+
+    @pytest.mark.asyncio
+    async def test_poe_config_from_stats_ports_with_alternate_key(self, hass) -> None:
+        """Test PoE config found in stats_ports using portIdx key."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "switch1": {
+                        "id": "switch1",
+                        "name": "Test Switch",
+                        "features": ["switching"],
+                        "interfaces": {
+                            "ports": [
+                                # Port without PoE in interfaces
+                                {"idx": 1, "state": "UP", "enabled": True},
+                            ]
+                        },
+                    }
+                }
+            },
+            "stats": {
+                "site1": {
+                    "switch1": {
+                        "ports": [
+                            # PoE config in stats with portIdx match
+                            {"portIdx": 1, "poe": {"enabled": True, "mode": "auto"}},
+                        ]
+                    }
+                }
+            },
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        poe_switches = [e for e in entities if isinstance(e, UnifiPoESwitch)]
+
+        # Should have PoE switch from stats_ports
+        assert len(poe_switches) == 1
+
+    @pytest.mark.asyncio
+    async def test_camera_with_high_fps_capability(self, hass) -> None:
+        """Test High FPS switch created for cameras with hasHighFpsCapability."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "stats": {},
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "id": "camera1",
+                        "name": "High FPS Camera",
+                        "state": "CONNECTED",
+                        "featureFlags": {"hasHighFpsCapability": True},
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        high_fps_switches = [
+            e for e in entities if isinstance(e, UnifiProtectHighFPSSwitch)
+        ]
+
+        # Should have High FPS switch
+        assert len(high_fps_switches) == 1
+
+    @pytest.mark.asyncio
+    async def test_camera_without_high_fps_capability(self, hass) -> None:
+        """Test no High FPS switch for cameras without hasHighFpsCapability."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "stats": {},
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "id": "camera1",
+                        "name": "Basic Camera",
+                        "state": "CONNECTED",
+                        "featureFlags": {"hasHighFpsCapability": False},
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        high_fps_switches = [
+            e for e in entities if isinstance(e, UnifiProtectHighFPSSwitch)
+        ]
+
+        # Should NOT have High FPS switch
+        assert len(high_fps_switches) == 0
+
+    @pytest.mark.asyncio
+    async def test_camera_with_feature_flags_not_dict(self, hass) -> None:
+        """Test camera with featureFlags not being a dict."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "stats": {},
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "id": "camera1",
+                        "name": "Basic Camera",
+                        "state": "CONNECTED",
+                        "featureFlags": None,  # Not a dict
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        high_fps_switches = [
+            e for e in entities if isinstance(e, UnifiProtectHighFPSSwitch)
+        ]
+
+        # Should NOT have High FPS switch (featureFlags is not dict)
+        assert len(high_fps_switches) == 0
+
+    @pytest.mark.asyncio
+    async def test_client_name_fallback_to_hostname(self, hass) -> None:
+        """Test client name fallback from name to hostname (line 163)."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "stats": {},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "hostname": "test-hostname",  # No name, fallback to hostname
+                        "mac": "AA:BB:CC:DD:EE:FF",
+                        "blocked": False,
+                    }
+                }
+            },
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        client_switches = [e for e in entities if isinstance(e, UnifiClientBlockSwitch)]
+
+        assert len(client_switches) == 1
+        # Verify switch was created (hostname used for naming)
+        assert client_switches[0]._client_id == "client1"
+
+    @pytest.mark.asyncio
+    async def test_client_name_fallback_to_mac(self, hass) -> None:
+        """Test client name fallback from name/hostname to mac (lines 163-166)."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "stats": {},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        # No name, no hostname, fallback to mac
+                        "mac": "AA:BB:CC:DD:EE:FF",
+                        "blocked": False,
+                    }
+                }
+            },
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        client_switches = [e for e in entities if isinstance(e, UnifiClientBlockSwitch)]
+
+        assert len(client_switches) == 1
+
+    @pytest.mark.asyncio
+    async def test_wifi_name_fallback_to_ssid(self, hass) -> None:
+        """Test WiFi name fallback from name to ssid (lines 182-183)."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "stats": {},
+            "clients": {},
+            "wifi": {
+                "site1": {
+                    "wifi1": {
+                        "id": "wifi1",
+                        "ssid": "MyNetwork",  # No name, fallback to ssid
+                        "enabled": True,
+                    }
+                }
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        wifi_switches = [e for e in entities if isinstance(e, UnifiWifiSwitch)]
+
+        assert len(wifi_switches) == 1
+        # Verify switch was created with ssid in name
+        assert wifi_switches[0]._wifi_id == "wifi1"
+
+
+class TestUnifiPoESwitchEdgeCases:
+    """Tests for UnifiPoESwitch edge cases."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with PoE port."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.devices = MagicMock()
+        coordinator.network_client.devices.execute_port_action = AsyncMock()
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "switch1": {
+                        "id": "switch1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                    }
+                }
+            },
+            "stats": {
+                "site1": {
+                    "switch1": {
+                        "ports": [
+                            {
+                                "idx": 1,
+                                "poe": {"enabled": True, "mode": "auto", "power": 5.5},
+                                "state": "UP",
+                                "speedMbps": 1000,
+                            },
+                        ]
+                    }
+                }
+            },
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    def test_get_port_data_with_alternate_key_match(self, mock_coordinator) -> None:
+        """Test _get_port_data matches on portIdx instead of idx."""
+        # Change stats to use portIdx instead of idx
+        mock_coordinator.data["stats"]["site1"]["switch1"]["ports"] = [
+            {"portIdx": 1, "poe": {"enabled": True}, "state": "UP"},
+        ]
+
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+
+        port_data = switch._get_port_data()
+        assert port_data.get("portIdx") == 1
+
+    def test_get_port_data_returns_empty_dict_when_not_found(
+        self, mock_coordinator
+    ) -> None:
+        """Test _get_port_data returns empty dict when port not found."""
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=99,  # Port that doesn't exist
+        )
+
+        port_data = switch._get_port_data()
+        assert port_data == {}
+
+    def test_available_when_device_online(self, mock_coordinator) -> None:
+        """Test available property returns True when device is online."""
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+        assert switch.available is True
+
+    def test_available_when_device_offline(self, mock_coordinator) -> None:
+        """Test available property returns False when device is offline."""
+        mock_coordinator.data["devices"]["site1"]["switch1"]["state"] = "OFFLINE"
+
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+        assert switch.available is False
+
+    def test_available_when_device_not_found(self, mock_coordinator) -> None:
+        """Test available property returns False when device not found."""
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+
+        # Remove device from data
+        del mock_coordinator.data["devices"]["site1"]["switch1"]
+        assert switch.available is False
+
+    def test_is_on_property(self, mock_coordinator) -> None:
+        """Test is_on property returns correct state."""
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+        assert switch.is_on is True
+
+        # Disable PoE
+        mock_coordinator.data["stats"]["site1"]["switch1"]["ports"][0]["poe"][
+            "enabled"
+        ] = False
+        assert switch.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_async_turn_on_success(self, mock_coordinator) -> None:
+        """Test async_turn_on enables PoE successfully."""
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_on()
+
+        mock_coordinator.network_client.devices.execute_port_action.assert_called_once_with(
+            "site1", "switch1", 1, poe_mode="auto"
+        )
+        assert switch._attr_is_on is True
+        switch.async_write_ha_state.assert_called_once()
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_on_error(self, mock_coordinator) -> None:
+        """Test async_turn_on handles errors gracefully."""
+        mock_coordinator.network_client.devices.execute_port_action = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+
+        # Should not raise
+        await switch.async_turn_on()
+
+        # Should have attempted to enable
+        mock_coordinator.network_client.devices.execute_port_action.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_off_success(self, mock_coordinator) -> None:
+        """Test async_turn_off disables PoE successfully."""
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_off()
+
+        mock_coordinator.network_client.devices.execute_port_action.assert_called_once_with(
+            "site1", "switch1", 1, poe_mode="off"
+        )
+        assert switch._attr_is_on is False
+        switch.async_write_ha_state.assert_called_once()
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_off_error(self, mock_coordinator) -> None:
+        """Test async_turn_off handles errors gracefully."""
+        mock_coordinator.network_client.devices.execute_port_action = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        switch = UnifiPoESwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+
+        # Should not raise
+        await switch.async_turn_off()
+
+        # Should have attempted to disable
+        mock_coordinator.network_client.devices.execute_port_action.assert_called_once()
+
+
+class TestUnifiPortEnableSwitchEdgeCases:
+    """Tests for UnifiPortEnableSwitch edge cases."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with ports."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.devices = MagicMock()
+        coordinator.network_client.devices.execute_port_action = AsyncMock()
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "switch1": {
+                        "id": "switch1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "interfaces": {
+                            "ports": [
+                                {
+                                    "idx": 1,
+                                    "state": "UP",
+                                    "enabled": True,
+                                    "speedMbps": 1000,
+                                },
+                            ]
+                        },
+                    }
+                }
+            },
+            "stats": {},
+            "clients": {},
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    def test_get_port_data_with_alternate_key_match(self, mock_coordinator) -> None:
+        """Test _get_port_data matches on portIdx instead of idx."""
+        # Change interfaces to use portIdx instead of idx
+        mock_coordinator.data["devices"]["site1"]["switch1"]["interfaces"]["ports"] = [
+            {"portIdx": 1, "state": "UP", "enabled": True},
+        ]
+
+        switch = UnifiPortEnableSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+
+        port_data = switch._get_port_data()
+        assert port_data.get("portIdx") == 1
+
+    def test_get_port_data_returns_empty_when_not_found(self, mock_coordinator) -> None:
+        """Test _get_port_data returns empty dict when port not found (line 693)."""
+        switch = UnifiPortEnableSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=99,  # Port that doesn't exist
+        )
+
+        port_data = switch._get_port_data()
+        assert port_data == {}
+
+    def test_available_when_device_not_found(self, mock_coordinator) -> None:
+        """Test available returns False when device not found (line 719)."""
+        switch = UnifiPortEnableSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="switch1",
+            port_idx=1,
+        )
+
+        # Remove device from data
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        assert switch.available is False
+
+
+class TestUnifiClientBlockSwitchEdgeCases:
+    """Tests for UnifiClientBlockSwitch edge cases."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with client."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.clients = MagicMock()
+        coordinator.network_client.clients.block = AsyncMock()
+        coordinator.network_client.clients.unblock = AsyncMock()
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "stats": {},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "name": "Test Client",
+                        "mac": "AA:BB:CC:DD:EE:FF",
+                        "blocked": False,
+                    }
+                }
+            },
+            "wifi": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_turn_on_handles_error(self, mock_coordinator) -> None:
+        """Test async_turn_on handles errors gracefully (lines 863-864)."""
+        mock_coordinator.network_client.clients.unblock = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        switch = UnifiClientBlockSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Should not raise, but log error
+        await switch.async_turn_on()
+
+        # Should have tried to unblock
+        mock_coordinator.network_client.clients.unblock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_handles_error(self, mock_coordinator) -> None:
+        """Test async_turn_off handles errors gracefully (lines 884-885)."""
+        mock_coordinator.network_client.clients.block = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        switch = UnifiClientBlockSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="client1",
+        )
+
+        # Should not raise, but log error
+        await switch.async_turn_off()
+
+        # Should have tried to block
+        mock_coordinator.network_client.clients.block.assert_called_once()
+
+
+class TestUnifiWifiSwitchEdgeCases:
+    """Tests for UnifiWifiSwitch edge cases."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with WiFi."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.wifi = MagicMock()
+        coordinator.network_client.wifi.update = AsyncMock()
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {},
+            "stats": {},
+            "clients": {},
+            "wifi": {
+                "site1": {
+                    "wifi1": {
+                        "id": "wifi1",
+                        "name": "Test WiFi",
+                        "ssid": "TestSSID",
+                        "enabled": True,
+                        "security": "wpa2",
+                        "hidden": False,
+                        "isGuest": False,
+                    }
+                }
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_turn_on_handles_error(self, mock_coordinator) -> None:
+        """Test async_turn_on handles errors gracefully (lines 975-976)."""
+        mock_coordinator.network_client.wifi.update = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        switch = UnifiWifiSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            wifi_id="wifi1",
+            wifi_data=mock_coordinator.data["wifi"]["site1"]["wifi1"],
+        )
+
+        # Should not raise, but log error
+        await switch.async_turn_on()
+
+        # Should have tried to enable
+        mock_coordinator.network_client.wifi.update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_handles_error(self, mock_coordinator) -> None:
+        """Test async_turn_off handles errors gracefully (lines 1000-1001)."""
+        mock_coordinator.network_client.wifi.update = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        switch = UnifiWifiSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            wifi_id="wifi1",
+            wifi_data=mock_coordinator.data["wifi"]["site1"]["wifi1"],
+        )
+
+        # Should not raise, but log error
+        await switch.async_turn_off()
+
+        # Should have tried to disable
+        mock_coordinator.network_client.wifi.update.assert_called_once()
+
+    def test_get_wifi_data_fallback_to_initial_data(self, mock_coordinator) -> None:
+        """Test _get_wifi_data falls back to initial wifi_data."""
+        initial_wifi_data = {
+            "id": "wifi1",
+            "name": "Initial WiFi",
+            "ssid": "InitialSSID",
+            "enabled": True,
+        }
+
+        switch = UnifiWifiSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            wifi_id="wifi1",
+            wifi_data=initial_wifi_data,
+        )
+
+        # Remove wifi from coordinator data
+        mock_coordinator.data["wifi"]["site1"] = {}
+
+        wifi_data = switch._get_wifi_data()
+        assert wifi_data == initial_wifi_data

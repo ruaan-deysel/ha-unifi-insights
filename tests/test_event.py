@@ -709,3 +709,350 @@ class TestSensorCoordinatorUpdate:
             entity._handle_coordinator_update()
         assert entity._last_open_status_changed_at == 3333
         assert entity._last_is_opened is False
+
+
+class TestEventSetupEmptyCameras:
+    """Tests for setup when cameras dict is empty."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with empty cameras."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},  # Empty cameras dict
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_empty_cameras(self, hass, mock_coordinator) -> None:
+        """Test setup with empty cameras dict (no iterations)."""
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        # Should add empty list since no cameras and no sensors
+        async_add_entities.assert_called_once()
+        entities = async_add_entities.call_args[0][0]
+        assert len(entities) == 0
+
+
+class TestDoorbellAvailableNoCameraData:
+    """Tests for doorbell entity available when camera data is missing."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},  # Will be missing the camera
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_available_returns_false_when_camera_missing(
+        self, mock_coordinator
+    ) -> None:
+        """Test available returns False when camera data is missing."""
+        # First create entity with camera data present
+        mock_coordinator.data["protect"]["cameras"]["camera1"] = {
+            "id": "camera1",
+            "name": "Front Doorbell",
+            "state": "CONNECTED",
+            "type": "G4-Doorbell",
+        }
+
+        entity = UnifiProtectDoorbellEventEntity(
+            coordinator=mock_coordinator,
+            device_id="camera1",
+        )
+
+        # Now remove the camera from data
+        del mock_coordinator.data["protect"]["cameras"]["camera1"]
+
+        # available should return False
+        assert entity.available is False
+
+
+class TestSmartDetectAvailableNoCameraData:
+    """Tests for smart detect entity available when camera data is missing."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_available_returns_false_when_camera_missing(
+        self, mock_coordinator
+    ) -> None:
+        """Test available returns False when camera data is missing."""
+        # First create entity with camera data present
+        mock_coordinator.data["protect"]["cameras"]["camera1"] = {
+            "id": "camera1",
+            "name": "Backyard Camera",
+            "state": "CONNECTED",
+            "type": "G4-Pro",
+            "smartDetectTypes": ["person", "vehicle"],
+        }
+
+        entity = UnifiProtectSmartDetectEventEntity(
+            coordinator=mock_coordinator,
+            device_id="camera1",
+        )
+
+        # Now remove the camera from data
+        del mock_coordinator.data["protect"]["cameras"]["camera1"]
+
+        # available should return False
+        assert entity.available is False
+
+
+class TestSensorAvailableNoSensorData:
+    """Tests for sensor entity available when sensor data is missing."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_available_returns_false_when_sensor_missing(
+        self, mock_coordinator
+    ) -> None:
+        """Test available returns False when sensor data is missing."""
+        # First create entity with sensor data present
+        mock_coordinator.data["protect"]["sensors"]["sensor1"] = {
+            "id": "sensor1",
+            "name": "Front Door Sensor",
+            "state": "CONNECTED",
+        }
+
+        entity = UnifiProtectSensorEventEntity(
+            coordinator=mock_coordinator,
+            device_id="sensor1",
+        )
+
+        # Now remove the sensor from data
+        del mock_coordinator.data["protect"]["sensors"]["sensor1"]
+
+        # available should return False
+        assert entity.available is False
+
+
+class TestSmartDetectVehicleAnimalPackage:
+    """Tests for vehicle, animal, and package detection events."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "id": "camera1",
+                        "name": "Driveway Camera",
+                        "state": "CONNECTED",
+                        "type": "G4-Pro",
+                        "smartDetectTypes": ["person", "vehicle", "animal", "package"],
+                        "lastMotionStart": None,
+                        "lastMotionEnd": None,
+                        "lastSmartDetectTypes": [],
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_handle_vehicle_detection(self, mock_coordinator) -> None:
+        """Test handling of vehicle detection event."""
+        entity = UnifiProtectSmartDetectEventEntity(
+            coordinator=mock_coordinator,
+            device_id="camera1",
+        )
+
+        # Trigger vehicle detection
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["lastMotionStart"] = 1234
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["lastMotionEnd"] = None
+        mock_coordinator.data["protect"]["cameras"]["camera1"][
+            "lastSmartDetectTypes"
+        ] = ["vehicle"]
+
+        with (
+            patch.object(entity, "async_write_ha_state"),
+            patch.object(entity, "_trigger_event") as mock_trigger,
+        ):
+            entity._handle_coordinator_update()
+            mock_trigger.assert_called_once_with(
+                EVENT_TYPE_SMART_DETECT_VEHICLE,
+                {"camera_id": "camera1"},
+            )
+
+    def test_handle_animal_detection(self, mock_coordinator) -> None:
+        """Test handling of animal detection event."""
+        entity = UnifiProtectSmartDetectEventEntity(
+            coordinator=mock_coordinator,
+            device_id="camera1",
+        )
+
+        # Trigger animal detection
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["lastMotionStart"] = 2345
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["lastMotionEnd"] = None
+        mock_coordinator.data["protect"]["cameras"]["camera1"][
+            "lastSmartDetectTypes"
+        ] = ["animal"]
+
+        with (
+            patch.object(entity, "async_write_ha_state"),
+            patch.object(entity, "_trigger_event") as mock_trigger,
+        ):
+            entity._handle_coordinator_update()
+            mock_trigger.assert_called_once_with(
+                EVENT_TYPE_SMART_DETECT_ANIMAL,
+                {"camera_id": "camera1"},
+            )
+
+    def test_handle_package_detection(self, mock_coordinator) -> None:
+        """Test handling of package detection event."""
+        entity = UnifiProtectSmartDetectEventEntity(
+            coordinator=mock_coordinator,
+            device_id="camera1",
+        )
+
+        # Trigger package detection
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["lastMotionStart"] = 3456
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["lastMotionEnd"] = None
+        mock_coordinator.data["protect"]["cameras"]["camera1"][
+            "lastSmartDetectTypes"
+        ] = ["package"]
+
+        with (
+            patch.object(entity, "async_write_ha_state"),
+            patch.object(entity, "_trigger_event") as mock_trigger,
+        ):
+            entity._handle_coordinator_update()
+            mock_trigger.assert_called_once_with(
+                EVENT_TYPE_SMART_DETECT_PACKAGE,
+                {"camera_id": "camera1"},
+            )
+
+
+class TestSensorUpdateNoStatusChange:
+    """Tests for sensor update when status hasn't changed."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {
+                    "sensor1": {
+                        "id": "sensor1",
+                        "name": "Front Door Sensor",
+                        "state": "CONNECTED",
+                        "isOpened": False,
+                        "openStatusChangedAt": None,  # No status change timestamp
+                    }
+                },
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+        return coordinator
+
+    def test_no_event_when_status_unchanged_at_is_none(self, mock_coordinator) -> None:
+        """Test no event fired when openStatusChangedAt is None."""
+        entity = UnifiProtectSensorEventEntity(
+            coordinator=mock_coordinator,
+            device_id="sensor1",
+        )
+
+        with (
+            patch.object(entity, "async_write_ha_state"),
+            patch.object(entity, "_trigger_event") as mock_trigger,
+        ):
+            entity._handle_coordinator_update()
+            # Should not trigger any event when openStatusChangedAt is None
+            mock_trigger.assert_not_called()

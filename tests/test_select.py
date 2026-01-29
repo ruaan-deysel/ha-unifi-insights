@@ -414,6 +414,42 @@ class TestUnifiProtectVideoModeSelect:
         )
         assert entity._attr_current_option == "highFps"
 
+    async def test_async_select_option_error(self, mock_coordinator):
+        """Test selecting video mode option with error."""
+        mock_coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Test Camera",
+                        "state": "CONNECTED",
+                        "videoMode": "default",
+                    },
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "chimes": {},
+                "viewers": {},
+                "liveviews": {},
+            },
+        }
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.set_video_mode = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        entity = UnifiProtectVideoModeSelect(
+            coordinator=mock_coordinator,
+            camera_id="cam1",
+        )
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_select_option("highFps")
+        # Should not raise, just log the error
+
 
 class TestUnifiProtectChimeRingtoneSelect:
     """Tests for UnifiProtectChimeRingtoneSelect entity."""
@@ -520,6 +556,42 @@ class TestUnifiProtectChimeRingtoneSelect:
             chime_id="chime1", ringtone_id="mechanical"
         )
 
+    async def test_async_select_option_error(self, mock_coordinator):
+        """Test selecting ringtone option with error."""
+        mock_coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "protect": {
+                "cameras": {},
+                "chimes": {
+                    "chime1": {
+                        "id": "chime1",
+                        "name": "Test Chime",
+                        "state": "CONNECTED",
+                        "ringSettings": [],
+                    },
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "liveviews": {},
+            },
+        }
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.set_chime_ringtone = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        entity = UnifiProtectChimeRingtoneSelect(
+            coordinator=mock_coordinator,
+            chime_id="chime1",
+        )
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_select_option("mechanical")
+        # Should not raise, just log the error
+
 
 class TestUnifiProtectPTZPresetSelect:
     """Tests for UnifiProtectPTZPresetSelect entity."""
@@ -597,6 +669,43 @@ class TestUnifiProtectPTZPresetSelect:
             camera_id="cam1", slot=3
         )
         assert entity._attr_current_option == "3"
+
+    async def test_async_select_option_error(self, mock_coordinator):
+        """Test selecting PTZ preset option with error."""
+        mock_coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "PTZ Camera",
+                        "state": "CONNECTED",
+                        "hasPtz": True,
+                        "currentPtzPreset": 0,
+                    },
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "chimes": {},
+                "viewers": {},
+                "liveviews": {},
+            },
+        }
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.ptz_move_to_preset = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        entity = UnifiProtectPTZPresetSelect(
+            coordinator=mock_coordinator,
+            camera_id="cam1",
+        )
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_select_option("3")
+        # Should not raise, just log the error
 
 
 class TestUnifiProtectViewerLiveviewSelect:
@@ -711,6 +820,45 @@ class TestUnifiProtectViewerLiveviewSelect:
             viewer_id="viewer1", data={"liveview": "lv2"}
         )
         assert entity._attr_current_option == "All Cameras"
+
+    async def test_async_select_option_error(self, mock_coordinator):
+        """Test selecting liveview option with error."""
+        mock_coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "protect": {
+                "cameras": {},
+                "chimes": {},
+                "viewers": {
+                    "viewer1": {
+                        "id": "viewer1",
+                        "name": "Test Viewer",
+                        "state": "CONNECTED",
+                        "liveview": "lv1",
+                    },
+                },
+                "liveviews": {
+                    "lv1": {"id": "lv1", "name": "Default View"},
+                    "lv2": {"id": "lv2", "name": "All Cameras"},
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+            },
+        }
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.update_viewer = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+
+        entity = UnifiProtectViewerLiveviewSelect(
+            coordinator=mock_coordinator,
+            viewer_id="viewer1",
+        )
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_select_option("All Cameras")
+        # Should not raise, just log the error
 
     async def test_async_select_option_liveview_not_found(self, mock_coordinator):
         """Test selecting liveview that doesn't exist."""

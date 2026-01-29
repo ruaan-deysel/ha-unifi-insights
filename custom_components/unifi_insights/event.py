@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -117,7 +117,7 @@ def _is_doorbell_camera(camera_data: dict[str, Any]) -> bool:
 
 
 class UnifiProtectDoorbellEventEntity(
-    CoordinatorEntity["UnifiInsightsDataUpdateCoordinator"],  # type: ignore[misc]
+    CoordinatorEntity["UnifiFacadeCoordinator"],  # type: ignore[misc]
     EventEntity,  # type: ignore[misc]
 ):
     """Event entity for UniFi Protect doorbell ring events."""
@@ -128,7 +128,7 @@ class UnifiProtectDoorbellEventEntity(
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         device_id: str,
     ) -> None:
         """Initialize the event entity."""
@@ -185,7 +185,7 @@ class UnifiProtectDoorbellEventEntity(
 
 
 class UnifiProtectSmartDetectEventEntity(
-    CoordinatorEntity["UnifiInsightsDataUpdateCoordinator"],  # type: ignore[misc]
+    CoordinatorEntity["UnifiFacadeCoordinator"],  # type: ignore[misc]
     EventEntity,  # type: ignore[misc]
 ):
     """Event entity for UniFi Protect smart detection events."""
@@ -202,7 +202,7 @@ class UnifiProtectSmartDetectEventEntity(
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         device_id: str,
     ) -> None:
         """Initialize the event entity."""
@@ -273,7 +273,7 @@ class UnifiProtectSmartDetectEventEntity(
 
 
 class UnifiProtectSensorEventEntity(
-    CoordinatorEntity["UnifiInsightsDataUpdateCoordinator"],  # type: ignore[misc]
+    CoordinatorEntity["UnifiFacadeCoordinator"],  # type: ignore[misc]
     EventEntity,  # type: ignore[misc]
 ):
     """Event entity for UniFi Protect sensor open/close events."""
@@ -286,7 +286,7 @@ class UnifiProtectSensorEventEntity(
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         device_id: str,
     ) -> None:
         """Initialize the event entity."""

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinator import UnifiInsightsDataUpdateCoordinator
+    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up lights for UniFi Protect integration."""
     _ = hass
-    coordinator: UnifiInsightsDataUpdateCoordinator = entry.runtime_data.coordinator
+    coordinator: UnifiFacadeCoordinator = entry.runtime_data.coordinator
 
     # Skip if Protect API is not available
     if not coordinator.protect_client:
@@ -76,7 +76,7 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):  # type: ignore[misc]
 
     def __init__(
         self,
-        coordinator: UnifiInsightsDataUpdateCoordinator,
+        coordinator: UnifiFacadeCoordinator,
         light_id: str,
     ) -> None:
         """Initialize the light."""

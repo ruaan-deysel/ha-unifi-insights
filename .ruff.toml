@@ -13,6 +13,7 @@ ignore = [
     "D212", # multi-line-summary-first-line (incompatible with formatter)
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
+    "PLR0913", # too many arguments (HA coordinators need many params)
 ]
 
 [lint.per-file-ignores]

@@ -312,7 +312,6 @@ This integration is not officially affiliated with or endorsed by Ubiquiti Inc. 
 
 - 🐛 [Report a Bug](https://github.com/ruaan-deysel/ha-unifi-insights/issues/new?template=bug_report.md)
 - 💡 [Request a Feature](https://github.com/ruaan-deysel/ha-unifi-insights/issues/new?template=feature_request.md)
-- 💬 [Discussions](https://github.com/ruaan-deysel/ha-unifi-insights/discussions)
 
 [hacs]: https://github.com/custom-components/hacs
 [hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge

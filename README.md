@@ -9,7 +9,7 @@
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/ruaan-deysel)](https://github.com/sponsors/ruaan-deysel)
 [![Community Forum](https://img.shields.io/badge/community-forum-brightgreen.svg)](https://community.home-assistant.io/t/unifi-insights-integration)
 [![License](https://img.shields.io/github/license/ruaan-deysel/ha-unifi-insights)](./LICENSE)
-[![Ask DeepWiki](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2Fruaan-deysel%2Fha-unifi-insights)](https://deepwiki.com/ruaan-deysel/ha-unifi-insights)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ruaan-deysel/ha-unifi-insights)
 
 A comprehensive Home Assistant custom integration for monitoring and controlling your UniFi Network and UniFi Protect infrastructure using the official UniFi APIs.
 

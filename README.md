@@ -1,10 +1,15 @@
 # UniFi Insights Integration for Home Assistant
 
-[![HACS Integration][hacsbadge]][hacs]
-[![GitHub Last Commit](https://img.shields.io/github/last-commit/ruaan-deysel/ha-unifi-insights?style=for-the-badge)](https://github.com/ruaan-deysel/ha-unifi-insights/commits/main)
-[![License](https://img.shields.io/github/license/ruaan-deysel/ha-unifi-insights?style=for-the-badge)](./LICENSE)
-[![Tests](https://img.shields.io/badge/tests-621%20passed-brightgreen?style=for-the-badge)](https://github.com/ruaan-deysel/ha-unifi-insights)
-[![Coverage](https://img.shields.io/badge/coverage-91.62%25-brightgreen?style=for-the-badge)](https://github.com/ruaan-deysel/ha-unifi-insights)
+[![HACS Integration](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
+[![CI](https://github.com/ruaan-deysel/ha-unifi-insights/actions/workflows/ci.yml/badge.svg)](https://github.com/ruaan-deysel/ha-unifi-insights/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ruaan-deysel/ha-unifi-insights/branch/main/graph/badge.svg)](https://codecov.io/gh/ruaan-deysel/ha-unifi-insights)
+[![GitHub Last Commit](https://img.shields.io/github/last-commit/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/commits/main)
+[![GitHub Release](https://img.shields.io/github/v/release/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/releases)
+[![GitHub Issues](https://img.shields.io/github/issues/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/issues)
+[![GitHub Sponsors](https://img.shields.io/github/sponsors/ruaan-deysel)](https://github.com/sponsors/ruaan-deysel)
+[![Community Forum](https://img.shields.io/badge/community-forum-brightgreen.svg)](https://community.home-assistant.io/t/unifi-insights-integration)
+[![License](https://img.shields.io/github/license/ruaan-deysel/ha-unifi-insights)](./LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge-maker?url=https%3A%2F%2Fdeepwiki.com%2Fruaan-deysel%2Fha-unifi-insights)](https://deepwiki.com/ruaan-deysel/ha-unifi-insights)
 
 A comprehensive Home Assistant custom integration for monitoring and controlling your UniFi Network and UniFi Protect infrastructure using the official UniFi APIs.
 
@@ -312,6 +317,4 @@ This integration is not officially affiliated with or endorsed by Ubiquiti Inc. 
 
 - 🐛 [Report a Bug](https://github.com/ruaan-deysel/ha-unifi-insights/issues/new?template=bug_report.md)
 - 💡 [Request a Feature](https://github.com/ruaan-deysel/ha-unifi-insights/issues/new?template=feature_request.md)
-
-[hacs]: https://github.com/custom-components/hacs
-[hacsbadge]: https://img.shields.io/badge/HACS-Default-orange.svg?style=for-the-badge
+- 💬 [Discussions](https://github.com/ruaan-deysel/ha-unifi-insights/discussions)

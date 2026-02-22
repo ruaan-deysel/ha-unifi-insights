@@ -410,6 +410,24 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         ),
     ),
     UnifiInsightsSensorEntityDescription(
+        key="poe_total_power",
+        translation_key="poe_total_power",
+        name="Total PoE Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:flash",
+        # Only show on switch devices (devices with 'switching' feature)
+        required_feature="switching",
+        value_fn=lambda stats: get_stats_field(
+            stats,
+            "poe_total_w",
+            "poeTotalW",
+            "total_used_power",
+            "totalUsedPower",
+        ),
+    ),
+    UnifiInsightsSensorEntityDescription(
         key="firmware_version",
         translation_key="firmware_version",
         name="Firmware Version",
@@ -460,8 +478,11 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:flash",
-        value_fn=lambda port: get_field(port, "poe", default={}).get("power")
-        or get_field(port, "poe", default={}).get("watts"),
+        value_fn=lambda port: (
+            get_field(port, "poe_power_w")
+            or get_field(port, "poe", default={}).get("power")
+            or get_field(port, "poe", default={}).get("watts")
+        ),
     ),
     # Port Speed
     UnifiInsightsSensorEntityDescription(
@@ -594,6 +615,21 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     )
                     continue
 
+                # Only create Total PoE Power sensor if coordinator stats provides PoE data.
+                if description.key == "poe_total_power":
+                    stats = (
+                        coordinator.data.get("stats", {})
+                        .get(site_id, {})
+                        .get(device_id, {})
+                    )
+                    if not isinstance(stats, dict):
+                        continue
+                    if (
+                        stats.get("poe_total_w") is None
+                        and not isinstance(stats.get("poe_ports"), dict)
+                    ):
+                        continue
+
                 entities.append(
                     UnifiInsightsSensor(
                         coordinator=coordinator,
@@ -634,9 +670,9 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                         )
                         continue
 
-                    # Create PoE power sensor only for PoE-capable ports
+                    # Create PoE power sensor for PoE-capable ports
                     poe_data = get_field(port, "poe", default={})
-                    if poe_data.get("enabled"):
+                    if isinstance(poe_data, dict) and poe_data.get("type"):
                         poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
                         entities.append(
                             UnifiPortSensor(
@@ -681,6 +717,74 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                             port_idx=port_idx,
                         )
                     )
+
+            # Fallback: create PoE power sensors from stats when interfaces.ports is unavailable
+            if "switching" in device_features:
+                stats = (
+                    coordinator.data.get("stats", {})
+                    .get(site_id, {})
+                    .get(device_id, {})
+                )
+                if isinstance(stats, dict):
+                    poe_ports = stats.get("poe_ports")
+                    if isinstance(poe_ports, dict) and poe_ports:
+                        poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
+                        existing_uids = {
+                            getattr(e, "unique_id", None) for e in entities
+                        }
+                        for port_idx in poe_ports:
+                            if not isinstance(port_idx, int):
+                                continue
+                            uid = f"{device_id}_{poe_desc.key}_{port_idx}"
+                            if uid in existing_uids:
+                                continue
+                            entities.append(
+                                UnifiPortSensor(
+                                    coordinator=coordinator,
+                                    description=poe_desc,
+                                    site_id=site_id,
+                                    device_id=device_id,
+                                    port_idx=port_idx,
+                                )
+                            )
+
+            # Fallback: create port TX/RX sensors from stats when interfaces.ports is unavailable
+            if "switching" in device_features:
+                stats = (
+                    coordinator.data.get("stats", {})
+                    .get(site_id, {})
+                    .get(device_id, {})
+                )
+                if isinstance(stats, dict):
+                    port_bytes = stats.get("port_bytes")
+                    if isinstance(port_bytes, dict) and port_bytes:
+                        existing_uids = {getattr(e, "unique_id", None) for e in entities}
+                        for port_idx in port_bytes:
+                            # port_bytes keys may be int or str; normalize to int
+                            if isinstance(port_idx, int):
+                                port_idx_int = port_idx
+                            elif isinstance(port_idx, str) and port_idx.isdigit():
+                                port_idx_int = int(port_idx)
+                            else:
+                                continue
+
+                            for desc in PORT_SENSOR_TYPES:
+                                if desc.key not in ("port_tx_bytes", "port_rx_bytes"):
+                                    continue
+
+                                uid = f"{device_id}_{desc.key}_{port_idx_int}"
+                                if uid in existing_uids:
+                                    continue
+
+                                entities.append(
+                                    UnifiPortSensor(
+                                        coordinator=coordinator,
+                                        description=desc,
+                                        site_id=site_id,
+                                        device_id=device_id,
+                                        port_idx=port_idx_int,
+                                    )
+                                )
 
             # Add WAN sensors for gateway devices
             features = get_field(device_data, "features", default={})
@@ -907,6 +1011,36 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                 break
 
         if not port_data:
+            # PoE power can be sourced from stats when interfaces.ports is unavailable
+            if self.entity_description.key == "port_poe_power":
+                stats = (
+                    self.coordinator.data.get("stats", {})
+                    .get(self._site_id, {})
+                    .get(self._device_id, {})
+                )
+                if isinstance(stats, dict):
+                    poe_ports = stats.get("poe_ports")
+                    if isinstance(poe_ports, dict):
+                        watts = poe_ports.get(self._port_idx)
+                        if isinstance(watts, (int, float)):
+                            return float(watts)
+
+            # TX/RX bytes can be sourced from stats when interfaces.ports is unavailable
+            if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
+                stats = (
+                    self.coordinator.data.get("stats", {})
+                    .get(self._site_id, {})
+                    .get(self._device_id, {})
+                )
+                if isinstance(stats, dict):
+                    port_bytes = stats.get("port_bytes")
+                    if isinstance(port_bytes, dict):
+                        pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
+                        if isinstance(pb, dict):
+                            v = pb.get("tx_bytes") if self.entity_description.key == "port_tx_bytes" else pb.get("rx_bytes")
+                            if isinstance(v, (int, float)):
+                                return int(v)
+
             _LOGGER.debug(
                 "No port data available for port %d on device %s",
                 self._port_idx,
@@ -914,19 +1048,39 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             )
             return None
 
-        # Get stats data if needed for TX/RX bytes
+        # Prefer PoE watts from coordinator stats when available
+        if self.entity_description.key == "port_poe_power":
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                poe_ports = stats.get("poe_ports")
+                if isinstance(poe_ports, dict):
+                    watts = poe_ports.get(self._port_idx)
+                    if isinstance(watts, (int, float)):
+                        return float(watts)
+
+        # TX/RX bytes from coordinator stats
         if self.entity_description.key in ["port_tx_bytes", "port_rx_bytes"]:
             stats = (
                 self.coordinator.data.get("stats", {})
                 .get(self._site_id, {})
                 .get(self._device_id, {})
             )
-            if stats:
-                # Add stats to port data for value_fn
-                port_data = {
-                    **port_data,
-                    "stats": stats.get("ports", {}).get(str(self._port_idx), {}),
-                }
+            if isinstance(stats, dict):
+                port_bytes = stats.get("port_bytes")
+                if isinstance(port_bytes, dict):
+                    pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
+                    if isinstance(pb, dict):
+                        if self.entity_description.key == "port_tx_bytes":
+                            v = pb.get("tx_bytes")
+                        else:
+                            v = pb.get("rx_bytes")
+                        if isinstance(v, (int, float)):
+                            return int(v)
+            return None
 
         # Use value_fn to extract the value
         value = self.entity_description.value_fn(port_data)
@@ -945,6 +1099,38 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
     @property
     def available(self) -> bool:  # noqa: PLR0911
         """Return if entity is available."""
+        # PoE power availability based on coordinator stats
+        if self.entity_description.key == "port_poe_power":
+            if not self.coordinator.last_update_success:
+                return False
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                poe_ports = stats.get("poe_ports")
+                if isinstance(poe_ports, dict):
+                    watts = poe_ports.get(self._port_idx)
+                    return isinstance(watts, (int, float))
+            return False
+
+        # TX/RX availability based on coordinator stats
+        if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
+            if not self.coordinator.last_update_success:
+                return False
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                port_bytes = stats.get("port_bytes")
+                if isinstance(port_bytes, dict):
+                    pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
+                    return isinstance(pb, dict)
+            return False
+
         # Port sensors are available if the device is available AND the port is UP
         if not self.coordinator.last_update_success:
             return False

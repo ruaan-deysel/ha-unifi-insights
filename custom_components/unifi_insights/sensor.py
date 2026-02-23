@@ -750,18 +750,13 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     poe_ports = stats.get("poe_ports")
                     if isinstance(poe_ports, dict) and poe_ports:
                         poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
-                        existing_uids = {
-                            getattr(e, "unique_id", None) for e in entities
+                        existing_uids = {getattr(e, "unique_id", None) for e in entities}
+                        normalised_ports = {
+                            int(k)
+                            for k in poe_ports
+                            if isinstance(k, int) or (isinstance(k, str) and k.isdigit())
                         }
-                        for port_idx in poe_ports:
-                            # poe_ports keys may be int or str; normalize to int
-                            if isinstance(port_idx, int):
-                                port_idx_int = port_idx
-                            elif isinstance(port_idx, str) and port_idx.isdigit():
-                                port_idx_int = int(port_idx)
-                            else:
-                                continue
-
+                        for port_idx_int in normalised_ports:
                             uid = f"{device_id}_{poe_desc.key}_{port_idx_int}"
                             if uid in existing_uids:
                                 continue
@@ -774,6 +769,7 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                                     port_idx=port_idx_int,
                                 )
                             )
+                            existing_uids.add(uid)
 
             # Fallback: create port TX/RX sensors from stats when interfaces.ports is unavailable
             if "switching" in device_features:
@@ -786,15 +782,12 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     port_bytes = stats.get("port_bytes")
                     if isinstance(port_bytes, dict) and port_bytes:
                         existing_uids = {getattr(e, "unique_id", None) for e in entities}
-                        for port_idx in port_bytes:
-                            # port_bytes keys may be int or str; normalize to int
-                            if isinstance(port_idx, int):
-                                port_idx_int = port_idx
-                            elif isinstance(port_idx, str) and port_idx.isdigit():
-                                port_idx_int = int(port_idx)
-                            else:
-                                continue
-
+                        normalised_ports = {
+                            int(k)
+                            for k in port_bytes
+                            if isinstance(k, int) or (isinstance(k, str) and k.isdigit())
+                        }
+                        for port_idx_int in normalised_ports:
                             for desc in PORT_SENSOR_TYPES:
                                 if desc.key not in ("port_tx_bytes", "port_rx_bytes"):
                                     continue
@@ -812,6 +805,7 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                                         port_idx=port_idx_int,
                                     )
                                 )
+                                existing_uids.add(uid)
 
             # Add WAN sensors for gateway devices
             features = get_field(device_data, "features", default={})

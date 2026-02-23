@@ -1050,7 +1050,6 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                                 return float(watts)
                             except ValueError:
                                 return None
-                        pass
 
             # TX/RX bytes can be sourced from stats when interfaces.ports is unavailable
             if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):

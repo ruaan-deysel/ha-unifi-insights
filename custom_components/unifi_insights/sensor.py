@@ -624,10 +624,15 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     )
                     if not isinstance(stats, dict):
                         continue
-                    if (
-                        stats.get("poe_total_w") is None
-                        and not isinstance(stats.get("poe_ports"), dict)
-                    ):
+                    poe_keys = (
+                        "poe_total_w",
+                        "poeTotalW",
+                        "total_used_power",
+                        "totalUsedPower",
+                    )
+                    has_any_total = any(stats.get(k) is not None for k in poe_keys)
+                    has_ports = isinstance(stats.get("poe_ports"), dict)
+                    if not has_any_total and not has_ports:
                         continue
 
                 entities.append(
@@ -1051,8 +1056,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                                 return float(watts)
                             except ValueError:
                                 return None
-                        # If the device provides poe_ports but this port has no entry, treat as 0W
-                        return 0.0
+                        pass
 
             # TX/RX bytes can be sourced from stats when interfaces.ports is unavailable
             if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
@@ -1095,7 +1099,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                             return float(watts)
                         except ValueError:
                             return None
-                    return 0.0
+                    pass
 
         # TX/RX bytes from coordinator stats
         if self.entity_description.key in ["port_tx_bytes", "port_rx_bytes"]:
@@ -1104,29 +1108,30 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                 .get(self._site_id, {})
                 .get(self._device_id, {})
             )
-            if isinstance(stats, dict):
-                port_bytes = stats.get("port_bytes")
-                if isinstance(port_bytes, dict):
-                    pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
-                    if isinstance(pb, dict):
-                        if self.entity_description.key == "port_tx_bytes":
-                            v = pb.get("tx_bytes")
-                        else:
-                            v = pb.get("rx_bytes")
-                        if isinstance(v, (int, float)):
-                            return int(v)
-            # Optional fallback: per-port counters dict if provided by upstream stats
-            if isinstance(stats, dict):
-                port_data = stats.get("port_data")
-                if isinstance(port_data, dict):
-                    pb = port_data.get(self._port_idx) or port_data.get(str(self._port_idx))
-                    if isinstance(pb, dict):
-                        if self.entity_description.key == "port_tx_bytes":
-                            v = pb.get("tx_bytes")
-                        else:
-                            v = pb.get("rx_bytes")
-                        if isinstance(v, (int, float)):
-                            return int(v)
+            if not isinstance(stats, dict):
+                return None
+
+            counter_key = (
+                "tx_bytes" if self.entity_description.key == "port_tx_bytes" else "rx_bytes"
+            )
+
+            # 1) Preferred: legacy-mapped per-port counters
+            port_bytes = stats.get("port_bytes")
+            if isinstance(port_bytes, dict):
+                pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
+                if isinstance(pb, dict):
+                    v = pb.get(counter_key)
+                    if isinstance(v, (int, float)):
+                        return int(v)
+
+            # 2) Optional fallback: upstream per-port counters dict
+            port_data = stats.get("port_data")
+            if isinstance(port_data, dict):
+                pb = port_data.get(self._port_idx) or port_data.get(str(self._port_idx))
+                if isinstance(pb, dict):
+                    v = pb.get(counter_key)
+                    if isinstance(v, (int, float)):
+                        return int(v)
 
             return None
 

@@ -672,7 +672,23 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
 
                     # Create PoE power sensor for PoE-capable ports
                     poe_data = get_field(port, "poe", default={})
-                    if isinstance(poe_data, dict) and poe_data.get("type"):
+                    poe_marker = False
+                    if isinstance(poe_data, dict):
+                        if poe_data.get("type"):
+                            poe_marker = True
+                        elif poe_data.get("enabled") is True:
+                            poe_marker = True
+                        else:
+                            pwr = poe_data.get("power")
+                            wts = poe_data.get("watts")
+                            if isinstance(pwr, (int, float)) or isinstance(wts, (int, float)):
+                                poe_marker = True
+
+                    if not poe_marker:
+                        norm = get_field(port, "poe_power_w")
+                        poe_marker = isinstance(norm, (int, float))
+
+                    if poe_marker:
                         poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
                         entities.append(
                             UnifiPortSensor(
@@ -733,9 +749,15 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                             getattr(e, "unique_id", None) for e in entities
                         }
                         for port_idx in poe_ports:
-                            if not isinstance(port_idx, int):
+                            # poe_ports keys may be int or str; normalize to int
+                            if isinstance(port_idx, int):
+                                port_idx_int = port_idx
+                            elif isinstance(port_idx, str) and port_idx.isdigit():
+                                port_idx_int = int(port_idx)
+                            else:
                                 continue
-                            uid = f"{device_id}_{poe_desc.key}_{port_idx}"
+
+                            uid = f"{device_id}_{poe_desc.key}_{port_idx_int}"
                             if uid in existing_uids:
                                 continue
                             entities.append(
@@ -744,7 +766,7 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                                     description=poe_desc,
                                     site_id=site_id,
                                     device_id=device_id,
-                                    port_idx=port_idx,
+                                    port_idx=port_idx_int,
                                 )
                             )
 
@@ -1021,9 +1043,16 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                 if isinstance(stats, dict):
                     poe_ports = stats.get("poe_ports")
                     if isinstance(poe_ports, dict):
-                        watts = poe_ports.get(self._port_idx)
+                        watts = poe_ports.get(self._port_idx) or poe_ports.get(str(self._port_idx))
                         if isinstance(watts, (int, float)):
                             return float(watts)
+                        if isinstance(watts, str):
+                            try:
+                                return float(watts)
+                            except ValueError:
+                                return None
+                        # If the device provides poe_ports but this port has no entry, treat as 0W
+                        return 0.0
 
             # TX/RX bytes can be sourced from stats when interfaces.ports is unavailable
             if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
@@ -1058,9 +1087,15 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             if isinstance(stats, dict):
                 poe_ports = stats.get("poe_ports")
                 if isinstance(poe_ports, dict):
-                    watts = poe_ports.get(self._port_idx)
+                    watts = poe_ports.get(self._port_idx) or poe_ports.get(str(self._port_idx))
                     if isinstance(watts, (int, float)):
                         return float(watts)
+                    if isinstance(watts, str):
+                        try:
+                            return float(watts)
+                        except ValueError:
+                            return None
+                    return 0.0
 
         # TX/RX bytes from coordinator stats
         if self.entity_description.key in ["port_tx_bytes", "port_rx_bytes"]:
@@ -1111,9 +1146,10 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             if isinstance(stats, dict):
                 poe_ports = stats.get("poe_ports")
                 if isinstance(poe_ports, dict):
-                    watts = poe_ports.get(self._port_idx)
-                    return isinstance(watts, (int, float))
-            return False
+                    # If the device provides poe_ports at all, keep PoE power sensors available
+                    # (link state may be DOWN while PoE is disabled or idle).
+                    return True
+            # Fall through to standard port-state availability logic
 
         # TX/RX availability based on coordinator stats
         if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
@@ -1127,9 +1163,12 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             if isinstance(stats, dict):
                 port_bytes = stats.get("port_bytes")
                 if isinstance(port_bytes, dict):
-                    pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
-                    return isinstance(pb, dict)
-            return False
+                    pb = port_bytes.get(self._port_idx) or port_bytes.get(
+                        str(self._port_idx)
+                    )
+                    if isinstance(pb, dict):
+                        return True
+            # Fall through to standard port-state availability logic
 
         # Port sensors are available if the device is available AND the port is UP
         if not self.coordinator.last_update_success:

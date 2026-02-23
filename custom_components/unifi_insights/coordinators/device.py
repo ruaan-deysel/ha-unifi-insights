@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import aiohttp
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -58,7 +59,8 @@ async def _fetch_legacy_port_table(
 
     ssl = None if verify_ssl else False
 
-    async with session.get(url, headers=headers, ssl=ssl) as resp:
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with session.get(url, headers=headers, ssl=ssl, timeout=timeout) as resp:
         if resp.status >= 400:
             return None
         payload = await resp.json(content_type=None)
@@ -171,13 +173,13 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                             if not isinstance(port_idx, int):
                                 continue
 
-                            # Determine device PoE capability from PoE metadata values
-                            poe_enable = pt.get("poe_enable")
-                            poe_mode = pt.get("poe_mode")
-                            poe_maxw = pt.get("poe_maxw")
-                            poe_voltage = pt.get("poe_voltage")
-                            poe_current = pt.get("poe_current")
-                            poe_good = pt.get("poe_good")
+                            # Determine device PoE capability from PoE metadata values (with camelCase fallbacks)
+                            poe_enable = pt.get("poe_enable") or pt.get("poeEnable")
+                            poe_mode = pt.get("poe_mode") or pt.get("poeMode")
+                            poe_maxw = pt.get("poe_maxw") or pt.get("poeMaxw")
+                            poe_voltage = pt.get("poe_voltage") or pt.get("poeVoltage")
+                            poe_current = pt.get("poe_current") or pt.get("poeCurrent")
+                            poe_good = pt.get("poe_good") or pt.get("poeGood")
 
                             def _to_float(v):
                                 try:
@@ -207,17 +209,26 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                             if device_poe_hint:
                                 any_poe_capable = True
 
-                            # Port is PoE-capable if PoE metadata is present on a PoE-capable device
+                            # Port is PoE-capable if PoE metadata is present on a PoE-capable device (snake_case and camelCase)
                             poe_port_declared = any(
                                 k in pt
                                 for k in (
                                     "poe_enable",
+                                    "poeEnable",
                                     "poe_mode",
+                                    "poeMode",
                                     "poe_class",
+                                    "poeClass",
                                     "poe_voltage",
+                                    "poeVoltage",
                                     "poe_current",
+                                    "poeCurrent",
                                     "poe_good",
+                                    "poeGood",
                                     "poe_maxw",
+                                    "poeMaxw",
+                                    "poe_power",
+                                    "poePower",
                                 )
                             )
                             poe_capable = bool(any_poe_capable and poe_port_declared)
@@ -242,7 +253,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
 
                             # Per-port PoE watts (string in legacy payload)
                             if poe_capable:
-                                poe_power_raw = pt.get("poe_power")
+                                poe_power_raw = pt.get("poe_power") or pt.get("poePower")
                                 try:
                                     poe_w = float(poe_power_raw) if poe_power_raw is not None else 0.0
                                 except (TypeError, ValueError):

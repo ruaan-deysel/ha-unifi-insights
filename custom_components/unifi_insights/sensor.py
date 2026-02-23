@@ -410,6 +410,24 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         ),
     ),
     UnifiInsightsSensorEntityDescription(
+        key="poe_total_power",
+        translation_key="poe_total_power",
+        name="Total PoE Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:flash",
+        # Only show on switch devices (devices with 'switching' feature)
+        required_feature="switching",
+        value_fn=lambda stats: get_stats_field(
+            stats,
+            "poe_total_w",
+            "poeTotalW",
+            "total_used_power",
+            "totalUsedPower",
+        ),
+    ),
+    UnifiInsightsSensorEntityDescription(
         key="firmware_version",
         translation_key="firmware_version",
         name="Firmware Version",
@@ -460,8 +478,11 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:flash",
-        value_fn=lambda port: get_field(port, "poe", default={}).get("power")
-        or get_field(port, "poe", default={}).get("watts"),
+        value_fn=lambda port: (
+            get_field(port, "poe_power_w")
+            or get_field(port, "poe", default={}).get("power")
+            or get_field(port, "poe", default={}).get("watts")
+        ),
     ),
     # Port Speed
     UnifiInsightsSensorEntityDescription(
@@ -594,6 +615,26 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     )
                     continue
 
+                # Only create Total PoE Power sensor if coordinator stats provides PoE data.
+                if description.key == "poe_total_power":
+                    stats = (
+                        coordinator.data.get("stats", {})
+                        .get(site_id, {})
+                        .get(device_id, {})
+                    )
+                    if not isinstance(stats, dict):
+                        continue
+                    poe_keys = (
+                        "poe_total_w",
+                        "poeTotalW",
+                        "total_used_power",
+                        "totalUsedPower",
+                    )
+                    has_any_total = any(stats.get(k) is not None for k in poe_keys)
+                    has_ports = isinstance(stats.get("poe_ports"), dict)
+                    if not has_any_total and not has_ports:
+                        continue
+
                 entities.append(
                     UnifiInsightsSensor(
                         coordinator=coordinator,
@@ -634,9 +675,25 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                         )
                         continue
 
-                    # Create PoE power sensor only for PoE-capable ports
+                    # Create PoE power sensor for PoE-capable ports
                     poe_data = get_field(port, "poe", default={})
-                    if poe_data.get("enabled"):
+                    poe_marker = False
+                    if isinstance(poe_data, dict):
+                        if poe_data.get("type"):
+                            poe_marker = True
+                        elif poe_data.get("enabled") is True:
+                            poe_marker = True
+                        else:
+                            pwr = poe_data.get("power")
+                            wts = poe_data.get("watts")
+                            if isinstance(pwr, (int, float)) or isinstance(wts, (int, float)):
+                                poe_marker = True
+
+                    if not poe_marker:
+                        norm = get_field(port, "poe_power_w")
+                        poe_marker = isinstance(norm, (int, float))
+
+                    if poe_marker:
                         poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
                         entities.append(
                             UnifiPortSensor(
@@ -682,6 +739,64 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                         )
                     )
 
+            # Fallback: create PoE power sensors from stats when interfaces.ports is unavailable
+            def _create_port_sensors_from_stats(stat_key, sensor_descriptions, port_filter):
+                """Create per-port sensors from stats for devices with switching feature."""
+                if "switching" not in device_features:
+                    return
+
+                stats = (
+                    coordinator.data.get("stats", {})
+                    .get(site_id, {})
+                    .get(device_id, {})
+                )
+                if not isinstance(stats, dict):
+                    return
+
+                per_port_stats = stats.get(stat_key)
+                if not isinstance(per_port_stats, dict) or not per_port_stats:
+                    return
+
+                existing_uids = {getattr(e, "unique_id", None) for e in entities}
+                normalised_ports = {
+                    int(k)
+                    for k in per_port_stats
+                    if isinstance(k, int) or (isinstance(k, str) and k.isdigit())
+                }
+
+                for port_idx_int in normalised_ports:
+                    for desc in sensor_descriptions:
+                        if not port_filter(desc):
+                            continue
+
+                        uid = f"{device_id}_{desc.key}_{port_idx_int}"
+                        if uid in existing_uids:
+                            continue
+
+                        entities.append(
+                            UnifiPortSensor(
+                                coordinator=coordinator,
+                                description=desc,
+                                site_id=site_id,
+                                device_id=device_id,
+                                port_idx=port_idx_int,
+                            )
+                        )
+                        existing_uids.add(uid)
+
+            # Fallback: create port PoE sensors from stats when interfaces.ports is unavailable
+            _create_port_sensors_from_stats(
+                stat_key="poe_ports",
+                sensor_descriptions=[PORT_SENSOR_TYPES[0]],  # PoE power sensor
+                port_filter=lambda desc: True,
+            )
+
+            # Fallback: create port TX/RX sensors from stats when interfaces.ports is unavailable
+            _create_port_sensors_from_stats(
+                stat_key="port_bytes",
+                sensor_descriptions=PORT_SENSOR_TYPES,
+                port_filter=lambda desc: desc.key in ("port_tx_bytes", "port_rx_bytes"),
+            )
             # Add WAN sensors for gateway devices
             features = get_field(device_data, "features", default={})
             model = get_field(device_data, "model", default="")
@@ -907,6 +1022,41 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                 break
 
         if not port_data:
+            # PoE power can be sourced from stats when interfaces.ports is unavailable
+            if self.entity_description.key == "port_poe_power":
+                stats = (
+                    self.coordinator.data.get("stats", {})
+                    .get(self._site_id, {})
+                    .get(self._device_id, {})
+                )
+                if isinstance(stats, dict):
+                    poe_ports = stats.get("poe_ports")
+                    if isinstance(poe_ports, dict):
+                        watts = poe_ports.get(self._port_idx) or poe_ports.get(str(self._port_idx))
+                        if isinstance(watts, (int, float)):
+                            return float(watts)
+                        if isinstance(watts, str):
+                            try:
+                                return float(watts)
+                            except ValueError:
+                                return None
+
+            # TX/RX bytes can be sourced from stats when interfaces.ports is unavailable
+            if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
+                stats = (
+                    self.coordinator.data.get("stats", {})
+                    .get(self._site_id, {})
+                    .get(self._device_id, {})
+                )
+                if isinstance(stats, dict):
+                    port_bytes = stats.get("port_bytes")
+                    if isinstance(port_bytes, dict):
+                        pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
+                        if isinstance(pb, dict):
+                            v = pb.get("tx_bytes") if self.entity_description.key == "port_tx_bytes" else pb.get("rx_bytes")
+                            if isinstance(v, (int, float)):
+                                return int(v)
+
             _LOGGER.debug(
                 "No port data available for port %d on device %s",
                 self._port_idx,
@@ -914,19 +1064,59 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             )
             return None
 
-        # Get stats data if needed for TX/RX bytes
+        # Prefer PoE watts from coordinator stats when available
+        if self.entity_description.key == "port_poe_power":
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                poe_ports = stats.get("poe_ports")
+                if isinstance(poe_ports, dict):
+                    watts = poe_ports.get(self._port_idx) or poe_ports.get(str(self._port_idx))
+                    if isinstance(watts, (int, float)):
+                        return float(watts)
+                    if isinstance(watts, str):
+                        try:
+                            return float(watts)
+                        except ValueError:
+                            return None
+                    pass
+
+        # TX/RX bytes from coordinator stats
         if self.entity_description.key in ["port_tx_bytes", "port_rx_bytes"]:
             stats = (
                 self.coordinator.data.get("stats", {})
                 .get(self._site_id, {})
                 .get(self._device_id, {})
             )
-            if stats:
-                # Add stats to port data for value_fn
-                port_data = {
-                    **port_data,
-                    "stats": stats.get("ports", {}).get(str(self._port_idx), {}),
-                }
+            if not isinstance(stats, dict):
+                return None
+
+            counter_key = (
+                "tx_bytes" if self.entity_description.key == "port_tx_bytes" else "rx_bytes"
+            )
+
+            # 1) Preferred: legacy-mapped per-port counters
+            port_bytes = stats.get("port_bytes")
+            if isinstance(port_bytes, dict):
+                pb = port_bytes.get(self._port_idx) or port_bytes.get(str(self._port_idx))
+                if isinstance(pb, dict):
+                    v = pb.get(counter_key)
+                    if isinstance(v, (int, float)):
+                        return int(v)
+
+            # 2) Optional fallback: upstream per-port counters dict
+            port_data = stats.get("port_data")
+            if isinstance(port_data, dict):
+                pb = port_data.get(self._port_idx) or port_data.get(str(self._port_idx))
+                if isinstance(pb, dict):
+                    v = pb.get(counter_key)
+                    if isinstance(v, (int, float)):
+                        return int(v)
+
+            return None
 
         # Use value_fn to extract the value
         value = self.entity_description.value_fn(port_data)
@@ -945,6 +1135,42 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
     @property
     def available(self) -> bool:  # noqa: PLR0911
         """Return if entity is available."""
+        # PoE power availability based on coordinator stats
+        if self.entity_description.key == "port_poe_power":
+            if not self.coordinator.last_update_success:
+                return False
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                poe_ports = stats.get("poe_ports")
+                if isinstance(poe_ports, dict):
+                    # If the device provides poe_ports at all, keep PoE power sensors available
+                    # (link state may be DOWN while PoE is disabled or idle).
+                    return True
+            # Fall through to standard port-state availability logic
+
+        # TX/RX availability based on coordinator stats
+        if self.entity_description.key in ("port_tx_bytes", "port_rx_bytes"):
+            if not self.coordinator.last_update_success:
+                return False
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                port_bytes = stats.get("port_bytes")
+                if isinstance(port_bytes, dict):
+                    pb = port_bytes.get(self._port_idx) or port_bytes.get(
+                        str(self._port_idx)
+                    )
+                    if isinstance(pb, dict):
+                        return True
+            # Fall through to standard port-state availability logic
+
         # Port sensors are available if the device is available AND the port is UP
         if not self.coordinator.last_update_success:
             return False

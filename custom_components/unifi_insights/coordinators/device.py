@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import aiohttp
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from unifi_official_api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
@@ -28,6 +30,46 @@ if TYPE_CHECKING:
     from .config import UnifiConfigCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# --- Legacy PoE port table fetch helper ---
+async def _fetch_legacy_port_table(
+    hass: Any,
+    host: str,
+    api_key: str,
+    verify_ssl: bool,
+    site: str,
+    device_mac: str,
+) -> dict[str, Any] | None:
+    """Fetch legacy controller port_table for a device (includes poe_power per port).
+
+    Uses UniFi OS local path:
+      /proxy/network/api/s/<site>/stat/device/<mac>
+
+    Returns the legacy device dict (data[0]) on success, or None on failure.
+    """
+    base = host.rstrip("/")
+    url = f"{base}/proxy/network/api/s/{site}/stat/device/{device_mac}"
+
+    session = async_get_clientsession(hass)
+    headers = {
+        "X-API-KEY": api_key,
+        "Accept": "application/json",
+    }
+
+    ssl = None if verify_ssl else False
+
+    timeout = aiohttp.ClientTimeout(total=30)
+    async with session.get(url, headers=headers, ssl=ssl, timeout=timeout) as resp:
+        if resp.status >= 400:
+            return None
+        payload = await resp.json(content_type=None)
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not (isinstance(data, list) and data and isinstance(data[0], dict)):
+        return None
+
+    return data[0]
 
 
 class UnifiDeviceCoordinator(UnifiBaseCoordinator):
@@ -82,6 +124,174 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                 site_id, device_id=device_id
             )
             stats = self._model_to_dict(stats_model) if stats_model else {}
+
+            # Legacy port_table (MAC-keyed) provides per-port PoE power and counters
+            try:
+                host = self.config_entry.data.get("host")
+                api_key = self.config_entry.data.get("api_key")
+                verify_ssl = bool(self.config_entry.data.get("verify_ssl", False))
+                device_mac = (
+                    device_dict.get("mac")
+                    or device_dict.get("macAddress")
+                    or device_dict.get("mac_address")
+                )
+
+                legacy_site = site_id
+                try:
+                    get_site = getattr(self.config_coordinator, "get_site", None)
+                    if callable(get_site):
+                        site_obj = get_site(site_id)
+                        if isinstance(site_obj, dict):
+                            legacy_site = (
+                                site_obj.get("internalReference")
+                                or site_obj.get("internal_reference")
+                                or legacy_site
+                            )
+                except Exception:  # noqa: BLE001
+                    pass
+
+                if host and api_key and device_mac:
+                    legacy_dev = await _fetch_legacy_port_table(
+                        self.hass,
+                        host,
+                        api_key,
+                        verify_ssl,
+                        legacy_site,
+                        device_mac,
+                    )
+
+                    if isinstance(legacy_dev, dict):
+                        port_table = legacy_dev.get("port_table")
+                        if not isinstance(port_table, list):
+                            port_table = []
+                        poe_ports: dict[int, float] = {}
+                        port_bytes: dict[int, dict[str, int]] = {}
+                        any_poe_capable = False
+
+                        for pt in port_table:
+                            port_idx = pt.get("port_idx")
+                            if not isinstance(port_idx, int):
+                                continue
+
+                            # Determine device PoE capability from PoE metadata values (with camelCase fallbacks)
+                            poe_enable = pt.get("poe_enable") or pt.get("poeEnable")
+                            poe_mode = pt.get("poe_mode") or pt.get("poeMode")
+                            poe_maxw = pt.get("poe_maxw") or pt.get("poeMaxw")
+                            poe_voltage = pt.get("poe_voltage") or pt.get("poeVoltage")
+                            poe_current = pt.get("poe_current") or pt.get("poeCurrent")
+                            poe_good = pt.get("poe_good") or pt.get("poeGood")
+
+                            def _to_float(v):
+                                try:
+                                    return float(v)
+                                except (TypeError, ValueError):
+                                    return None
+
+                            maxw_f = _to_float(poe_maxw)
+                            volt_f = _to_float(poe_voltage)
+                            curr_f = _to_float(poe_current)
+
+                            # Treat device as PoE-capable if any port reports non-trivial PoE capability values
+                            device_poe_hint = False
+                            if maxw_f is not None and maxw_f > 0:
+                                device_poe_hint = True
+                            elif isinstance(poe_mode, str) and poe_mode.lower() not in ("", "off", "disabled", "none"):
+                                device_poe_hint = True
+                            elif poe_good is True:
+                                device_poe_hint = True
+                            elif volt_f is not None and volt_f > 0:
+                                device_poe_hint = True
+                            elif curr_f is not None and curr_f > 0:
+                                device_poe_hint = True
+                            elif poe_enable in (True, 1, "1", "on", "auto"):
+                                device_poe_hint = True
+
+                            if device_poe_hint:
+                                any_poe_capable = True
+
+                            # Port is PoE-capable if PoE metadata is present on a PoE-capable device (snake_case and camelCase)
+                            poe_port_declared = any(
+                                k in pt
+                                for k in (
+                                    "poe_enable",
+                                    "poeEnable",
+                                    "poe_mode",
+                                    "poeMode",
+                                    "poe_class",
+                                    "poeClass",
+                                    "poe_voltage",
+                                    "poeVoltage",
+                                    "poe_current",
+                                    "poeCurrent",
+                                    "poe_good",
+                                    "poeGood",
+                                    "poe_maxw",
+                                    "poeMaxw",
+                                    "poe_power",
+                                    "poePower",
+                                )
+                            )
+                            poe_capable = bool(any_poe_capable and poe_port_declared)
+
+                            # Per-port byte counters
+                            rx_raw = pt.get("rx_bytes")
+                            tx_raw = pt.get("tx_bytes")
+                            try:
+                                rx_b = int(rx_raw) if rx_raw is not None else None
+                            except (TypeError, ValueError):
+                                rx_b = None
+                            try:
+                                tx_b = int(tx_raw) if tx_raw is not None else None
+                            except (TypeError, ValueError):
+                                tx_b = None
+
+                            if rx_b is not None or tx_b is not None:
+                                port_bytes[port_idx] = {
+                                    "rx_bytes": rx_b if rx_b is not None else 0,
+                                    "tx_bytes": tx_b if tx_b is not None else 0,
+                                }
+
+                            # Per-port PoE watts (string in legacy payload)
+                            if poe_capable:
+                                poe_power_raw = pt.get("poe_power") or pt.get("poePower")
+                                try:
+                                    poe_w = float(poe_power_raw) if poe_power_raw is not None else 0.0
+                                except (TypeError, ValueError):
+                                    poe_w = 0.0
+
+                                poe_ports[port_idx] = poe_w
+
+                        if port_bytes:
+                            stats["port_bytes"] = port_bytes
+
+                        if any_poe_capable:
+                            if poe_ports:
+                                stats["poe_ports"] = poe_ports
+
+                            # Total PoE power (W): legacy-reported total preferred, else sum of ports
+                            total_used = (
+                                legacy_dev.get("total_used_power")
+                                or legacy_dev.get("total_poe_power")
+                                or legacy_dev.get("poe_total_power")
+                            )
+                            total_w: float | None = None
+                            try:
+                                if total_used is not None:
+                                    total_w = float(total_used)
+                            except (TypeError, ValueError):
+                                total_w = None
+
+                            if total_w is None and poe_ports:
+                                total_w = float(sum(poe_ports.values()))
+
+                            if total_w is not None:
+                                stats["poe_total_w"] = total_w
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Legacy PoE wattage fetch failed for %s: %s",
+                    device_mac or device_id,
+                    err,
+                )
 
             # Add client data to stats
             if stats:

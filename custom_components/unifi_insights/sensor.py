@@ -740,73 +740,63 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     )
 
             # Fallback: create PoE power sensors from stats when interfaces.ports is unavailable
-            if "switching" in device_features:
+            def _create_port_sensors_from_stats(stat_key, sensor_descriptions, port_filter):
+                """Create per-port sensors from stats for devices with switching feature."""
+                if "switching" not in device_features:
+                    return
+
                 stats = (
                     coordinator.data.get("stats", {})
                     .get(site_id, {})
                     .get(device_id, {})
                 )
-                if isinstance(stats, dict):
-                    poe_ports = stats.get("poe_ports")
-                    if isinstance(poe_ports, dict) and poe_ports:
-                        poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
-                        existing_uids = {getattr(e, "unique_id", None) for e in entities}
-                        normalised_ports = {
-                            int(k)
-                            for k in poe_ports
-                            if isinstance(k, int) or (isinstance(k, str) and k.isdigit())
-                        }
-                        for port_idx_int in normalised_ports:
-                            uid = f"{device_id}_{poe_desc.key}_{port_idx_int}"
-                            if uid in existing_uids:
-                                continue
-                            entities.append(
-                                UnifiPortSensor(
-                                    coordinator=coordinator,
-                                    description=poe_desc,
-                                    site_id=site_id,
-                                    device_id=device_id,
-                                    port_idx=port_idx_int,
-                                )
+                if not isinstance(stats, dict):
+                    return
+
+                per_port_stats = stats.get(stat_key)
+                if not isinstance(per_port_stats, dict) or not per_port_stats:
+                    return
+
+                existing_uids = {getattr(e, "unique_id", None) for e in entities}
+                normalised_ports = {
+                    int(k)
+                    for k in per_port_stats
+                    if isinstance(k, int) or (isinstance(k, str) and k.isdigit())
+                }
+
+                for port_idx_int in normalised_ports:
+                    for desc in sensor_descriptions:
+                        if not port_filter(desc):
+                            continue
+
+                        uid = f"{device_id}_{desc.key}_{port_idx_int}"
+                        if uid in existing_uids:
+                            continue
+
+                        entities.append(
+                            UnifiPortSensor(
+                                coordinator=coordinator,
+                                description=desc,
+                                site_id=site_id,
+                                device_id=device_id,
+                                port_idx=port_idx_int,
                             )
-                            existing_uids.add(uid)
+                        )
+                        existing_uids.add(uid)
+
+            # Fallback: create port PoE sensors from stats when interfaces.ports is unavailable
+            _create_port_sensors_from_stats(
+                stat_key="poe_ports",
+                sensor_descriptions=[PORT_SENSOR_TYPES[0]],  # PoE power sensor
+                port_filter=lambda desc: True,
+            )
 
             # Fallback: create port TX/RX sensors from stats when interfaces.ports is unavailable
-            if "switching" in device_features:
-                stats = (
-                    coordinator.data.get("stats", {})
-                    .get(site_id, {})
-                    .get(device_id, {})
-                )
-                if isinstance(stats, dict):
-                    port_bytes = stats.get("port_bytes")
-                    if isinstance(port_bytes, dict) and port_bytes:
-                        existing_uids = {getattr(e, "unique_id", None) for e in entities}
-                        normalised_ports = {
-                            int(k)
-                            for k in port_bytes
-                            if isinstance(k, int) or (isinstance(k, str) and k.isdigit())
-                        }
-                        for port_idx_int in normalised_ports:
-                            for desc in PORT_SENSOR_TYPES:
-                                if desc.key not in ("port_tx_bytes", "port_rx_bytes"):
-                                    continue
-
-                                uid = f"{device_id}_{desc.key}_{port_idx_int}"
-                                if uid in existing_uids:
-                                    continue
-
-                                entities.append(
-                                    UnifiPortSensor(
-                                        coordinator=coordinator,
-                                        description=desc,
-                                        site_id=site_id,
-                                        device_id=device_id,
-                                        port_idx=port_idx_int,
-                                    )
-                                )
-                                existing_uids.add(uid)
-
+            _create_port_sensors_from_stats(
+                stat_key="port_bytes",
+                sensor_descriptions=PORT_SENSOR_TYPES,
+                port_filter=lambda desc: desc.key in ("port_tx_bytes", "port_rx_bytes"),
+            )
             # Add WAN sensors for gateway devices
             features = get_field(device_data, "features", default={})
             model = get_field(device_data, "model", default="")

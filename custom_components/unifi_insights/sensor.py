@@ -1115,6 +1115,19 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                             v = pb.get("rx_bytes")
                         if isinstance(v, (int, float)):
                             return int(v)
+            # Optional fallback: per-port counters dict if provided by upstream stats
+            if isinstance(stats, dict):
+                port_data = stats.get("port_data")
+                if isinstance(port_data, dict):
+                    pb = port_data.get(self._port_idx) or port_data.get(str(self._port_idx))
+                    if isinstance(pb, dict):
+                        if self.entity_description.key == "port_tx_bytes":
+                            v = pb.get("tx_bytes")
+                        else:
+                            v = pb.get("rx_bytes")
+                        if isinstance(v, (int, float)):
+                            return int(v)
+
             return None
 
         # Use value_fn to extract the value

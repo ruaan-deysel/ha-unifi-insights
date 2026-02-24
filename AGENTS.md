@@ -1,318 +1,484 @@
-# GitHub Copilot & Claude Code Instructions
+# AI Agent Instructions
 
-This repository contains `ha-unifi-insights`, a Home Assistant custom component that provides integration with UniFi network devices using the UniFi Insights API.
+This document provides guidance for AI coding agents working on this Home Assistant custom integration project.
 
-## Code Review Guidelines
+## Project Overview
 
-**When reviewing code, do NOT comment on:**
-- **Missing imports** - We use static analysis tooling to catch that
-- **Code formatting** - We have ruff as a formatting tool that will catch those if needed (unless specifically instructed otherwise in these instructions)
+This is **UniFi Insights**, a Home Assistant custom integration that provides monitoring and control of UniFi network infrastructure using the UniFi Network and Protect APIs.
 
-**Git commit practices during review:**
-- **Do NOT amend, squash, or rebase commits after review has started** - Reviewers need to see what changed since their last review
+**Integration details:**
 
-## Python Requirements
+- **Domain:** `unifi_insights`
+- **Title:** UniFi Insights
+- **Class prefix:** `UnifiInsights`
+- **Repository:** ruaan-deysel/ha-unifi-insights
 
-- **Compatibility**: Python 3.11+ (Home Assistant 2025.9.0+ requirement)
-- **Language Features**: Use modern features when possible:
-  - Pattern matching
-  - Type hints (strict typing required)
-  - f-strings (preferred over `%` or `.format()`)
-  - Dataclasses
-  - Walrus operator
+**Key directories:**
 
-### Strict Typing
-- **Comprehensive Type Hints**: Add type hints to all functions, methods, and variables
-- **Custom Config Entry Types**: When using runtime_data:
-  ```python
-  type UnifiInsightsConfigEntry = ConfigEntry[UnifiInsightsRuntimeData]
-  ```
+- `custom_components/unifi_insights/` — Main integration code
+- `custom_components/unifi_insights/coordinators/` — Multi-coordinator system
+- `config/` — Home Assistant configuration for local testing
+- `tests/` — Unit and integration tests
+- `scripts/` — Development and validation scripts
 
-## Code Quality Standards
+**Local Home Assistant instance:**
 
-- **Formatting**: Ruff
-- **Linting**: Ruff
-- **Type Checking**: MyPy (strict mode)
-- **Security Scanning**: Bandit
-- **Lint/Type/Format Fixes**: Always prefer addressing the underlying issue before disabling a rule or adding `# type: ignore`. Treat suppressions and `noqa` comments as a last resort
-- **Testing**: pytest with 90% minimum coverage requirement
-- **Language**: American English for all code, comments, and documentation (use sentence case, including titles)
+**Always use the project's scripts** — do NOT craft your own `hass`, `pip`, `pytest`, or similar commands. The scripts handle environment setup, virtual environments, port management, and cleanup that raw commands miss.
 
-### Writing Style Guidelines
-- **Tone**: Friendly and informative
-- **Perspective**: Use second-person ("you" and "your") for user-facing messages
-- **Inclusivity**: Use objective, non-discriminatory language
-- **Clarity**: Write for non-native English speakers
-- **Formatting in Messages**:
-  - Use backticks for: file paths, filenames, variable names, field entries
-  - Use sentence case for titles and messages (capitalize only the first word and proper nouns)
-  - Avoid abbreviations when possible
+**Start Home Assistant:**
 
-### Documentation Standards
-- **File Headers**: Short and concise
-  ```python
-  """UniFi Insights integration for Home Assistant."""
-  ```
-- **Method/Function Docstrings**: Required for all
-  ```python
-  async def async_setup_entry(hass: HomeAssistant, entry: UnifiInsightsConfigEntry) -> bool:
-      """Set up UniFi Insights from a config entry."""
-  ```
-- **Comment Style**:
-  - Use clear, descriptive comments
-  - Explain the "why" not just the "what"
-  - Keep code block lines under 88 characters when possible
-
-## Async Programming
-
-- All external I/O operations must be async
-- **Best Practices**:
-  - Avoid sleeping in loops
-  - Avoid awaiting in loops - use `gather` instead
-  - No blocking calls
-  - Group executor jobs when possible
-
-### Blocking Operations
-- **Use Executor**: For blocking I/O operations
-  ```python
-  result = await hass.async_add_executor_job(blocking_function, args)
-  ```
-- **Never Block Event Loop**: Avoid file operations, `time.sleep()`, blocking HTTP calls
-- **Replace with Async**: Use `asyncio.sleep()` instead of `time.sleep()`
-
-### Thread Safety
-- **@callback Decorator**: For event loop safe functions
-  ```python
-  @callback
-  def async_update_callback(self, event):
-      """Safe to run in event loop."""
-      self.async_write_ha_state()
-  ```
-- **Sync APIs from Threads**: Use sync versions when calling from non-event loop threads
-- **Registry Changes**: Must be done in event loop thread
-
-### Error Handling
-- **Exception Types**: Choose most specific exception available
-  - `ServiceValidationError`: User input errors (preferred over `ValueError`)
-  - `HomeAssistantError`: Device communication failures
-  - `ConfigEntryNotReady`: Temporary setup issues (device offline)
-  - `ConfigEntryAuthFailed`: Authentication problems
-  - `ConfigEntryError`: Permanent setup issues
-- **Try/Catch Best Practices**:
-  - Only wrap code that can throw exceptions
-  - Keep try blocks minimal - process data after the try/catch
-  - **Avoid bare exceptions** except in specific cases:
-    - ❌ Generally not allowed: `except:` or `except Exception:`
-    - ✅ Allowed in config flows to ensure robustness
-    - ✅ Allowed in functions/methods that run in background tasks
-  - Good pattern:
-    ```python
-    try:
-        data = await self.api.get_data()  # Can throw
-    except ApiException:
-        _LOGGER.error("Failed to get data")
-        return
-
-    # ✅ Process data outside try block
-    processed = data.get("value", 0) * 100
-    self._attr_native_value = processed
-    ```
-- **Setup Failure Patterns**:
-  ```python
-  try:
-      await client.async_connect()
-  except (asyncio.TimeoutError, TimeoutException) as ex:
-      raise ConfigEntryNotReady(f"Timeout connecting to UniFi controller") from ex
-  except AuthenticationError as ex:
-      raise ConfigEntryAuthFailed(f"Invalid credentials") from ex
-  ```
-
-### Logging
-- **Format Guidelines**:
-  - No periods at end of messages
-  - No integration names/domains (added automatically)
-  - No sensitive data (keys, tokens, passwords)
-- Use debug level for non-user-facing messages
-- **Use Lazy Logging**:
-  ```python
-  _LOGGER.debug("This is a log message with %s", variable)
-  ```
-
-### Unavailability Logging
-- **Log Once**: When device/service becomes unavailable (info level)
-- **Log Recovery**: When device/service comes back online
-- **Implementation Pattern**:
-  ```python
-  _unavailable_logged: bool = False
-
-  if not self._unavailable_logged:
-      _LOGGER.info("The sensor is unavailable: %s", ex)
-      self._unavailable_logged = True
-  # On recovery:
-  if self._unavailable_logged:
-      _LOGGER.info("The sensor is back online")
-      self._unavailable_logged = False
-  ```
-
-## Development Commands
-
-### Environment Setup
 ```bash
-# Create and activate virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or
-.venv\Scripts\activate  # Windows
-
-# Install development dependencies
-pip install -e ".[dev]"
+./scripts/develop
 ```
 
-### Code Quality & Linting
+**Force restart (when HA is unresponsive or port conflicts):**
+
 ```bash
-# Run all pre-commit hooks
+pkill -f "hass --config" || true && ./scripts/develop
+```
+
+**When to restart:** After modifying Python files, `manifest.json`, `services.yaml`, translations, or config flow changes.
+
+**Reading logs:**
+
+- Live: Terminal where `./scripts/develop` runs
+- File: `config/home-assistant.log` (most recent), `config/home-assistant.log.1` (previous)
+
+**Adjusting log levels:**
+
+- Integration logs: `custom_components.unifi_insights: debug` in `config/configuration.yaml`
+- Restart HA after changes
+
+**Context-specific instructions:**
+
+If you're using GitHub Copilot, path-specific instructions in `.github/instructions/*.instructions.md` provide additional guidance for specific file types. This document serves as the primary reference for all agents.
+
+**Other agent entry points:**
+
+- **Claude Code:** See [`CLAUDE.md`](CLAUDE.md) (pointer to this file)
+- **Gemini:** See [`GEMINI.md`](GEMINI.md) (pointer to this file)
+- **GitHub Copilot:** See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) (compact version of this file)
+
+## Working With Developers
+
+**For workflow basics (small changes, translations, tests, session management):** See `.github/copilot-instructions.md` for quick-reference guidance.
+
+### When Instructions Conflict With Requests
+
+If a developer requests something that contradicts these instructions:
+
+1. **Clarify the intent** — Ask if they want to deviate from the documented guidelines
+2. **Confirm understanding** — Restate what you understood to avoid misinterpretation
+3. **Suggest instruction updates** — If this represents a permanent change, offer to update these instructions
+4. **Proceed once confirmed** — Follow the developer's explicit direction after clarification
+
+### Maintaining These Instructions
+
+- Refine guidelines based on actual project needs
+- Remove outdated rules that no longer apply
+- Consolidate redundant sections to prevent bloat
+
+**Propose updates when:**
+
+- You notice repeated deviations from documented patterns
+- Instructions become outdated or contradict actual code
+- New patterns emerge that should be standardized
+
+### Documentation vs. Instructions
+
+**Three types of content with clear separation:**
+
+1. **Agent Instructions** — How AI should write code (`.github/instructions/`, `AGENTS.md`)
+2. **Developer Documentation** — Architecture and design decisions (`docs/`)
+3. **User Documentation** — End-user guides (`README.md`)
+
+**AI Planning:** Use `.ai-scratch/` for temporary notes (never committed)
+
+**Rules:**
+
+- NEVER create random markdown files in code directories
+- NEVER create documentation in `.github/` unless it's a GitHub-specified file
+- ALWAYS ask first before creating permanent documentation
+- Prefer module docstrings over separate markdown files
+
+### Session and Context Management
+
+**Commit suggestions:**
+
+When a task completes and the developer moves to a new topic, suggest committing changes. Offer a commit message based on the work done.
+
+**Commit message format:** Follow [Conventional Commits](https://www.conventionalcommits.org/) specification
+
+**Common types:** `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`
+
+## Custom Integration Flexibility
+
+**This is a CUSTOM integration, not a Home Assistant Core integration.** While we follow Core patterns for quality and maintainability, we have more flexibility in implementation decisions.
+
+**External library:**
+
+- Uses `unifi-official-api~=1.1.0` as the only runtime dependency
+- Reuse its client methods (`network_client`/`protect_client`) rather than manual HTTP calls
+- NEVER create a custom API client — use the official library
+
+**Quality Scale expectations:**
+
+As an AI agent, **aim for Silver or Gold Quality Scale** when generating code:
+
+- ALWAYS implement: Type hints, async patterns, proper error handling, diagnostics with `async_redact_data()`, device info
+- When applicable: Config flow with validation, reauth flow, discovery support, repair flows
+- Can defer: Advanced discovery, YAML import
+
+**Developer expectation:** Generate production-ready code. Implement HA standards with reasonable effort.
+
+## Code Style and Quality
+
+**Python:** 4 spaces, 88 char lines, double quotes, full type hints, async for all I/O
+
+**YAML:** 2 spaces, modern HA syntax (no legacy `platform:` style)
+
+**JSON:** 2 spaces, no trailing commas, no comments
+
+**Validation:** Run these before committing:
+
+```bash
+# Run all pre-commit hooks (ruff format + check, codespell, yamllint, mypy)
 pre-commit run --all-files
 
-# Run ruff linting
-ruff check .
-
-# Run ruff formatting
-ruff format .
-
-# Run MyPy type checking
-mypy custom_components/unifi_insights
-
-# Run Bandit security scan
-bandit -r custom_components/unifi_insights
+# Or individually:
+ruff check .          # Linting
+ruff format .         # Formatting
+mypy custom_components/unifi_insights   # Type checking
+pytest                # Tests (90% minimum coverage)
 ```
 
-### Testing
+**Shortcut scripts:**
+
 ```bash
-# Run all tests with coverage
-pytest
-
-# Run specific test file
-pytest tests/test_sensor.py
-
-# Run tests with verbose output
-pytest -vvs
-
-# Run tests without coverage
-pytest --no-cov
+scripts/lint          # Ruff format + check --fix
 ```
 
-## Project Structure
+**For comprehensive standards, see:**
+
+- `.github/instructions/python.instructions.md` — Python patterns, imports, type hints
+- `.github/instructions/yaml.instructions.md` — YAML structure and HA-specific patterns
+- `.github/instructions/json.instructions.md` — JSON formatting and schema validation
+
+## Project-Specific Rules
+
+### Integration Identifiers
+
+This integration uses the following identifiers consistently:
+
+- **Domain:** `unifi_insights`
+- **Title:** UniFi Insights
+- **Class prefix:** `UnifiInsights`
+
+**When creating new files:**
+
+- Use the domain `unifi_insights` for all DOMAIN references
+- Prefix all integration-specific classes with `UnifiInsights`
+- Use "UniFi Insights" as the display title
+- Never hardcode different values
+
+### Integration Structure
+
+**Package organization:**
+
+- `coordinators/` — Multi-coordinator system (base, config, device, protect, facade)
+- `config_flow.py` — Config flow (local and remote modes)
+- `entity.py` — Base entity classes (`UnifiInsightsEntity`, `UnifiProtectEntity`)
+- `data_transforms.py` — API response to internal data mapping
+- `services.py` — Service action implementations
+- `services.yaml` — Service schema definitions
+- `const.py` — Constants and endpoint paths
+- `diagnostics.py` — Diagnostic data export
+- `repairs.py` — Repair flows
+- Platform files: `sensor.py`, `binary_sensor.py`, `switch.py`, `button.py`, `device_tracker.py`, `camera.py`, `light.py`, `number.py`, `select.py`, `event.py`, `update.py`
+
+**Do NOT create:**
+
+- `helpers/`, `ha_helpers/`, or similar packages — use existing modules
+- `common/`, `shared/`, `lib/` — use existing modules
+- New top-level packages without explicit approval
+
+**Key patterns:**
+
+- Entities → Coordinator → API Client (never skip layers)
+- Use `EntityDescription` dataclasses for static entity metadata
+- Use `get_field()` for mixed camelCase/snake_case field access
+- `PARALLEL_UPDATES = 0` for coordinator-driven entities, `1` for action-based Protect entities
+
+**Code organization principles:**
+
+- Keep files focused (200-400 lines per file)
+- One class per file for entity implementations where practical
+- Split large modules into smaller ones when needed
+
+### Multi-Coordinator Architecture
+
+The integration uses a multi-coordinator pattern:
+
+- **Config Coordinator** (`coordinators/config.py`) — Site and configuration data (minimal polling)
+- **Device Coordinator** (`coordinators/device.py`) — Network device metrics
+- **Protect Coordinator** (`coordinators/protect.py`) — Camera, light, sensor, NVR data (WebSocket + polling)
+- **Facade Coordinator** (`coordinators/facade.py`) — Unified view for backward compatibility
+- **Base Coordinator** (`coordinators/base.py`) — Abstract base with common patterns
+
+**Data flow:**
 
 ```
-ha-unifi-insights/
-├── custom_components/
-│   └── unifi_insights/
-│       ├── __init__.py          # Integration setup
-│       ├── config_flow.py       # Configuration UI
-│       ├── const.py             # Constants
-│       ├── coordinator.py       # Data update coordinator
-│       ├── coordinators/        # Specialized coordinators
-│       ├── entity.py            # Base entity classes
-│       ├── sensor.py            # Sensor platform
-│       ├── binary_sensor.py     # Binary sensor platform
-│       ├── switch.py            # Switch platform
-│       ├── button.py            # Button platform
-│       ├── device_tracker.py    # Device tracker platform
-│       ├── camera.py            # Camera platform
-│       ├── light.py             # Light platform
-│       ├── number.py            # Number platform
-│       ├── select.py            # Select platform
-│       ├── event.py             # Event platform
-│       ├── update.py            # Update platform
-│       ├── services.py          # Service definitions
-│       ├── diagnostics.py       # Diagnostic data
-│       ├── repairs.py           # Repair flows
-│       └── data_transforms.py   # Data transformation utilities
-├── tests/                       # Test files
-└── pyproject.toml              # Project configuration
+UniFi Network API → Network Client ↘
+UniFi Protect API → Protect Client → Config Coordinator → Device Coordinator → Protect Coordinator → Facade → Entities
 ```
 
-## Common Anti-Patterns & Best Practices
+### Device Info
 
-### ❌ **Avoid These Patterns**
-```python
-# Blocking operations in event loop
-data = requests.get(url)  # ❌ Blocks event loop
-time.sleep(5)  # ❌ Blocks event loop
+All entities should provide consistent device info via the base entity class (manufacturer, model, serial number, configuration URL, firmware version). Use the base classes in `entity.py`.
 
-# Hardcoded strings in code
-self._attr_name = "Temperature Sensor"  # ❌ Not translatable
+### Integration Manifest
 
-# Missing error handling
-data = await self.api.get_data()  # ❌ No exception handling
+**Key fields in `manifest.json`:**
 
-# Storing sensitive data in diagnostics
-return {"api_key": entry.data[CONF_API_KEY]}  # ❌ Exposes secrets
+- `integration_type: "hub"` — Gateway to multiple devices
+- `iot_class: "local_polling"` — Local polling with WebSocket for Protect
+- `requirements: ["unifi-official-api~=1.1.0"]` — Single runtime dependency
+- `dependencies: ["ffmpeg", "stream"]` — Required for camera support
+- `ssdp` — Discovery matchers for UniFi Dream Machine variants
 
-# Accessing hass.data directly in tests
-coordinator = hass.data[DOMAIN][entry.entry_id]  # ❌ Don't access hass.data
+### Config Flow
 
-# User-configurable polling intervals
-vol.Optional("scan_interval", default=60): cv.positive_int  # ❌ Not allowed
+The integration supports two connection modes:
 
-# Too much code in try block
-try:
-    response = await client.get_data()  # Can throw
-    # ❌ Data processing should be outside try block
-    temperature = response["temperature"] / 10
-    self._attr_native_value = temperature
-except ClientError:
-    _LOGGER.error("Failed to fetch data")
+- **Local** — Host URL + API key (+ optional verify_ssl)
+- **Remote** — Console ID + API key
 
-# Bare exceptions in regular code
-try:
-    value = await sensor.read_value()
-except Exception:  # ❌ Too broad - catch specific exceptions
-    _LOGGER.error("Failed to read sensor")
+**Unique ID:** Based on API key
+
+**Flows:** User setup, reauth, reconfigure
+
+### Entity Base Classes
+
+Two base classes in `entity.py`:
+
+- **`UnifiInsightsEntity`** — Network devices; availability via `is_device_online` helper
+- **`UnifiProtectEntity`** — Protect devices; availability via `state == CONNECTED`
+
+Both handle camelCase/snake_case field mapping via `get_field()`.
+
+## Home Assistant Patterns
+
+**Config flow:**
+
+- Implemented in `config_flow.py`
+- Support user setup, reauth, reconfigure
+- Always set unique_id for entries
+- Validates connectivity by fetching sites
+
+See `.github/instructions/config_flow.instructions.md` for comprehensive patterns.
+
+**Service actions:**
+
+- Defined in `services.yaml` with full descriptions
+- Implemented in `services.py`
+- Includes: refresh data, restart device, Protect controls (recording/HDR/video mode, mic, light, PTZ, chime), Network actions (authorize guest, voucher CRUD)
+- Use `_get_protect_coordinator`/`_get_first_coordinator` helpers
+- Raise `HomeAssistantError` with user-facing messages
+
+See `.github/instructions/service_actions.instructions.md` for service patterns.
+
+**Coordinator:**
+
+- Entities → Coordinator → API Client (never skip layers)
+- Raise `ConfigEntryAuthFailed` (triggers reauth) or `UpdateFailed` (retry)
+- Use `async_config_entry_first_refresh()` for first update
+
+See `.github/instructions/coordinator.instructions.md` for details.
+
+**Entities:**
+
+- Inherit from platform base + `UnifiInsightsEntity` or `UnifiProtectEntity`
+- Read from `coordinator.data`, never call API directly
+- Use `EntityDescription` for static metadata
+
+See `.github/instructions/entities.instructions.md` for entity patterns.
+
+**Repairs:**
+
+- Implemented in `repairs.py`
+- Use `async_create_issue()` with severity levels
+- Implement `RepairsFlow` for guided user fixes
+
+See `.github/instructions/repairs.instructions.md` for comprehensive patterns.
+
+**Entity availability:**
+
+- Set `_attr_available = False` when device is unreachable
+- Update availability based on coordinator success/failure
+- Don't raise exceptions from `@property` methods
+
+**State updates:**
+
+- Use `self.async_write_ha_state()` for immediate updates
+- Let coordinator handle periodic updates
+- Minimize API calls (batch requests when possible)
+
+**Setup failure handling:**
+
+- `ConfigEntryNotReady` — Device offline/timeout, auto-retry, don't log manually
+- `ConfigEntryAuthFailed` — Expired credentials, triggers reauth flow
+
+**Diagnostics:**
+
+- **CRITICAL:** Use `async_redact_data()` to remove sensitive data
+- Redact: Passwords, API keys, tokens, location data, personal information
+
+## Validation and Testing
+
+**Before committing, run:**
+
+```bash
+pre-commit run --all-files   # Full validation
+scripts/lint                  # Auto-format and fix linting
+pytest                        # Run unit tests (90% minimum coverage)
 ```
 
-### ✅ **Use These Patterns Instead**
-```python
-# Async operations with executor
-data = await hass.async_add_executor_job(requests.get, url)
-await asyncio.sleep(5)  # ✅ Non-blocking
+**Generate code that passes these checks on first run.** As an AI agent, you should produce higher quality code than manual development:
 
-# Translatable entity names
-_attr_translation_key = "temperature_sensor"  # ✅ Translatable
+- Type hints are trivial for you to generate
+- Async patterns are well-known to you
+- Import management is automatic for you
+- Naming conventions can be applied consistently
 
-# Proper error handling
-try:
-    data = await self.api.get_data()
-except ApiException as err:
-    raise UpdateFailed(f"API error: {err}") from err
+Aim for zero validation errors in generated code.
 
-# Redacted diagnostics data
-return async_redact_data(data, {"api_key", "password"})  # ✅ Safe
+### Error Recovery Strategy
 
-# Test through proper integration setup and fixtures
-@pytest.fixture
-async def init_integration(hass, mock_config_entry, mock_api):
-    mock_config_entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(mock_config_entry.entry_id)  # ✅ Proper setup
+**When validation fails:**
 
-# Integration-determined polling intervals
-SCAN_INTERVAL = timedelta(minutes=5)  # ✅ Constant in const.py
+1. **First attempt** — Fix the specific error reported by the tool
+2. **Second attempt** — If it fails again, reconsider your approach
+3. **Third attempt** — If still failing, ask for clarification rather than looping indefinitely
+4. **After 3 failed attempts** — Stop and explain what you tried and why it's not working
 
-class UnifiInsightsCoordinator(DataUpdateCoordinator[UnifiInsightsData]):
-    def __init__(self, hass: HomeAssistant, client: UnifiClient, config_entry: ConfigEntry) -> None:
-        super().__init__(
-            hass,
-            logger=LOGGER,
-            name=DOMAIN,
-            update_interval=SCAN_INTERVAL,
-            config_entry=config_entry,
-        )
+**When gathering context:**
+
+- Start with search (1-2 queries maximum)
+- Read 3-5 most relevant files based on results
+- If still unclear, read 2-3 more specific files
+- **After ~10 file reads, you should have enough context** — make a decision or ask for clarification
+- Don't fall into infinite research loops
+
+## Testing
+
+**Test structure:**
+
+- `tests/` mirrors `custom_components/unifi_insights/` structure
+- Use fixtures for common setup (Home Assistant mock, coordinator, etc.)
+- Mock external API calls
+- 90% minimum coverage required (branch coverage enabled)
+
+**Running tests:**
+
+```bash
+pytest                       # All tests with coverage
+pytest tests/test_sensor.py  # Specific test file
+pytest -vvs                  # Verbose output
+pytest --no-cov              # Without coverage
 ```
+
+**Important: Do NOT create or modify tests unless explicitly requested.** Focus on implementing functionality. The developer decides when and if tests are needed.
+
+See `.github/instructions/tests.instructions.md` for comprehensive testing patterns.
+
+## Breaking Changes
+
+**Always warn the developer before making changes that:**
+
+- Change entity IDs or unique IDs (users' automations will break)
+- Modify config entry data structure (existing installations will fail)
+- Change state values or attributes format (dashboards and automations affected)
+- Alter service call signatures (user scripts will break)
+- Remove or rename config options (users must reconfigure)
+
+**Never do without explicit approval:**
+
+- Removing config options (even if "unused")
+- Changing service parameters or return values
+- Modifying how data is stored in config entries
+- Renaming entities or changing their device classes
+- Changing unique_id generation logic
+
+**How to warn:**
+
+> "This change will modify the entity ID format from `sensor.device_name` to `sensor.device_name_sensor`. Existing users' automations and dashboards will break. Should I proceed, or would you prefer a migration path?"
+
+**When breaking changes are necessary:**
+
+- Document the breaking change in commit message (`BREAKING CHANGE:` footer)
+- Consider providing migration instructions
+- Suggest version bump
+- Update CHANGELOG.md
+
+## File Changes
+
+**Scope Management:**
+
+**Single logical feature or fix:**
+
+- Implement completely even if it spans 5-8 files
+- Example: New sensor needs entity class + platform init + translations → implement all together
+
+**Multiple independent features:**
+
+- Implement one at a time
+- After completing each feature, suggest committing before proceeding to the next
+
+**Large refactoring (>10 files or architectural changes):**
+
+- Propose a plan first before starting implementation
+- Get explicit confirmation from developer
+
+**Translation strategy:**
+
+- Use placeholders in code — functionality works without translations
+- Update `strings.json` only when asked or at major feature completion
+- NEVER update other language files automatically
+- Priority: Business logic first, translations later
 
 ## UniFi-Specific Considerations
 
-- **API Rate Limiting**: Be mindful of UniFi controller API rate limits when setting polling intervals
-- **Device Discovery**: Handle dynamic device discovery as UniFi networks can change
-- **Connection Resilience**: UniFi controllers may restart or become temporarily unavailable
-- **Multiple Sites**: Support for multi-site UniFi deployments where applicable
-- **Protect Integration**: Camera entities should handle UniFi Protect separately from network devices
+- **API Rate Limiting:** Be mindful of UniFi controller API rate limits when setting polling intervals
+- **Device Discovery:** Handle dynamic device discovery as UniFi networks can change
+- **Connection Resilience:** UniFi controllers may restart or become temporarily unavailable
+- **Multiple Sites:** Support for multi-site UniFi deployments where applicable
+- **Protect Integration:** Camera entities should handle UniFi Protect separately from network devices
+- **camelCase Tolerance:** UniFi API uses camelCase; use `get_field()` for field access
+- **Data Transforms:** Extend `data_transforms.py` when adding new API fields
+
+## Tool Parallelization
+
+**Safe to call in parallel:**
+
+- Multiple file read operations (different files)
+- File search + file read + content search (independent read-only operations)
+
+**Never call in parallel:**
+
+- Multiple terminal commands (execute sequentially, wait for output)
+- Multiple edits on the same file
+
+**Best practices:**
+
+- Batch independent read operations together
+- After gathering context in parallel, provide brief progress update before proceeding
+- Terminal commands must always be sequential
+
+## Additional Resources
+
+- [Home Assistant Developer Docs](https://developers.home-assistant.io/) — Primary reference
+- [Integration Quality Scale](https://developers.home-assistant.io/docs/integration_quality_scale_index)
+- [Architecture Docs](https://developers.home-assistant.io/docs/architecture_index)
+- [Ruff Rules](https://docs.astral.sh/ruff/rules/) — Linter documentation
+- [pytest Documentation](https://docs.pytest.org/) — Testing framework
+- See `CONTRIBUTING.md` for contribution guidelines

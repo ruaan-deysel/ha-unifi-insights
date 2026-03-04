@@ -7,8 +7,15 @@ description: "Perform a comprehensive quality review of the UniFi Insights integ
 # Review Integration
 
 Your goal is to perform a comprehensive quality review of the UniFi Insights integration against Home Assistant standards.
+Treat the official Quality Scale rules as mandatory review criteria:
+<https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>
 
 ## Review Checklist
+
+### Quality Scale Compliance
+
+- [ ] Applicable rules from the official Quality Scale rules page have been reviewed
+- [ ] All applicable rules are satisfied or clearly documented as not applicable
 
 ### Architecture
 

@@ -21,6 +21,14 @@ pytest                        # Tests (90% minimum coverage)
 ./scripts/develop             # Start local HA instance
 ```
 
+## Quality Scale Rules (Strict)
+
+- Follow the current Home Assistant Integration Quality Scale rules for all applicable changes:
+  <https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>
+- Treat applicable rules as mandatory, not aspirational.
+- Add or update tests when behavior changes in areas covered by applicable rules.
+- If a rule is not applicable, state why in your final summary.
+
 ## Architecture Quick Reference
 
 - **Entry point:** `__init__.py` — Sets up Network + Protect clients, initializes coordinators
@@ -87,4 +95,4 @@ class UnifiInsightsSomeSensor(UnifiInsightsEntity, SensorEntity):
 - Suggest commits when switching topics
 - Use Conventional Commits format (`feat:`, `fix:`, `chore:`, etc.)
 - One feature per commit
-- Don't create tests unless explicitly asked
+- Add tests for behavior changes when required by applicable Quality Scale rules

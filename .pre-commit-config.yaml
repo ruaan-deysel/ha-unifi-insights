@@ -74,6 +74,11 @@ repos:
   # Validates Home Assistant custom integrations for HACS submission readiness
   - repo: local
     hooks:
+      - id: prompt-no-deprecated-runcommands-toolset
+        name: Prompt Tooling Guard (No runCommands)
+        entry: runCommands(?:/terminalLastCommand)?
+        language: pygrep
+        files: ^\.github/prompts/.*\.prompt\.md$
       - id: hacs-preflight
         name: HACS Preflight Check
         entry: python scripts/hacs_preflight.py

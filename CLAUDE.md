@@ -21,6 +21,7 @@ Read `AGENTS.md` completely before starting any work. It contains:
 - **Lint:** `scripts/lint` (ruff format + check)
 - **Test:** `pytest`
 - **Run HA:** `./scripts/develop`
+- **Quality Scale:** Strictly follow applicable HA rules (<https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>)
 
 ## Path-Specific Instructions
 

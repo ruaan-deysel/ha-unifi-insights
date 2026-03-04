@@ -23,7 +23,7 @@ This is **UniFi Insights**, a Home Assistant custom integration that provides mo
 
 **Local Home Assistant instance:**
 
-**Always use the project's scripts** — do NOT craft your own `hass`, `pip`, `pytest`, or similar commands. The scripts handle environment setup, virtual environments, port management, and cleanup that raw commands miss.
+**Use the project's scripts whenever available** (`./scripts/develop`, `./scripts/lint`, `./scripts/setup`). For checks that do not have a wrapper script, use the documented commands (`pre-commit run --all-files`, `mypy`, `pytest`).
 
 **Start Home Assistant:**
 
@@ -121,15 +121,17 @@ When a task completes and the developer moves to a new topic, suggest committing
 - Reuse its client methods (`network_client`/`protect_client`) rather than manual HTTP calls
 - NEVER create a custom API client — use the official library
 
-**Quality Scale expectations:**
+**Quality Scale requirements (strict):**
 
-As an AI agent, **aim for Silver or Gold Quality Scale** when generating code:
+As an AI agent, **strictly follow the current Home Assistant Integration Quality Scale rules** for every applicable change:
 
-- ALWAYS implement: Type hints, async patterns, proper error handling, diagnostics with `async_redact_data()`, device info
-- When applicable: Config flow with validation, reauth flow, discovery support, repair flows
-- Can defer: Advanced discovery, YAML import
+- Canonical rules: <https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>
+- Treat applicable rules as mandatory, not aspirational
+- Validate changed behavior against applicable rules before considering work complete
+- If a rule is not applicable, call that out briefly in the final summary
+- If a request conflicts with a rule, explicitly flag the conflict and ask for direction
 
-**Developer expectation:** Generate production-ready code. Implement HA standards with reasonable effort.
+**Developer expectation:** Generate production-ready code that meets HA standards and applicable Quality Scale rules.
 
 ## Code Style and Quality
 
@@ -387,7 +389,7 @@ pytest -vvs                  # Verbose output
 pytest --no-cov              # Without coverage
 ```
 
-**Important: Do NOT create or modify tests unless explicitly requested.** Focus on implementing functionality. The developer decides when and if tests are needed.
+**Important:** Add or update tests whenever your change affects behavior that should be covered by applicable Quality Scale rules (for example config flow, coordinator updates, entities, services, or error handling paths). If you intentionally defer test work, state the gap and rationale.
 
 See `.github/instructions/tests.instructions.md` for comprehensive testing patterns.
 
@@ -477,7 +479,7 @@ See `.github/instructions/tests.instructions.md` for comprehensive testing patte
 ## Additional Resources
 
 - [Home Assistant Developer Docs](https://developers.home-assistant.io/) — Primary reference
-- [Integration Quality Scale](https://developers.home-assistant.io/docs/integration_quality_scale_index)
+- [Integration Quality Scale Rules](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules)
 - [Architecture Docs](https://developers.home-assistant.io/docs/architecture_index)
 - [Ruff Rules](https://docs.astral.sh/ruff/rules/) — Linter documentation
 - [pytest Documentation](https://docs.pytest.org/) — Testing framework

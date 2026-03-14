@@ -1,7 +1,7 @@
 {
   "name": "domalab/ha-unifi-insights",
-  "image": "mcr.microsoft.com/devcontainers/python:3.13",
-  "postCreateCommand": "scripts/setup",
+  "image": "mcr.microsoft.com/devcontainers/python:3.14",
+  "postCreateCommand": "./script/setup/setup",
   "forwardPorts": [8123],
   "portsAttributes": {
     "8123": {
@@ -27,7 +27,7 @@
         "files.trimTrailingWhitespace": true,
         "python.analysis.typeCheckingMode": "basic",
         "python.analysis.autoImportCompletions": true,
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "/home/vscode/.local/ha-venv/bin/python",
         "[python]": {
           "editor.defaultFormatter": "charliermarsh.ruff"
         }

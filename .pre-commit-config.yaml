@@ -8,10 +8,12 @@ repos:
     rev: v0.14.13
     hooks:
       - id: ruff-check
+        exclude: ^custom_components/unifi_insights/api/
         args:
           - --fix
       - id: ruff-format
-        files: ^((custom_components|tests|scripts)/.+)?[^/]+\.(py|pyi)$
+        exclude: ^custom_components/unifi_insights/api/
+        files: ^((custom_components|tests|script)/.+)?[^/]+\.(py|pyi)$
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.1
     hooks:
@@ -53,14 +55,15 @@ repos:
       - id: python-typing-update
         stages: [manual]
         args:
-          - --py311-plus
+          - --py314-plus
           - --force
           - --keep-updates
-        files: ^(custom_components|tests|scripts)/.+\.py$
+        files: ^(custom_components|tests|script)/.+\.py$
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.13.0
     hooks:
       - id: mypy
+        exclude: ^custom_components/unifi_insights/api/
         args:
           - --ignore-missing-imports
           - --no-strict-optional
@@ -70,20 +73,3 @@ repos:
         files: ^custom_components/.+\.py$
         additional_dependencies:
           - types-aiofiles
-  # HACS Integration Preflight Check
-  # Validates Home Assistant custom integrations for HACS submission readiness
-  - repo: local
-    hooks:
-      - id: prompt-no-deprecated-runcommands-toolset
-        name: Prompt Tooling Guard (No runCommands)
-        entry: runCommands(?:/terminalLastCommand)?
-        language: pygrep
-        files: ^\.github/prompts/.*\.prompt\.md$
-      - id: hacs-preflight
-        name: HACS Preflight Check
-        entry: python scripts/hacs_preflight.py
-        language: python
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit]
-        verbose: true

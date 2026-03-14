@@ -1,6 +1,28 @@
 ---
-# https://www.home-assistant.io/integrations/default_config/
-default_config:
+# Development config mirrors default_config but excludes go2rtc, which
+# requires a container-specific binary that is not present in this workspace.
+assist_pipeline:
+backup:
+bluetooth:
+cloud:
+config:
+conversation:
+dhcp:
+energy:
+history:
+homeassistant_alerts:
+image_upload:
+logbook:
+media_source:
+mobile_app:
+my:
+ssdp:
+stream:
+sun:
+usage_prediction:
+usb:
+webhook:
+zeroconf:
 
 # https://www.home-assistant.io/integrations/homeassistant/
 homeassistant:

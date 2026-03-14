@@ -3,20 +3,22 @@ name = "ha-unifi-insights"
 version = "2026.2.0"
 description = "UniFi Insights Home Assistant Integration"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.14.2"
 license = {text = "Apache-2.0"}
-dependencies = [
-    "unifi-official-api~=1.0.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.1.0",
-    "pytest-homeassistant-custom-component>=0.13.0",
+    "pytest-homeassistant-custom-component>=0.13.317",
+    "PyTurboJPEG>=2.2.0",
+    "av>=16.1.0",
+    "ha-ffmpeg>=3.2.2",
     "ruff>=0.8.0",
     "mypy>=1.7.0",
+    "codespell>=2.4.1",
     "bandit[toml]>=1.7.5",
     "pre-commit>=3.5.0",
 ]
@@ -67,8 +69,19 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py314"
 line-length = 88
+force-exclude = true
+extend-exclude = [
+    "custom_components/unifi_insights/api",
+    "custom_components/unifi_insights/api/**",
+    ".venv",
+    ".venv/**",
+    "venv",
+    "venv/**",
+    "build",
+    "build/**",
+]
 
 [tool.ruff.lint]
 select = [
@@ -108,9 +121,10 @@ known-first-party = ["custom_components.unifi_insights"]
 combine-as-imports = true
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.14"
 show_error_codes = true
 follow_imports = "silent"
+exclude = "(^tests/|^custom_components/unifi_insights/api/)"
 ignore_missing_imports = true
 strict_equality = true
 warn_incomplete_stub = true

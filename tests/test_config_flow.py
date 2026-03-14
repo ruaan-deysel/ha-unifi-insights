@@ -8,12 +8,12 @@ from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from unifi_official_api import (
+
+from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiTimeoutError,
 )
-
 from custom_components.unifi_insights.config_flow import (
     UnifiInsightsConfigFlow,
     UnifiInsightsOptionsFlow,
@@ -28,6 +28,50 @@ from custom_components.unifi_insights.const import (
 
 # All tests require custom_integrations to be enabled
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+def _make_client_context(
+    *,
+    get_hosts: list[dict[str, object]] | None = None,
+    get_hosts_side_effect: Exception | None = None,
+    sites: list[object] | None = None,
+    sites_side_effect: Exception | None = None,
+    enter_side_effect: Exception | None = None,
+) -> MagicMock:
+    """Create an async context manager mock for UniFiNetworkClient."""
+    async_cm = MagicMock()
+
+    if enter_side_effect is not None:
+        async_cm.__aenter__ = AsyncMock(side_effect=enter_side_effect)
+    else:
+        client = MagicMock()
+        client.get_hosts = AsyncMock(
+            side_effect=get_hosts_side_effect,
+            return_value=[] if get_hosts is None else get_hosts,
+        )
+        client.sites = MagicMock()
+        client.sites.get_all = AsyncMock(
+            side_effect=sites_side_effect,
+            return_value=[] if sites is None else sites,
+        )
+        client.close = AsyncMock()
+        async_cm.__aenter__ = AsyncMock(return_value=client)
+
+    async_cm.__aexit__ = AsyncMock(return_value=None)
+    return async_cm
+
+
+def _remote_host(
+    host_id: str = "console123",
+    hostname: str = "Dream Router 7",
+    host_type: str = "console",
+) -> dict[str, object]:
+    """Create a discovered remote host payload."""
+    return {
+        "id": host_id,
+        "type": host_type,
+        "reportedState": {"hostname": hostname},
+    }
 
 
 async def test_user_flow_shows_connection_type_selection(hass: HomeAssistant) -> None:
@@ -243,21 +287,15 @@ async def test_local_flow_unknown_error(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_success(hass: HomeAssistant) -> None:
     """Test successful remote connection flow."""
-    mock_client = MagicMock()
-    mock_client.sites = MagicMock()
-    mock_client.sites.get_all = AsyncMock(
-        return_value=[MagicMock(id="default", name="Default")]
+    discovery_cm = _make_client_context(get_hosts=[_remote_host()])
+    validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
     )
-    mock_client.close = AsyncMock()
-
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    async_cm.__aexit__ = AsyncMock(return_value=None)
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            side_effect=[discovery_cm, validation_cm],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -273,13 +311,19 @@ async def test_remote_flow_success(hass: HomeAssistant) -> None:
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "remote"
 
-        # Enter remote connection details
+        # Enter remote API key
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                CONF_CONSOLE_ID: "console123",
-                CONF_API_KEY: "test_api_key",
-            },
+            user_input={CONF_API_KEY: "test_api_key"},
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "select_console"
+
+        # Select discovered remote console
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CONSOLE_ID: "console123"},
         )
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
@@ -402,16 +446,14 @@ async def test_local_flow_no_sites_found(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_auth_error(hass: HomeAssistant) -> None:
     """Test remote flow with authentication error."""
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(
-        side_effect=UniFiAuthenticationError("Invalid credentials")
+    discovery_cm = _make_client_context(
+        enter_side_effect=UniFiAuthenticationError("Invalid credentials")
     )
-    async_cm.__aexit__ = AsyncMock(return_value=None)
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            return_value=discovery_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -426,10 +468,7 @@ async def test_remote_flow_auth_error(hass: HomeAssistant) -> None:
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                CONF_CONSOLE_ID: "console123",
-                CONF_API_KEY: "bad_api_key",
-            },
+            user_input={CONF_API_KEY: "bad_api_key"},
         )
 
         assert result["type"] == FlowResultType.FORM
@@ -438,14 +477,14 @@ async def test_remote_flow_auth_error(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_connection_error(hass: HomeAssistant) -> None:
     """Test remote flow with connection error."""
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(side_effect=UniFiConnectionError("Cannot connect"))
-    async_cm.__aexit__ = AsyncMock(return_value=None)
+    discovery_cm = _make_client_context(
+        enter_side_effect=UniFiConnectionError("Cannot connect")
+    )
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            return_value=discovery_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -460,10 +499,7 @@ async def test_remote_flow_connection_error(hass: HomeAssistant) -> None:
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                CONF_CONSOLE_ID: "console123",
-                CONF_API_KEY: "test_api_key",
-            },
+            user_input={CONF_API_KEY: "test_api_key"},
         )
 
         assert result["type"] == FlowResultType.FORM
@@ -472,14 +508,14 @@ async def test_remote_flow_connection_error(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_timeout_error(hass: HomeAssistant) -> None:
     """Test remote flow with timeout error."""
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(side_effect=UniFiTimeoutError("Timeout"))
-    async_cm.__aexit__ = AsyncMock(return_value=None)
+    discovery_cm = _make_client_context(
+        enter_side_effect=UniFiTimeoutError("Timeout")
+    )
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            return_value=discovery_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -494,10 +530,7 @@ async def test_remote_flow_timeout_error(hass: HomeAssistant) -> None:
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                CONF_CONSOLE_ID: "console123",
-                CONF_API_KEY: "test_api_key",
-            },
+            user_input={CONF_API_KEY: "test_api_key"},
         )
 
         assert result["type"] == FlowResultType.FORM
@@ -506,14 +539,12 @@ async def test_remote_flow_timeout_error(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_unknown_error(hass: HomeAssistant) -> None:
     """Test remote flow with unknown error."""
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(side_effect=Exception("Unknown error"))
-    async_cm.__aexit__ = AsyncMock(return_value=None)
+    discovery_cm = _make_client_context(enter_side_effect=Exception("Unknown error"))
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            return_value=discovery_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -528,10 +559,7 @@ async def test_remote_flow_unknown_error(hass: HomeAssistant) -> None:
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                CONF_CONSOLE_ID: "console123",
-                CONF_API_KEY: "test_api_key",
-            },
+            user_input={CONF_API_KEY: "test_api_key"},
         )
 
         assert result["type"] == FlowResultType.FORM
@@ -540,19 +568,13 @@ async def test_remote_flow_unknown_error(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_no_sites_found(hass: HomeAssistant) -> None:
     """Test remote flow when no sites are found."""
-    mock_client = MagicMock()
-    mock_client.sites = MagicMock()
-    mock_client.sites.get_all = AsyncMock(return_value=[])
-    mock_client.close = AsyncMock()
-
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    async_cm.__aexit__ = AsyncMock(return_value=None)
+    discovery_cm = _make_client_context(get_hosts=[_remote_host()])
+    validation_cm = _make_client_context(sites=[])
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            side_effect=[discovery_cm, validation_cm],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -567,14 +589,48 @@ async def test_remote_flow_no_sites_found(hass: HomeAssistant) -> None:
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={
-                CONF_CONSOLE_ID: "console123",
-                CONF_API_KEY: "test_api_key",
-            },
+            user_input={CONF_API_KEY: "test_api_key"},
         )
 
         assert result["type"] == FlowResultType.FORM
-        assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
+        assert result["step_id"] == "select_console"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CONSOLE_ID: "console123"},
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {CONF_CONSOLE_ID: "invalid_console_id"}
+
+
+async def test_remote_flow_no_remote_consoles(hass: HomeAssistant) -> None:
+    """Test remote flow when the API key has no accessible consoles."""
+    discovery_cm = _make_client_context(get_hosts=[])
+
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            return_value=discovery_cm,
+        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE},
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "test_api_key"},
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {"base": "no_remote_consoles"}
 
 
 async def test_reauth_flow_remote_success(hass: HomeAssistant) -> None:
@@ -592,21 +648,15 @@ async def test_reauth_flow_remote_success(hass: HomeAssistant) -> None:
     )
     remote_entry.add_to_hass(hass)
 
-    mock_client = MagicMock()
-    mock_client.sites = MagicMock()
-    mock_client.sites.get_all = AsyncMock(
-        return_value=[MagicMock(id="default", name="Default")]
+    discovery_cm = _make_client_context(get_hosts=[_remote_host()])
+    validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
     )
-    mock_client.close = AsyncMock()
-
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    async_cm.__aexit__ = AsyncMock(return_value=None)
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            side_effect=[discovery_cm, validation_cm],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -761,19 +811,13 @@ async def test_reauth_flow_remote_no_sites_found(
     )
     remote_entry.add_to_hass(hass)
 
-    mock_client = MagicMock()
-    mock_client.sites = MagicMock()
-    mock_client.sites.get_all = AsyncMock(return_value=[])  # No sites
-    mock_client.close = AsyncMock()
-
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    async_cm.__aexit__ = AsyncMock(return_value=None)
+    discovery_cm = _make_client_context(get_hosts=[_remote_host("test_console")])
+    validation_cm = _make_client_context(sites=[])
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            side_effect=[discovery_cm, validation_cm],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -785,7 +829,7 @@ async def test_reauth_flow_remote_no_sites_found(
         )
 
         assert result["type"] == FlowResultType.FORM
-        assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
+    assert result["errors"] == {"base": "invalid_console_id"}
 
 
 async def test_reconfigure_local_success(
@@ -844,21 +888,15 @@ async def test_reconfigure_remote_success(hass: HomeAssistant) -> None:
     )
     remote_entry.add_to_hass(hass)
 
-    mock_client = MagicMock()
-    mock_client.sites = MagicMock()
-    mock_client.sites.get_all = AsyncMock(
-        return_value=[MagicMock(id="default", name="Default")]
+    discovery_cm = _make_client_context(get_hosts=[_remote_host("new_console")])
+    validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
     )
-    mock_client.close = AsyncMock()
-
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    async_cm.__aexit__ = AsyncMock(return_value=None)
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            side_effect=[discovery_cm, validation_cm],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -1067,19 +1105,13 @@ async def test_reconfigure_remote_no_sites_found(
     )
     remote_entry.add_to_hass(hass)
 
-    mock_client = MagicMock()
-    mock_client.sites = MagicMock()
-    mock_client.sites.get_all = AsyncMock(return_value=[])  # No sites
-    mock_client.close = AsyncMock()
-
-    async_cm = MagicMock()
-    async_cm.__aenter__ = AsyncMock(return_value=mock_client)
-    async_cm.__aexit__ = AsyncMock(return_value=None)
+    discovery_cm = _make_client_context(get_hosts=[_remote_host("test_console")])
+    validation_cm = _make_client_context(sites=[])
 
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            return_value=async_cm,
+            side_effect=[discovery_cm, validation_cm],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -1094,7 +1126,7 @@ async def test_reconfigure_remote_no_sites_found(
         )
 
         assert result["type"] == FlowResultType.FORM
-        assert result["errors"] == {CONF_API_KEY: "invalid_auth"}
+    assert result["errors"] == {CONF_CONSOLE_ID: "invalid_console_id"}
 
 
 # ============================================================================

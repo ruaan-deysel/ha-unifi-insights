@@ -36,6 +36,36 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 
+def _device_has_feature(device_data: dict[str, Any], *features_to_match: str) -> bool:
+    """Return True when a device advertises any of the requested features."""
+    features = device_data.get("features", [])
+    if isinstance(features, dict):
+        return any(
+            bool(features.get(feature_name)) for feature_name in features_to_match
+        )
+    if isinstance(features, list):
+        return any(feature_name in features for feature_name in features_to_match)
+    return False
+
+
+def _get_firewall_rule_action(rule_data: dict[str, Any]) -> str | None:
+    """Return the firewall rule action regardless of payload shape."""
+    action = rule_data.get("action")
+    if isinstance(action, dict):
+        action_type = action.get("type")
+        return str(action_type) if action_type is not None else None
+    return str(action) if action is not None else None
+
+
+def _is_predefined_firewall_rule(rule_data: dict[str, Any]) -> bool:
+    """Return True when a firewall rule appears to be system-defined."""
+    return bool(
+        rule_data.get("predefined")
+        or rule_data.get("isPredefined")
+        or rule_data.get("isSystem")
+    )
+
+
 async def async_setup_entry(  # noqa: PLR0912
     hass: HomeAssistant,
     entry: UnifiInsightsConfigEntry,
@@ -194,8 +224,182 @@ async def async_setup_entry(  # noqa: PLR0912
                 )
             )
 
+    # Add firewall policy enable/disable switches for user-defined rules
+    for site_id, firewall_rules in coordinator.data.get("firewall_rules", {}).items():
+        for rule_id, rule_data in firewall_rules.items():
+            if not isinstance(rule_data, dict):
+                continue
+
+            if _is_predefined_firewall_rule(rule_data):
+                _LOGGER.debug(
+                    "Skipping predefined firewall rule %s in site %s",
+                    rule_id,
+                    site_id,
+                )
+                continue
+
+            rule_name = rule_data.get("name", rule_id)
+            _LOGGER.debug(
+                "Adding enable/disable switch for firewall rule %s",
+                rule_name,
+            )
+            entities.append(
+                UnifiFirewallRuleSwitch(
+                    coordinator=coordinator,
+                    site_id=site_id,
+                    rule_id=rule_id,
+                )
+            )
+
     _LOGGER.info("Adding %d UniFi switches", len(entities))
     async_add_entities(entities)
+
+
+class UnifiFirewallRuleSwitch(SwitchEntity):  # type: ignore[misc]
+    """Switch to enable or disable a user-defined firewall rule."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        site_id: str,
+        rule_id: str,
+    ) -> None:
+        """Initialize the firewall rule switch."""
+        self.coordinator = coordinator
+        self._site_id = site_id
+        self._rule_id = rule_id
+
+        rule_data = self._get_rule_data()
+        rule_name = rule_data.get("name") or rule_id
+
+        self._attr_unique_id = f"{site_id}_{rule_id}_firewall_rule"
+        self._attr_name = str(rule_name)
+        self._attr_device_info = self._build_device_info()
+
+    def _get_rule_data(self) -> dict[str, Any]:
+        """Get firewall rule data from the coordinator."""
+        result: dict[str, Any] = (
+            self.coordinator.data.get("firewall_rules", {})
+            .get(self._site_id, {})
+            .get(self._rule_id, {})
+        )
+        return result
+
+    def _find_gateway_device_id(self) -> str | None:
+        """Return the gateway-like device ID for the site if one exists."""
+        site_devices = self.coordinator.data.get("devices", {}).get(self._site_id, {})
+        if not isinstance(site_devices, dict):
+            return None
+
+        for device_id, device_data in site_devices.items():
+            if not isinstance(device_data, dict):
+                continue
+
+            model = str(device_data.get("model", "")).upper()
+            if _device_has_feature(
+                device_data, "gateway", "router"
+            ) or model.startswith(("UDM", "USG", "UXG", "UCG")):
+                return device_id
+
+        return None
+
+    def _build_device_info(self) -> dict[str, Any]:
+        """Build device info for firewall rule grouping."""
+        gateway_device_id = self._find_gateway_device_id()
+        if gateway_device_id is not None:
+            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_device_id}")}}
+
+        site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
+        meta = site_data.get("meta", {})
+        site_name = (
+            meta.get("name") if isinstance(meta, dict) else None
+        ) or site_data.get("name", self._site_id)
+
+        return {
+            "identifiers": {(DOMAIN, f"firewall_policies_{self._site_id}")},
+            "name": f"Firewall Policies ({site_name})",
+            "manufacturer": MANUFACTURER,
+            "model": "UniFi Firewall Policies",
+        }
+
+    def _update_local_state(self, *, enabled: bool) -> None:
+        """Update the aggregated coordinator cache for immediate UI feedback."""
+        firewall_rules = self.coordinator.data.setdefault("firewall_rules", {})
+        site_rules = firewall_rules.setdefault(self._site_id, {})
+        rule_data = site_rules.get(self._rule_id)
+        if isinstance(rule_data, dict):
+            rule_data["enabled"] = enabled
+
+    @property
+    def available(self) -> bool:
+        """Return if the switch is available."""
+        return bool(self._get_rule_data())
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if the firewall rule is enabled."""
+        rule_data = self._get_rule_data()
+        return bool(rule_data.get("enabled", True))
+
+    @property
+    def icon(self) -> str:
+        """Return a context-specific icon for the firewall rule state."""
+        return "mdi:shield-lock" if self.is_on else "mdi:shield-off"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return firewall rule metadata useful in automations and debugging."""
+        rule_data = self._get_rule_data()
+        return {
+            "rule_id": self._rule_id,
+            "action": _get_firewall_rule_action(rule_data),
+            "protocol": rule_data.get("protocol"),
+            "source_zone_id": rule_data.get("sourceZoneId")
+            or rule_data.get("source_zone_id"),
+            "destination_zone_id": rule_data.get("destinationZoneId")
+            or rule_data.get("destination_zone_id"),
+            "logging": rule_data.get("logging", False),
+            "index": rule_data.get("index"),
+        }
+
+    async def _async_set_enabled(self, *, enabled: bool) -> None:
+        """Enable or disable the firewall rule."""
+        action = "Enabling" if enabled else "Disabling"
+        _LOGGER.debug(
+            "%s firewall rule %s in site %s",
+            action,
+            self._rule_id,
+            self._site_id,
+        )
+
+        try:
+            await self.coordinator.network_client.firewall.update_rule(
+                self._site_id,
+                self._rule_id,
+                enabled=enabled,
+            )
+            self._update_local_state(enabled=enabled)
+            self.async_write_ha_state()
+            await self.coordinator.async_request_refresh()
+        except Exception:
+            _LOGGER.exception(
+                "Error updating firewall rule %s in site %s",
+                self._rule_id,
+                self._site_id,
+            )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the firewall rule."""
+        _ = kwargs
+        await self._async_set_enabled(enabled=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the firewall rule."""
+        _ = kwargs
+        await self._async_set_enabled(enabled=False)
 
 
 class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: ignore[misc]

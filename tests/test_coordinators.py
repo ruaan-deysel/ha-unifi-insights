@@ -1,21 +1,23 @@
 """Tests for multi-coordinator architecture (Platinum compliance)."""
 
+from __future__ import annotations
+
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
-from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from unifi_official_api import (
+
+from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiResponseError,
     UniFiTimeoutError,
 )
-
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
     CONNECTION_TYPE_LOCAL,
@@ -31,6 +33,9 @@ from custom_components.unifi_insights.coordinators.facade import UnifiFacadeCoor
 from custom_components.unifi_insights.coordinators.protect import (
     UnifiProtectCoordinator,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
 @pytest.fixture
@@ -77,6 +82,12 @@ def _create_mock_network_client() -> MagicMock:
             _create_mock_model({"id": "site2", "name": "Site 2"}),
         ]
     )
+    client.sites.get_legacy_all = AsyncMock(
+        return_value=[
+            {"name": "default", "desc": "Default"},
+            {"name": "site2", "desc": "Site 2"},
+        ]
+    )
 
     # WiFi namespace
     client.wifi = MagicMock()
@@ -87,6 +98,23 @@ def _create_mock_network_client() -> MagicMock:
             ),
         ]
     )
+
+    # Firewall namespace
+    client.firewall = MagicMock()
+    client.firewall.list_rules = AsyncMock(
+        return_value=[
+            _create_mock_model(
+                {
+                    "id": "rule1",
+                    "name": "Block Instagram",
+                    "enabled": True,
+                    "action": "drop",
+                    "protocol": "all",
+                }
+            )
+        ]
+    )
+    client.firewall.update_rule = AsyncMock()
 
     # Devices namespace
     client.devices = MagicMock()
@@ -111,6 +139,7 @@ def _create_mock_network_client() -> MagicMock:
             }
         )
     )
+    client.devices.get_legacy_site_devices = AsyncMock(return_value=[])
     client.devices.execute_port_action = AsyncMock(return_value=True)
 
     # Clients namespace
@@ -382,6 +411,7 @@ class TestUnifiConfigCoordinator:
         assert coordinator.update_interval == SCAN_INTERVAL_CONFIG
         assert "sites" in coordinator.data
         assert "wifi" in coordinator.data
+        assert "firewall_rules" in coordinator.data
         assert "network_info" in coordinator.data
 
     @pytest.mark.asyncio
@@ -393,6 +423,8 @@ class TestUnifiConfigCoordinator:
         assert "default" in result["sites"]
         assert "site2" in result["sites"]
         assert "wifi" in result
+        assert "firewall_rules" in result
+        assert "rule1" in result["firewall_rules"]["default"]
         assert coordinator._available is True
 
     @pytest.mark.asyncio
@@ -411,6 +443,22 @@ class TestUnifiConfigCoordinator:
         assert "default" in result["sites"]
         # WiFi should be empty for failed sites
         assert result["wifi"]["default"] == {}
+        assert coordinator._available is True
+
+    @pytest.mark.asyncio
+    async def test_async_update_data_firewall_error(
+        self, coordinator: UnifiConfigCoordinator
+    ):
+        """Test firewall rules are optional when the endpoint is unavailable."""
+        coordinator.network_client.firewall.list_rules = AsyncMock(
+            side_effect=Exception("Firewall endpoint unavailable")
+        )
+
+        result = await coordinator._async_update_data()
+
+        assert "sites" in result
+        assert "default" in result["sites"]
+        assert result["firewall_rules"]["default"] == {}
         assert coordinator._available is True
 
     @pytest.mark.asyncio
@@ -504,6 +552,19 @@ class TestUnifiConfigCoordinator:
     def test_get_wifi_networks_missing_site(self, coordinator: UnifiConfigCoordinator):
         """Test getting WiFi networks for missing site."""
         result = coordinator.get_wifi_networks("nonexistent")
+        assert result == {}
+
+    def test_get_firewall_rules(self, coordinator: UnifiConfigCoordinator):
+        """Test getting firewall rules for a site."""
+        coordinator.data["firewall_rules"] = {
+            "default": {"rule1": {"id": "rule1", "name": "Block Instagram"}}
+        }
+        result = coordinator.get_firewall_rules("default")
+        assert "rule1" in result
+
+    def test_get_firewall_rules_missing_site(self, coordinator: UnifiConfigCoordinator):
+        """Test getting firewall rules for missing site."""
+        result = coordinator.get_firewall_rules("nonexistent")
         assert result == {}
 
     @pytest.mark.asyncio
@@ -614,6 +675,46 @@ class TestUnifiDeviceCoordinator:
         assert "clients" in result
         assert "stats" in result
         assert coordinator._available is True
+
+    @pytest.mark.asyncio
+    async def test_async_update_data_merges_legacy_temperature(
+        self, coordinator: UnifiDeviceCoordinator
+    ):
+        """Test successful merge of legacy temperature fields into device data."""
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            return_value=[
+                {
+                    "mac": "AA:BB:CC:DD:EE:FF",
+                    "general_temperature": 47.5,
+                    "temperatures": [
+                        {"name": "CPU", "value": 51.0},
+                        {"name": "Local", "value": 47.5},
+                    ],
+                    "has_temperature": False,
+                }
+            ]
+        )
+
+        result = await coordinator._async_update_data()
+
+        device_data = result["devices"]["default"]["device1"]
+        assert device_data["generalTemperature"] == 47.5
+        assert device_data["hasTemperature"] is True
+        assert device_data["temperatures"][0]["name"] == "CPU"
+
+    @pytest.mark.asyncio
+    async def test_async_update_data_legacy_temperature_failure_is_ignored(
+        self, coordinator: UnifiDeviceCoordinator
+    ):
+        """Test legacy temperature fetch failure does not drop device data."""
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            side_effect=Exception("Legacy endpoint unavailable")
+        )
+
+        result = await coordinator._async_update_data()
+
+        assert "device1" in result["devices"]["default"]
+        assert "generalTemperature" not in result["devices"]["default"]["device1"]
 
     @pytest.mark.asyncio
     async def test_async_update_data_no_sites(
@@ -1648,6 +1749,9 @@ class TestUnifiFacadeCoordinator:
         coord.data = {
             "sites": {"default": {"id": "default", "name": "Default"}},
             "wifi": {"default": {"wifi1": {"id": "wifi1"}}},
+            "firewall_rules": {
+                "default": {"rule1": {"id": "rule1", "name": "Block Instagram"}}
+            },
             "network_info": {},
         }
         return coord
@@ -1758,6 +1862,8 @@ class TestUnifiFacadeCoordinator:
         assert "sites" in facade_coordinator.data
         assert "default" in facade_coordinator.data["sites"]
         assert "wifi" in facade_coordinator.data
+        assert "firewall_rules" in facade_coordinator.data
+        assert "rule1" in facade_coordinator.data["firewall_rules"]["default"]
 
         # Check device coordinator data
         assert "devices" in facade_coordinator.data

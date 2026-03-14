@@ -13,8 +13,9 @@ from custom_components.unifi_insights.const import DOMAIN, SCAN_INTERVAL_DEVICE
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-    from unifi_official_api.network import UniFiNetworkClient
-    from unifi_official_api.protect import UniFiProtectClient
+
+    from custom_components.unifi_insights.api.network import UniFiNetworkClient
+    from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
     from .config import UnifiConfigCoordinator
     from .device import UnifiDeviceCoordinator
@@ -93,6 +94,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ig
             # From config coordinator
             "sites": self._config_coordinator.data.get("sites", {}),
             "wifi": self._config_coordinator.data.get("wifi", {}),
+            "firewall_rules": self._config_coordinator.data.get("firewall_rules", {}),
             "network_info": self._config_coordinator.data.get("network_info", {}),
             # From device coordinator
             "devices": self._device_coordinator.data.get("devices", {}),

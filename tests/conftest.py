@@ -1,11 +1,12 @@
 """Test fixtures for ha-unifi-insights integration tests."""
 
-from collections.abc import Generator
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
-from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.const import (
@@ -13,6 +14,11 @@ from custom_components.unifi_insights.const import (
     CONNECTION_TYPE_LOCAL,
     DOMAIN,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
+    from homeassistant.core import HomeAssistant
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 
@@ -26,6 +32,9 @@ def _create_mock_network_client() -> MagicMock:
     client.sites = MagicMock()
     client.sites.get_all = AsyncMock(
         return_value=[MagicMock(id="default", name="Default", desc="Default")]
+    )
+    client.sites.get_legacy_all = AsyncMock(
+        return_value=[{"name": "default", "desc": "Default"}]
     )
 
     # Setup devices namespace
@@ -48,12 +57,18 @@ def _create_mock_network_client() -> MagicMock:
     client.devices.get_statistics = AsyncMock(
         return_value=MagicMock(cpu=10.5, mem=25.3)
     )
+    client.devices.get_legacy_site_devices = AsyncMock(return_value=[])
     client.devices.restart = AsyncMock(return_value=True)
 
     # Setup clients namespace
     client.clients = MagicMock()
     client.clients.get_all = AsyncMock(return_value=[])
     client.clients.authorize_guest = AsyncMock(return_value=True)
+
+    # Setup firewall namespace
+    client.firewall = MagicMock()
+    client.firewall.list_rules = AsyncMock(return_value=[])
+    client.firewall.update_rule = AsyncMock()
 
     # Setup vouchers namespace
     client.vouchers = MagicMock()

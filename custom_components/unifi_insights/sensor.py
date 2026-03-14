@@ -58,9 +58,9 @@ def _get_client_type(client: dict[str, Any]) -> str:
     """
     Extract client type from client data.
 
-    As of unifi-official-api v1.1.0, the API properly serializes the ClientType
-    enum to string values ("WIRED" or "WIRELESS"). This helper normalizes the
-    value for comparison and handles edge cases.
+    The vendored API package serializes the ClientType enum to string values
+    ("WIRED" or "WIRELESS"). This helper normalizes the value for comparison
+    and handles edge cases.
     """
     client_type = client.get("type") or client.get("connection_type", "")
     # Normalize to uppercase string
@@ -128,6 +128,60 @@ def bytes_to_megabits(bytes_per_sec: float | None) -> float | None:
     return round(bytes_per_sec * 8 / 1_000_000, 2)
 
 
+def _get_temperature_entry_value(
+    temperatures: list[dict[str, Any]],
+    preferred_name: str,
+) -> float | int | None:
+    """Return a temperature value from a named legacy device temperature entry."""
+    preferred_name_lower = preferred_name.lower()
+    for temperature in temperatures:
+        if not isinstance(temperature, dict):
+            continue
+
+        name = temperature.get("name")
+        value = temperature.get("value")
+        if (
+            isinstance(name, str)
+            and preferred_name_lower in name.lower()
+            and isinstance(value, (int, float))
+        ):
+            return value
+
+    return None
+
+
+def get_network_device_temperature(device: dict[str, Any]) -> float | int | None:
+    """Extract a network device temperature from merged device data."""
+    direct_temperature = get_field(
+        device,
+        "generalTemperature",
+        "general_temperature",
+        "temperature",
+    )
+    if isinstance(direct_temperature, (int, float)):
+        return direct_temperature
+
+    temperatures = get_field(device, "temperatures", default=[])
+    if not isinstance(temperatures, list):
+        return None
+
+    normalized_temperatures = [
+        item
+        for item in temperatures
+        if isinstance(item, dict) and item.get("value") is not None
+    ]
+    if not normalized_temperatures:
+        return None
+
+    for preferred_name in ("local", "cpu", "phy"):
+        value = _get_temperature_entry_value(normalized_temperatures, preferred_name)
+        if value is not None:
+            return value
+
+    first_value = normalized_temperatures[0].get("value")
+    return first_value if isinstance(first_value, (int, float)) else None
+
+
 # Sensor descriptions for UniFi Protect sensors
 PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     # Temperature sensor
@@ -138,9 +192,9 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda sensor: sensor.get("stats", {})
-        .get("temperature", {})
-        .get("value"),
+        value_fn=lambda sensor: (
+            sensor.get("stats", {}).get("temperature", {}).get("value")
+        ),
         device_type=DEVICE_TYPE_SENSOR,
     ),
     # Humidity sensor
@@ -151,9 +205,9 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda sensor: sensor.get("stats", {})
-        .get("humidity", {})
-        .get("value"),
+        value_fn=lambda sensor: (
+            sensor.get("stats", {}).get("humidity", {}).get("value")
+        ),
         device_type=DEVICE_TYPE_SENSOR,
     ),
     # Light sensor
@@ -422,6 +476,17 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         ),
     ),
     UnifiInsightsSensorEntityDescription(
+        key="general_temperature",
+        translation_key="general_temperature",
+        name="Temperature",
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:thermometer",
+        value_fn=get_network_device_temperature,
+    ),
+    UnifiInsightsSensorEntityDescription(
         key="wired_clients",
         translation_key="wired_clients",
         name="Wired Clients",
@@ -460,8 +525,10 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:flash",
-        value_fn=lambda port: get_field(port, "poe", default={}).get("power")
-        or get_field(port, "poe", default={}).get("watts"),
+        value_fn=lambda port: (
+            get_field(port, "poe", default={}).get("power")
+            or get_field(port, "poe", default={}).get("watts")
+        ),
     ),
     # Port Speed
     UnifiInsightsSensorEntityDescription(
@@ -476,9 +543,11 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         # Gold: Disable diagnostic entities by default
         entity_registry_enabled_default=False,
         icon="mdi:speedometer",
-        value_fn=lambda port: get_field(port, "speedMbps", "speed_mbps", "speed")
-        if get_field(port, "state", "status", default="").upper() == "UP"
-        else 0,
+        value_fn=lambda port: (
+            get_field(port, "speedMbps", "speed_mbps", "speed")
+            if get_field(port, "state", "status", default="").upper() == "UP"
+            else 0
+        ),
     ),
     # Port TX Bytes
     UnifiInsightsSensorEntityDescription(
@@ -490,8 +559,10 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:upload",
-        value_fn=lambda port: get_field(port, "stats", default={}).get("txBytes")
-        or get_field(port, "stats", default={}).get("tx_bytes", 0),
+        value_fn=lambda port: (
+            get_field(port, "stats", default={}).get("txBytes")
+            or get_field(port, "stats", default={}).get("tx_bytes", 0)
+        ),
     ),
     # Port RX Bytes
     UnifiInsightsSensorEntityDescription(
@@ -503,8 +574,10 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
         icon="mdi:download",
-        value_fn=lambda port: get_field(port, "stats", default={}).get("rxBytes")
-        or get_field(port, "stats", default={}).get("rx_bytes", 0),
+        value_fn=lambda port: (
+            get_field(port, "stats", default={}).get("rxBytes")
+            or get_field(port, "stats", default={}).get("rx_bytes", 0)
+        ),
     ),
 )
 
@@ -591,6 +664,23 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                         description.key,
                         device_name,
                         description.required_feature,
+                    )
+                    continue
+
+                if (
+                    description.key == "general_temperature"
+                    and get_network_device_temperature(device_data) is None
+                    and not get_field(
+                        device_data,
+                        "hasTemperature",
+                        "has_temperature",
+                        default=False,
+                    )
+                ):
+                    _LOGGER.debug(
+                        "Skipping sensor %s for %s - no temperature data",
+                        description.key,
+                        device_name,
                     )
                     continue
 
@@ -789,7 +879,11 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[mi
     def native_value(self) -> StateType:
         """Return the state of the sensor."""
         # Special handling for sensors that come from device data (not stats)
-        if self.entity_description.key in ["firmware_version", "wan_ip"]:
+        if self.entity_description.key in [
+            "firmware_version",
+            "wan_ip",
+            "general_temperature",
+        ]:
             device = (
                 self.coordinator.data["devices"]
                 .get(self._site_id, {})

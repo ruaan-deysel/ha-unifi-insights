@@ -26,6 +26,7 @@ from custom_components.unifi_insights.sensor import (
     async_setup_entry,
     bytes_to_megabits,
     format_uptime,
+    get_network_device_temperature,
 )
 
 
@@ -85,6 +86,8 @@ def mock_coordinator():
                     "ipAddress": "192.168.1.1",
                     "state": "ONLINE",
                     "firmwareVersion": "3.0.0",
+                    "hasTemperature": True,
+                    "generalTemperature": 44.5,
                     "features": {"gateway": True, "switching": True},
                     "interfaces": {"ports": []},
                 },
@@ -339,6 +342,22 @@ class TestUnifiInsightsSensor:
         )
 
         assert sensor.native_value == "6.5.55"
+
+    async def test_sensor_general_temperature(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test network device temperature sensor from device data."""
+        description = next(s for s in SENSOR_TYPES if s.key == "general_temperature")
+
+        sensor = UnifiInsightsSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device2",
+        )
+
+        assert sensor.native_value == 44.5
+        assert sensor.native_unit_of_measurement == UnitOfTemperature.CELSIUS
 
     async def test_sensor_wired_clients(self, hass: HomeAssistant, mock_coordinator):
         """Test wired clients sensor."""
@@ -605,6 +624,28 @@ class TestAsyncSetupEntry:
         # Check for port sensors (only for port 1 which is UP)
         port_sensors = [e for e in added_entities if isinstance(e, UnifiPortSensor)]
         assert len(port_sensors) > 0
+
+    async def test_setup_entry_creates_network_temperature_sensor(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test that setup creates network temperature sensors when available."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        temperature_sensors = [
+            entity
+            for entity in added_entities
+            if isinstance(entity, UnifiInsightsSensor)
+            and entity.entity_description.key == "general_temperature"
+        ]
+        assert len(temperature_sensors) == 1
+        assert temperature_sensors[0].native_value == 44.5
 
     async def test_setup_entry_creates_protect_sensors(
         self, hass: HomeAssistant, mock_coordinator, mock_config_entry
@@ -1473,6 +1514,17 @@ class TestUnifiInsightsSensorEdgeCases:
 
         # Should not raise
         await sensor.async_update()
+
+    def test_get_network_device_temperature_from_temperatures_list(self):
+        """Test fallback temperature extraction from legacy temperatures list."""
+        device = {
+            "temperatures": [
+                {"name": "CPU", "value": 54.0},
+                {"name": "Local", "value": 49.5},
+            ]
+        }
+
+        assert get_network_device_temperature(device) == 49.5
 
 
 class TestUnifiPortSensorNativeValueEdgeCases:

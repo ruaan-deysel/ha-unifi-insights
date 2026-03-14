@@ -22,6 +22,7 @@ from custom_components.unifi_insights.const import (
 from custom_components.unifi_insights.switch import (
     PARALLEL_UPDATES,
     UnifiClientBlockSwitch,
+    UnifiFirewallRuleSwitch,
     UnifiPoESwitch,
     UnifiPortEnableSwitch,
     UnifiProtectHighFPSSwitch,
@@ -51,9 +52,14 @@ class TestAsyncSetupEntry:
         coordinator.protect_client = MagicMock()
         coordinator.network_client = MagicMock()
         coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.network_client.firewall = MagicMock()
+        coordinator.network_client.firewall.update_rule = AsyncMock()
         coordinator.data = {
             "sites": {},
             "devices": {},
+            "clients": {},
+            "wifi": {},
+            "firewall_rules": {},
             "protect": {
                 "cameras": {},
                 "lights": {},
@@ -686,6 +692,282 @@ class TestUnifiWifiSwitch:
 
         # Should fall back to initial wifi_data
         assert switch.available is True
+
+
+class TestUnifiFirewallRuleSwitch:
+    """Tests for firewall rule switches."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with firewall rules."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.firewall = MagicMock()
+        coordinator.network_client.firewall.update_rule = AsyncMock()
+        coordinator.async_request_refresh = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "name": "Default"}},
+            "devices": {
+                "site1": {
+                    "gateway1": {
+                        "id": "gateway1",
+                        "name": "Main Gateway",
+                        "model": "UCG-Max",
+                        "features": ["gateway"],
+                        "state": "ONLINE",
+                    }
+                }
+            },
+            "clients": {},
+            "stats": {},
+            "wifi": {},
+            "firewall_rules": {
+                "site1": {
+                    "rule1": {
+                        "id": "rule1",
+                        "name": "Block Instagram",
+                        "enabled": True,
+                        "action": {"type": "DENY"},
+                        "protocol": "all",
+                        "sourceZoneId": "internal",
+                        "destinationZoneId": "external",
+                        "logging": True,
+                        "index": 2005,
+                    },
+                    "predefined_rule": {
+                        "id": "predefined_rule",
+                        "name": "System Rule",
+                        "enabled": True,
+                        "predefined": True,
+                    },
+                }
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    def test_initialization(self, mock_coordinator) -> None:
+        """Test firewall switch initialization."""
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+
+        assert switch._attr_unique_id == "site1_rule1_firewall_rule"
+        assert switch._attr_name == "Block Instagram"
+        assert switch._attr_entity_category == EntityCategory.CONFIG
+        assert switch._attr_device_info["identifiers"] == {(DOMAIN, "site1_gateway1")}
+
+    def test_is_on(self, mock_coordinator) -> None:
+        """Test firewall switch state mirrors rule enabled state."""
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+
+        assert switch.is_on is True
+        mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"] = False
+        assert switch.is_on is False
+
+    def test_extra_state_attributes(self, mock_coordinator) -> None:
+        """Test firewall switch metadata attributes."""
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+
+        attrs = switch.extra_state_attributes
+        assert attrs["rule_id"] == "rule1"
+        assert attrs["action"] == "DENY"
+        assert attrs["protocol"] == "all"
+        assert attrs["source_zone_id"] == "internal"
+        assert attrs["destination_zone_id"] == "external"
+        assert attrs["logging"] is True
+
+    def test_icon_changes_with_state(self, mock_coordinator) -> None:
+        """Test firewall switch icon reflects enabled state."""
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+
+        assert switch.icon == "mdi:shield-lock"
+        mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"] = False
+        assert switch.icon == "mdi:shield-off"
+
+    @pytest.mark.asyncio
+    async def test_turn_on_updates_rule(self, mock_coordinator) -> None:
+        """Test enabling a firewall rule."""
+        mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"] = False
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_on()
+
+        mock_coordinator.network_client.firewall.update_rule.assert_called_once_with(
+            "site1", "rule1", enabled=True
+        )
+        assert (
+            mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"] is True
+        )
+        switch.async_write_ha_state.assert_called_once()
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_updates_rule(self, mock_coordinator) -> None:
+        """Test disabling a firewall rule."""
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_off()
+
+        mock_coordinator.network_client.firewall.update_rule.assert_called_once_with(
+            "site1", "rule1", enabled=False
+        )
+        assert (
+            mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"]
+            is False
+        )
+        switch.async_write_ha_state.assert_called_once()
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    def test_fallback_device_info_without_gateway(self, mock_coordinator) -> None:
+        """Test fallback device registry entry when no gateway device is found."""
+        mock_coordinator.data["devices"]["site1"] = {}
+
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+
+        assert switch._attr_device_info["identifiers"] == {
+            (DOMAIN, "firewall_policies_site1")
+        }
+        assert switch._attr_device_info["name"] == "Firewall Policies (Default)"
+
+    @pytest.mark.asyncio
+    async def test_turn_on_error_does_not_write_state(self, mock_coordinator) -> None:
+        """Test firewall update failures do not write optimistic state."""
+        mock_coordinator.network_client.firewall.update_rule.side_effect = Exception(
+            "API error"
+        )
+        mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"] = False
+
+        switch = UnifiFirewallRuleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            rule_id="rule1",
+        )
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_on()
+
+        switch.async_write_ha_state.assert_not_called()
+        assert (
+            mock_coordinator.data["firewall_rules"]["site1"]["rule1"]["enabled"]
+            is False
+        )
+
+
+class TestAsyncSetupEntryFirewallRules:
+    """Tests firewall rule discovery in switch platform setup."""
+
+    @pytest.fixture
+    def mock_coordinator(self) -> MagicMock:
+        """Create mock coordinator with firewall rule data."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.network_client.firewall = MagicMock()
+        coordinator.network_client.firewall.update_rule = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "name": "Default"}},
+            "devices": {
+                "site1": {
+                    "gateway1": {
+                        "id": "gateway1",
+                        "name": "Main Gateway",
+                        "model": "UCG-Max",
+                        "features": ["gateway"],
+                        "state": "ONLINE",
+                    }
+                }
+            },
+            "clients": {},
+            "wifi": {},
+            "firewall_rules": {
+                "site1": {
+                    "rule1": {
+                        "id": "rule1",
+                        "name": "Block Instagram",
+                        "enabled": True,
+                    },
+                    "rule2": {
+                        "id": "rule2",
+                        "name": "School Nights",
+                        "enabled": False,
+                    },
+                    "system": {
+                        "id": "system",
+                        "name": "System",
+                        "enabled": True,
+                        "predefined": True,
+                    },
+                }
+            },
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_adds_only_user_firewall_rules(
+        self, hass, mock_coordinator
+    ) -> None:
+        """Test setup adds switches only for user-defined firewall rules."""
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        firewall_switches = [
+            entity for entity in entities if isinstance(entity, UnifiFirewallRuleSwitch)
+        ]
+        assert len(firewall_switches) == 2
+        assert {entity._rule_id for entity in firewall_switches} == {"rule1", "rule2"}
 
 
 class TestUnifiProtectPrivacySwitch:

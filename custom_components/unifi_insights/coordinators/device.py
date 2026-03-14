@@ -8,13 +8,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
-from unifi_official_api import (
+
+from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiResponseError,
     UniFiTimeoutError,
 )
-
 from custom_components.unifi_insights.const import DOMAIN, SCAN_INTERVAL_DEVICE
 
 from .base import UnifiBaseCoordinator
@@ -22,8 +22,9 @@ from .base import UnifiBaseCoordinator
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-    from unifi_official_api.network import UniFiNetworkClient
-    from unifi_official_api.protect import UniFiProtectClient
+
+    from custom_components.unifi_insights.api.network import UniFiNetworkClient
+    from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
     from .config import UnifiConfigCoordinator
 
@@ -69,6 +70,121 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
             "last_update": None,
         }
 
+    @staticmethod
+    def _normalize_mac(value: Any) -> str | None:
+        """Normalize a MAC address for dictionary lookups."""
+        if not isinstance(value, str) or not value:
+            return None
+        return value.strip().lower()
+
+    @staticmethod
+    def _has_legacy_temperature_data(legacy_device: dict[str, Any]) -> bool:
+        """Return True when legacy device data contains usable temperature info."""
+        general_temperature = legacy_device.get("general_temperature")
+        if general_temperature is None:
+            general_temperature = legacy_device.get("generalTemperature")
+
+        temperatures = legacy_device.get("temperatures")
+        has_temperature = legacy_device.get("has_temperature")
+        if has_temperature is None:
+            has_temperature = legacy_device.get("hasTemperature")
+
+        has_temperature_entries = isinstance(temperatures, list) and any(
+            isinstance(item, dict) and item.get("value") is not None
+            for item in temperatures
+        )
+
+        return bool(
+            has_temperature
+            or general_temperature is not None
+            or has_temperature_entries
+        )
+
+    @classmethod
+    def _merge_legacy_temperature_data(
+        cls,
+        device_dict: dict[str, Any],
+        legacy_devices_by_mac: dict[str, dict[str, Any]],
+    ) -> None:
+        """Merge temperature-related legacy fields into device data."""
+        mac_address = cls._normalize_mac(
+            device_dict.get("macAddress") or device_dict.get("mac")
+        )
+        if mac_address is None:
+            return
+
+        legacy_device = legacy_devices_by_mac.get(mac_address)
+        if legacy_device is None or not cls._has_legacy_temperature_data(legacy_device):
+            return
+
+        general_temperature = legacy_device.get("general_temperature")
+        if general_temperature is None:
+            general_temperature = legacy_device.get("generalTemperature")
+
+        temperatures = legacy_device.get("temperatures")
+
+        if general_temperature is not None:
+            device_dict["generalTemperature"] = general_temperature
+
+        if isinstance(temperatures, list):
+            device_dict["temperatures"] = temperatures
+
+        device_dict["hasTemperature"] = True
+
+    def _map_legacy_site_names(
+        self,
+        site_ids: list[str],
+        legacy_sites: list[dict[str, Any]],
+    ) -> dict[str, str]:
+        """Map integration site IDs to legacy site names used by `/api/s/{site}`."""
+        mappings: dict[str, str] = {}
+
+        def _match_string(value: Any) -> str | None:
+            if not isinstance(value, str):
+                return None
+            stripped = value.strip().lower()
+            return stripped or None
+
+        normalized_legacy_sites: list[tuple[str, set[str]]] = []
+        for legacy_site in legacy_sites:
+            legacy_name = legacy_site.get("name")
+            if not isinstance(legacy_name, str) or not legacy_name:
+                continue
+
+            candidates = {
+                candidate
+                for candidate in {
+                    _match_string(legacy_name),
+                    _match_string(legacy_site.get("desc")),
+                    _match_string(legacy_site.get("description")),
+                }
+                if candidate is not None
+            }
+            normalized_legacy_sites.append((legacy_name, candidates))
+
+        for site_id in site_ids:
+            site_data = self.config_coordinator.get_site(site_id) or {}
+            site_candidates = {
+                candidate
+                for candidate in {
+                    _match_string(site_id),
+                    _match_string(site_data.get("name")),
+                    _match_string(site_data.get("description")),
+                    _match_string(site_data.get("desc")),
+                }
+                if candidate is not None
+            }
+
+            for legacy_name, legacy_candidates in normalized_legacy_sites:
+                if site_candidates & legacy_candidates:
+                    mappings[site_id] = legacy_name
+                    break
+
+            if site_id not in mappings and len(normalized_legacy_sites) == 1:
+                mappings[site_id] = normalized_legacy_sites[0][0]
+
+        return mappings
+
     async def _process_device(
         self, site_id: str, device_dict: dict[str, Any], clients: list[dict[str, Any]]
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
@@ -106,7 +222,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
             return device_id, device_dict, {}
 
     async def _process_site(
-        self, site_id: str
+        self, site_id: str, legacy_site_name: str | None = None
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
         """Process a single site's devices and clients."""
         try:
@@ -117,9 +233,42 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                 devices_task, clients_task
             )
 
+            legacy_devices: list[dict[str, Any]] = []
+            if legacy_site_name is not None:
+                try:
+                    legacy_devices = (
+                        await self.network_client.devices.get_legacy_site_devices(
+                            legacy_site_name
+                        )
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Device coordinator: Failed to fetch legacy device data "
+                        "for site %s (%s): %s",
+                        site_id,
+                        legacy_site_name,
+                        err,
+                    )
+
             # Convert model objects to dictionaries
             devices = [self._model_to_dict(d) for d in devices_models]
             clients = [self._model_to_dict(c) for c in clients_models]
+
+            legacy_devices_by_mac = {
+                normalized_mac: legacy_device
+                for legacy_device in legacy_devices
+                if isinstance(legacy_device, dict)
+                and (
+                    normalized_mac := self._normalize_mac(
+                        legacy_device.get("mac") or legacy_device.get("macAddress")
+                    )
+                )
+                is not None
+            }
+
+            if legacy_devices_by_mac:
+                for device in devices:
+                    self._merge_legacy_temperature_data(device, legacy_devices_by_mac)
 
             _LOGGER.debug(
                 "Device coordinator: Site %s - Found %d devices and %d clients",
@@ -178,8 +327,21 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                 len(site_ids),
             )
 
+            legacy_site_names: dict[str, str] = {}
+            try:
+                legacy_sites = await self.network_client.sites.get_legacy_all()
+                legacy_site_names = self._map_legacy_site_names(site_ids, legacy_sites)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug(
+                    "Device coordinator: Unable to fetch legacy site mapping: %s",
+                    err,
+                )
+
             # Process all sites in parallel
-            tasks = [self._process_site(site_id) for site_id in site_ids]
+            tasks = [
+                self._process_site(site_id, legacy_site_names.get(site_id))
+                for site_id in site_ids
+            ]
             results = await asyncio.gather(*tasks)
 
             # Update data structure with results

@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [2026.3.0] - 2026-03-15
+
+### Added
+
+- Expanded the vendored UniFi Network API package with typed models and endpoints for firewall policies, DNS policies, traffic matching lists, vouchers, supporting resources, and legacy site and device lookups
+- Added a full vendored UniFi Protect client with endpoint coverage for cameras, sensors, lights, chimes, NVRs, viewers, live views, events, application files, RTSPS streams, talkback sessions, and WebSocket subscriptions
+- Added enable and disable switches for user-defined UniFi Network firewall rules
+- Added network device temperature sensors backed by legacy controller temperature data when available
+- Added a new `script/` command suite for bootstrap, linting, testing, spell checking, hassfest validation, Home Assistant startup, config reset, and HACS sync
+
+### Changed
+
+- Vendored the upstream `unifi-official-api` project into `custom_components/unifi_insights/api`
+- Switched the integration to use the local vendored API package instead of an external runtime dependency
+- Reworked the remote cloud config flow so API keys discover accessible consoles first, then validate the selected console during setup, reauth, and reconfigure
+- Updated the development environment and repository tooling for the new `script/` layout, Python 3.14, and Home Assistant 2026.3.1
+
+### Fixed
+
+- Fixed remote cloud setup and reconfiguration flows for API keys that can access multiple UniFi consoles by prompting for console selection instead of relying on manual console ID entry
+- Fixed coordinator updates to merge legacy device temperature data without failing refreshes when legacy controller endpoints are unavailable
+- Fixed diagnostics and tests to report and validate the vendored API package instead of the removed external dependency
+- Fixed vendored WiFi broadcast updates to send full controller-compatible payloads on update
+
+### Removed
+
+- Removed `unifi-official-api` from manifest and project dependency declarations
+- Removed the legacy `scripts/` helpers in favor of the new `script/` tooling layout
+
+### Technical
+
+- Added a `py.typed` marker for the vendored API package and excluded the vendored subtree from first-party Ruff, mypy, and pre-commit checks
+- Updated contributor and agent documentation to reference the vendored API package and the new development script workflow
+
 ## [2026.2.0] - 2026-01-22
 
 ### Changed

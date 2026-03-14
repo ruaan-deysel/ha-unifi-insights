@@ -13,13 +13,13 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
-from unifi_official_api import (
+
+from .api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiResponseError,
     UniFiTimeoutError,
 )
-
 from .const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
@@ -34,8 +34,9 @@ from .const import (
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-    from unifi_official_api.network import UniFiNetworkClient
-    from unifi_official_api.protect import UniFiProtectClient
+
+    from .api.network import UniFiNetworkClient
+    from .api.protect import UniFiProtectClient
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -6,13 +6,13 @@ import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from unifi_official_api import (
+
+from custom_components.unifi_insights import UnifiInsightsData
+from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiTimeoutError,
 )
-
-from custom_components.unifi_insights import UnifiInsightsData
 
 
 async def test_setup_entry_success(

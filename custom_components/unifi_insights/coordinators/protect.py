@@ -7,13 +7,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
-from unifi_official_api import (
+
+from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiResponseError,
     UniFiTimeoutError,
 )
-
 from custom_components.unifi_insights.const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
@@ -30,8 +30,9 @@ from .base import UnifiBaseCoordinator
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
-    from unifi_official_api.network import UniFiNetworkClient
-    from unifi_official_api.protect import UniFiProtectClient
+
+    from custom_components.unifi_insights.api.network import UniFiNetworkClient
+    from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
 _LOGGER = logging.getLogger(__name__)
 

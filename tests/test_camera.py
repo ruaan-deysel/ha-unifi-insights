@@ -303,8 +303,8 @@ class TestUnifiProtectCamera:
     async def test_async_stream_source_success(self, mock_coordinator) -> None:
         """Test getting stream source successfully using the API.
 
-        As of unifi-official-api v1.1.0, the create_rtsps_stream method works
-        correctly and returns a dynamic stream URL.
+        The vendored API package returns a dynamic stream URL from
+        create_rtsps_stream.
         """
         # Mock the create_rtsps_stream to return a proper stream object
         mock_stream = MagicMock()

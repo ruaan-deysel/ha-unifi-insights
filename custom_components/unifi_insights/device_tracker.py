@@ -37,9 +37,9 @@ def _get_client_type(client: dict[str, Any]) -> str:
     """
     Extract client type from client data.
 
-    As of unifi-official-api v1.1.0, the API properly serializes the ClientType
-    enum to string values ("WIRED" or "WIRELESS"). This helper normalizes the
-    value for comparison and handles edge cases.
+    The vendored API package serializes the ClientType enum to string values
+    ("WIRED" or "WIRELESS"). This helper normalizes the value for comparison
+    and handles edge cases.
     """
     client_type = client.get("type") or client.get("connection_type", "")
     # Normalize to uppercase string

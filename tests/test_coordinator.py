@@ -8,13 +8,13 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from unifi_official_api import (
+
+from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiResponseError,
     UniFiTimeoutError,
 )
-
 from custom_components.unifi_insights.coordinator import (
     UnifiInsightsDataUpdateCoordinator,
 )

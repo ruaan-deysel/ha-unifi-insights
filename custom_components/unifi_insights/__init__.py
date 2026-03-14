@@ -12,7 +12,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL, Platform
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from unifi_official_api import (
+
+from .api import (
     ApiKeyAuth,
     ConnectionType,
     LocalAuth,
@@ -20,9 +21,8 @@ from unifi_official_api import (
     UniFiConnectionError,
     UniFiTimeoutError,
 )
-from unifi_official_api.network import UniFiNetworkClient
-from unifi_official_api.protect import UniFiProtectClient
-
+from .api.network import UniFiNetworkClient
+from .api.protect import UniFiProtectClient
 from .const import (
     CONF_CONNECTION_TYPE,
     CONF_CONSOLE_ID,

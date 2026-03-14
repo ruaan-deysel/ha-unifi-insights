@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import unifi_official_api
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_API_KEY, CONF_HOST
+
+from .api import __version__ as api_version
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -38,7 +39,7 @@ async def async_get_config_entry_diagnostics(
     coordinator = data.coordinator
 
     # Get library version
-    library_version = getattr(unifi_official_api, "__version__", "unknown")
+    library_version = api_version
 
     # Get sanitized connection info
     connection_info = {

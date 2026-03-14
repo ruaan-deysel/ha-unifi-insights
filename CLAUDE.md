@@ -18,9 +18,9 @@ Read `AGENTS.md` completely before starting any work. It contains:
 - **Class prefix:** `UnifiInsights`
 - **Main code:** `custom_components/unifi_insights/`
 - **Validate:** `pre-commit run --all-files`
-- **Lint:** `scripts/lint` (ruff format + check)
+- **Lint:** `script/lint` (ruff format + check)
 - **Test:** `pytest`
-- **Run HA:** `./scripts/develop`
+- **Run HA:** `./script/develop`
 - **Quality Scale:** Strictly follow applicable HA rules (<https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>)
 
 ## Path-Specific Instructions

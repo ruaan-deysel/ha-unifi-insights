@@ -19,29 +19,29 @@ This is **UniFi Insights**, a Home Assistant custom integration that provides mo
 - `custom_components/unifi_insights/coordinators/` — Multi-coordinator system
 - `config/` — Home Assistant configuration for local testing
 - `tests/` — Unit and integration tests
-- `scripts/` — Development and validation scripts
+- `script/` — Development and validation scripts
 
 **Local Home Assistant instance:**
 
-**Use the project's scripts whenever available** (`./scripts/develop`, `./scripts/lint`, `./scripts/setup`). For checks that do not have a wrapper script, use the documented commands (`pre-commit run --all-files`, `mypy`, `pytest`).
+**Use the project's scripts whenever available** (`./script/develop`, `./script/lint`, `./script/setup/bootstrap`). For checks that do not have a wrapper script, use the documented commands (`pre-commit run --all-files`, `mypy`, `pytest`).
 
 **Start Home Assistant:**
 
 ```bash
-./scripts/develop
+./script/develop
 ```
 
 **Force restart (when HA is unresponsive or port conflicts):**
 
 ```bash
-pkill -f "hass --config" || true && ./scripts/develop
+pkill -f "hass --config" || true && ./script/develop
 ```
 
 **When to restart:** After modifying Python files, `manifest.json`, `services.yaml`, translations, or config flow changes.
 
 **Reading logs:**
 
-- Live: Terminal where `./scripts/develop` runs
+- Live: Terminal where `./script/develop` runs
 - File: `config/home-assistant.log` (most recent), `config/home-assistant.log.1` (previous)
 
 **Adjusting log levels:**
@@ -115,11 +115,11 @@ When a task completes and the developer moves to a new topic, suggest committing
 
 **This is a CUSTOM integration, not a Home Assistant Core integration.** While we follow Core patterns for quality and maintainability, we have more flexibility in implementation decisions.
 
-**External library:**
+**Vendored API package:**
 
-- Uses `unifi-official-api~=1.1.0` as the only runtime dependency
+- The upstream `unifi-official-api` project is vendored locally under `custom_components/unifi_insights/api`
 - Reuse its client methods (`network_client`/`protect_client`) rather than manual HTTP calls
-- NEVER create a custom API client — use the official library
+- NEVER create a custom API client — extend or reuse the vendored package instead
 
 **Quality Scale requirements (strict):**
 
@@ -157,7 +157,7 @@ pytest                # Tests (90% minimum coverage)
 **Shortcut scripts:**
 
 ```bash
-scripts/lint          # Ruff format + check --fix
+script/lint           # Ruff format + check --fix
 ```
 
 **For comprehensive standards, see:**
@@ -244,9 +244,10 @@ All entities should provide consistent device info via the base entity class (ma
 
 - `integration_type: "hub"` — Gateway to multiple devices
 - `iot_class: "local_polling"` — Local polling with WebSocket for Protect
-- `requirements: ["unifi-official-api~=1.1.0"]` — Single runtime dependency
 - `dependencies: ["ffmpeg", "stream"]` — Required for camera support
 - `ssdp` — Discovery matchers for UniFi Dream Machine variants
+
+The API client package is vendored in-repo under `custom_components/unifi_insights/api`; do not re-add `unifi-official-api` to `manifest.json` requirements.
 
 ### Config Flow
 
@@ -341,7 +342,7 @@ See `.github/instructions/repairs.instructions.md` for comprehensive patterns.
 
 ```bash
 pre-commit run --all-files   # Full validation
-scripts/lint                  # Auto-format and fix linting
+script/lint                   # Auto-format and fix linting
 pytest                        # Run unit tests (90% minimum coverage)
 ```
 

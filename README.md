@@ -86,8 +86,8 @@ A comprehensive Home Assistant custom integration for monitoring and controlling
    - **Remote**: Connection via UniFi Cloud
 5. Enter your credentials:
    - **Local**: Host URL (e.g., `https://192.168.1.1`) and API Key
-   - **Remote**: Console ID and API Key
-6. Click **Submit**
+  - **Remote**: API Key first, then select one of the discovered UniFi Cloud consoles
+6. Click **Submit** and complete the prompted console selection for remote connections
 
 ### Options
 
@@ -284,8 +284,8 @@ This integration supports Home Assistant's built-in diagnostics feature. Go to *
 
 ## Requirements
 
-- Home Assistant 2024.1.0 or newer
-- Python 3.11 or newer
+- Home Assistant 2026.3.1 or newer
+- Python 3.14.2 or newer
 - UniFi Network Application 8.0 or newer (recommended)
 - UniFi Protect 3.0 or newer (for Protect features)
 
@@ -296,8 +296,8 @@ Contributions are welcome! Please:
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Run tests: `pytest tests/`
-5. Run linter: `./scripts/lint`
+4. Run tests: `./script/test`
+5. Run linter: `./script/lint`
 6. Submit a pull request
 
 ## License
@@ -310,7 +310,6 @@ This integration is not officially affiliated with or endorsed by Ubiquiti Inc. 
 
 ## Acknowledgments
 
-- [unifi-official-api](https://github.com/uilibs/unifi-official-api) - The official UniFi API library
 - [Home Assistant](https://www.home-assistant.io/) - The open source home automation platform
 
 ## Support

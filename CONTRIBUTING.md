@@ -14,7 +14,7 @@ GitHub is used to host code, to track issues and feature requests, as well as ac
 Pull requests are the best way to propose changes to the codebase.
 
 1. Fork the repo and create your branch from `main`.
-2. Run `scripts/setup` to install dependencies.
+2. Run `./script/setup/bootstrap` to install dependencies.
 3. If you've changed something, update the documentation.
 4. Make sure your code passes all checks (`pre-commit run --all-files`).
 5. Test your contribution (`pytest`).
@@ -51,7 +51,7 @@ This project uses:
 - [mypy](https://mypy.readthedocs.io/) for type checking (strict mode)
 - [Bandit](https://bandit.readthedocs.io/) for security scanning
 
-Run `pre-commit run --all-files` to lint, format, and type-check your code before submitting, or `scripts/lint` to auto-format and fix linting issues.
+Run `pre-commit run --all-files` to lint, format, and type-check your code before submitting, or `./script/lint` to auto-format and fix linting issues.
 
 ## AI Agent Support
 

@@ -12,14 +12,14 @@ applyTo: "custom_components/unifi_insights/__init__.py, custom_components/unifi_
 
 - **Entities:** Read `coordinator.data` only, never call API
 - **Coordinator:** Calls API, transforms data, handles errors/timing
-- **API Client:** `unifi-official-api` library handles communication
+- **API Client:** The vendored package in `custom_components/unifi_insights/api` handles communication
 
-## External Library
+## Vendored API package
 
-This integration uses `unifi-official-api~=1.1.0` as the sole runtime dependency.
+This integration vendors the upstream `unifi-official-api` project under `custom_components/unifi_insights/api`. It is not declared as a runtime dependency in `manifest.json`.
 
 **Rules:**
-- NEVER create a custom HTTP client — use the official library
+- NEVER create a custom HTTP client — reuse or extend the vendored package
 - Reuse `network_client` and `protect_client` methods
 - Never duplicate API endpoint paths — reference `const.py`
 
@@ -30,11 +30,11 @@ In `__init__.py`:
 - Protect client: Only for local mode
 - Validates connectivity by fetching sites
 
-## Session Management
+## Session management
 
 - The library manages its own sessions
 - Don't create `aiohttp.ClientSession` manually for API calls
-- Let the library handle authentication and retries
+- Let the vendored package handle authentication and retries
 
 ## Data Transforms
 

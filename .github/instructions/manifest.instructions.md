@@ -14,7 +14,6 @@ applyTo: "custom_components/unifi_insights/manifest.json"
   "name": "UniFi Insights",
   "integration_type": "hub",
   "iot_class": "local_polling",
-  "requirements": ["unifi-official-api~=1.1.0"],
   "dependencies": ["ffmpeg", "stream"],
   "codeowners": ["@ruaan-deysel"]
 }
@@ -25,10 +24,11 @@ applyTo: "custom_components/unifi_insights/manifest.json"
 - **domain** — `unifi_insights` (never change)
 - **integration_type** — `hub` (gateway to multiple devices)
 - **iot_class** — `local_polling` (local network, polling-based with WebSocket for Protect)
-- **requirements** — Only `unifi-official-api` (the sole runtime dependency)
 - **dependencies** — `ffmpeg` and `stream` required for camera support
 - **ssdp** — Discovery matchers for UniFi Dream Machine variants
 - **version** — Format: `YYYY.MM.PATCH`
+
+The UniFi API client is vendored in-repo under `custom_components/unifi_insights/api`; do not add `unifi-official-api` back to `requirements`.
 
 ## Version Format
 
@@ -39,6 +39,6 @@ This project uses calendar versioning: `YYYY.MM.PATCH`
 ## Rules
 
 - Never add unnecessary dependencies
-- Keep requirements pinned with `~=` (compatible release)
+- Do not declare the vendored API package as a manifest requirement
 - Update version in manifest when releasing
 - SSDP discovery covers Dream Machine, Dream Machine Pro, Dream Machine SE

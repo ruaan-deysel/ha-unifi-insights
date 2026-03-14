@@ -58,7 +58,7 @@ Write the ADR in `.ai-scratch/` first for review, then move to `docs/development
 ## Existing Decisions to Reference
 
 - Multi-coordinator architecture (config/device/protect/facade)
-- `unifi-official-api` as sole dependency (no custom HTTP client)
+- Vendored API package based on `unifi-official-api` (no custom HTTP client)
 - Calendar versioning (YYYY.MM.PATCH)
 - camelCase tolerance via `get_field()`
 - WebSocket for Protect, polling for Network

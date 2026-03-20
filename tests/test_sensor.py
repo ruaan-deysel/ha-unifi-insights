@@ -737,9 +737,9 @@ class TestUnifiPortSensorEdgeCases:
         """Test port TX bytes sensor with stats data."""
         description = PORT_SENSOR_TYPES[2]  # TX bytes
 
-        # Add port stats
-        mock_coordinator.data["stats"]["site1"]["device1"]["ports"] = {
-            "1": {"txBytes": 5000000, "rxBytes": 3000000}
+        # Add port stats using port_bytes key (matches code fallback path)
+        mock_coordinator.data["stats"]["site1"]["device1"]["port_bytes"] = {
+            "1": {"tx_bytes": 5000000, "rx_bytes": 3000000}
         }
 
         sensor = UnifiPortSensor(
@@ -759,9 +759,9 @@ class TestUnifiPortSensorEdgeCases:
         """Test port RX bytes sensor with stats data."""
         description = PORT_SENSOR_TYPES[3]  # RX bytes
 
-        # Add port stats
-        mock_coordinator.data["stats"]["site1"]["device1"]["ports"] = {
-            "1": {"txBytes": 5000000, "rxBytes": 3000000}
+        # Add port stats using port_bytes key (matches code fallback path)
+        mock_coordinator.data["stats"]["site1"]["device1"]["port_bytes"] = {
+            "1": {"tx_bytes": 5000000, "rx_bytes": 3000000}
         }
 
         sensor = UnifiPortSensor(
@@ -1579,9 +1579,9 @@ class TestUnifiPortSensorNativeValueEdgeCases:
             port_idx=1,
         )
 
-        # Add stats data for port
-        mock_coordinator.data["stats"]["site1"]["device1"]["ports"] = {
-            "1": {"txBytes": 12345}
+        # Add stats data for port using port_bytes key (matches code fallback path)
+        mock_coordinator.data["stats"]["site1"]["device1"]["port_bytes"] = {
+            "1": {"tx_bytes": 12345}
         }
 
         value = sensor.native_value

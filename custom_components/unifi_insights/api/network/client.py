@@ -173,7 +173,9 @@ class UniFiNetworkClient(BaseUniFiClient):
         console_id = self._require_console_id()
 
         # Remote: /v1/connector/consoles/{consoleId}/proxy/network/integration/v1{endpoint}
-        return f"/v1/connector/consoles/{console_id}{NETWORK_INTEGRATION_PATH}{endpoint}"
+        return (
+            f"/v1/connector/consoles/{console_id}{NETWORK_INTEGRATION_PATH}{endpoint}"
+        )
 
     def build_legacy_api_path(self, site_name: str, endpoint: str) -> str:
         """
@@ -315,7 +317,9 @@ class UniFiNetworkClient(BaseUniFiClient):
         if response is None:
             return []
 
-        data = response.get("data", response) if isinstance(response, dict) else response
+        data = (
+            response.get("data", response) if isinstance(response, dict) else response
+        )
         if isinstance(data, list):
             return [item for item in data if isinstance(item, dict)]
 

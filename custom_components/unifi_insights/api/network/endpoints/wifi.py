@@ -22,9 +22,7 @@ class WifiEndpoint:
             return None
 
         data = (
-            response.get("data", response)
-            if isinstance(response, dict)
-            else response
+            response.get("data", response) if isinstance(response, dict) else response
         )
 
         if isinstance(data, dict):

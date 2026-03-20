@@ -315,13 +315,13 @@ class DevicesEndpoint:
         def _to_float(value: Any) -> float | None:
             try:
                 return float(value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
 
         def _to_int(value: Any) -> int | None:
             try:
                 return int(value)
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 return None
 
         def _get_port_idx(port: dict[str, Any]) -> int | None:

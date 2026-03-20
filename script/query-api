@@ -1,0 +1,727 @@
+#!/usr/bin/env python3
+"""Non-destructive UniFi API query tool.
+
+Queries all read-only endpoints from both the UniFi Network and Protect APIs
+and displays the results in a structured, colorized format.
+
+Usage:
+    ./script/query-api                  # Query everything
+    ./script/query-api --network        # Network API only
+    ./script/query-api --protect        # Protect API only
+    ./script/query-api --section sites  # Specific section(s)
+    ./script/query-api --raw            # Print raw JSON responses
+    ./script/query-api --save           # Save responses to .ai-scratch/api-dump/
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import os
+import ssl
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+# Add the custom_components path so we can import the vendored API
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from custom_components.unifi_insights.api import ConnectionType, LocalAuth
+from custom_components.unifi_insights.api.network import UniFiNetworkClient
+from custom_components.unifi_insights.api.protect import UniFiProtectClient
+
+
+# ── Colours ──────────────────────────────────────────────────────────────────
+
+BOLD = "\033[1m"
+DIM = "\033[2m"
+RESET = "\033[0m"
+CYAN = "\033[36m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+RED = "\033[31m"
+MAGENTA = "\033[35m"
+BLUE = "\033[34m"
+
+
+def header(text: str) -> None:
+    print(f"\n{BOLD}{CYAN}{'═' * 70}{RESET}")
+    print(f"{BOLD}{CYAN}  {text}{RESET}")
+    print(f"{BOLD}{CYAN}{'═' * 70}{RESET}")
+
+
+def section(text: str) -> None:
+    print(f"\n{BOLD}{GREEN}── {text} {'─' * max(0, 60 - len(text))}{RESET}")
+
+
+def item(label: str, value: Any, indent: int = 2) -> None:
+    pad = " " * indent
+    if value is None:
+        print(f"{pad}{YELLOW}{label}:{RESET} {DIM}null{RESET}")
+    elif isinstance(value, bool):
+        color = GREEN if value else RED
+        print(f"{pad}{YELLOW}{label}:{RESET} {color}{value}{RESET}")
+    elif isinstance(value, (int, float)):
+        print(f"{pad}{YELLOW}{label}:{RESET} {MAGENTA}{value}{RESET}")
+    elif isinstance(value, str) and len(value) > 80:
+        print(f"{pad}{YELLOW}{label}:{RESET} {value[:77]}...")
+    else:
+        print(f"{pad}{YELLOW}{label}:{RESET} {value}")
+
+
+def table_row(cols: list[tuple[str, Any]], indent: int = 4) -> None:
+    pad = " " * indent
+    parts = []
+    for label, val in cols:
+        parts.append(f"{DIM}{label}:{RESET} {val}")
+    print(f"{pad}{'  │  '.join(parts)}")
+
+
+def count_label(n: int, singular: str, plural: str | None = None) -> str:
+    p = plural or f"{singular}s"
+    return f"{MAGENTA}{n}{RESET} {p if n != 1 else singular}"
+
+
+def _model_to_dict(obj: Any) -> dict[str, Any]:
+    """Convert a pydantic model or dict to dict."""
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(by_alias=True)
+    if isinstance(obj, dict):
+        return obj
+    return {"__repr__": str(obj)}
+
+
+# ── Load config ──────────────────────────────────────────────────────────────
+
+def load_env() -> tuple[str, str]:
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        print(f"{RED}Error: {env_path} not found{RESET}")
+        print(f"Create script/.env with this format:")
+        print(f"  <controller-ip>")
+        print(f"  ")
+        print(f"  Unifi API Key")
+        print(f"  <api-key>")
+        sys.exit(1)
+
+    lines = [l.strip() for l in env_path.read_text().strip().splitlines() if l.strip()]
+    # Lines: [0] = host IP, [1] = label "Unifi API Key", [2] = actual key
+    # Or: [0] = host IP, [1] = actual key
+    host = lines[0]
+    api_key = None
+    for line in lines[1:]:
+        # Skip labels/comments
+        if line.lower().startswith(("unifi", "#", "//")):
+            continue
+        api_key = line
+        break
+    if not api_key:
+        print(f"{RED}Error: Could not find API key in {env_path}{RESET}")
+        sys.exit(1)
+    return host, api_key
+
+
+# ── Network queries ──────────────────────────────────────────────────────────
+
+async def query_network(
+    host: str,
+    api_key: str,
+    sections: set[str] | None,
+    raw: bool,
+    save_dir: Path | None,
+) -> dict[str, Any]:
+    """Query all read-only Network API endpoints."""
+    results: dict[str, Any] = {}
+
+    header("UniFi Network API")
+    item("Host", host)
+
+    auth = LocalAuth(api_key=api_key, verify_ssl=False)
+    async with UniFiNetworkClient(
+        auth=auth,
+        base_url=f"https://{host}",
+        connection_type=ConnectionType.LOCAL,
+    ) as client:
+
+        # ── Sites ────────────────────────────────────────────────────────
+        if not sections or "sites" in sections:
+            section("Sites")
+            try:
+                sites = await client.sites.get_all()
+                results["sites"] = [_model_to_dict(s) for s in sites]
+                for s in sites:
+                    d = _model_to_dict(s)
+                    print(f"    {BOLD}{d.get('name', '?')}{RESET}")
+                    item("ID", d.get("id"), 6)
+                    item("Description", d.get("desc", d.get("description")), 6)
+                    item("Device count", d.get("deviceCount", d.get("device_count")), 6)
+                if raw:
+                    print(json.dumps(results["sites"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # Get site_id for subsequent calls
+        site_id = None
+        site_name = "default"
+        if results.get("sites"):
+            s0 = results["sites"][0]
+            site_id = s0.get("id") or s0.get("external_id") or s0.get("_id")
+            # internalReference is the real site name for legacy API; "name" is display name
+            site_name = s0.get("internalReference") or s0.get("internal_reference") or s0.get("name", "default")
+        if not site_id:
+            # Fallback: try legacy sites
+            try:
+                legacy = await client.sites.get_legacy_all()
+                if legacy:
+                    s0 = legacy[0] if isinstance(legacy[0], dict) else _model_to_dict(legacy[0])
+                    site_id = s0.get("external_id") or s0.get("_id")
+                    site_name = s0.get("internalReference") or s0.get("internal_reference") or s0.get("name", "default")
+            except Exception:
+                pass
+
+        if not site_id:
+            print(f"    {RED}Could not determine site ID, skipping per-site queries{RESET}")
+            return results
+
+        item("Using site", f"{site_name} ({site_id})")
+
+        # ── Devices ──────────────────────────────────────────────────────
+        if not sections or "devices" in sections:
+            section("Devices")
+            try:
+                devices = await client.devices.get_all(site_id)
+                results["devices"] = [_model_to_dict(d) for d in devices]
+                print(f"    {count_label(len(devices), 'device')}")
+                for dev in devices:
+                    d = _model_to_dict(dev)
+                    state = d.get("state", "?")
+                    state_color = GREEN if state == "ONLINE" else RED
+                    print(f"\n    {BOLD}{d.get('name', d.get('macAddress', '?'))}{RESET}")
+                    item("Model", d.get("model"), 6)
+                    item("MAC", d.get("macAddress"), 6)
+                    item("IP", d.get("ipAddress"), 6)
+                    item("State", f"{state_color}{state}{RESET}", 6)
+                    item("Firmware", d.get("firmwareVersion"), 6)
+                    item("Features", d.get("features"), 6)
+                    item("Interfaces", d.get("interfaces"), 6)
+                    item("Ports", len(d.get("ports", [])), 6)
+                if raw:
+                    print(json.dumps(results["devices"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Legacy Device Stats ──────────────────────────────────────────
+        if not sections or "legacy" in sections or "stats" in sections:
+            section("Legacy Device Stats (port_table, temperatures)")
+            try:
+                legacy_devices = await client.devices.get_legacy_site_devices(site_name)
+                results["legacy_devices"] = legacy_devices if isinstance(legacy_devices, list) else [legacy_devices]
+                for ld in results["legacy_devices"]:
+                    if isinstance(ld, dict):
+                        name = ld.get("name", ld.get("hostname", ld.get("mac", "?")))
+                    else:
+                        ld = _model_to_dict(ld)
+                        name = ld.get("name", "?")
+
+                    print(f"\n    {BOLD}{name}{RESET}")
+                    # Temperature
+                    temps = ld.get("temperatures")
+                    if temps:
+                        for t in temps:
+                            item(f"Temp ({t.get('name', t.get('type', '?'))})", f"{t.get('value')}°C", 6)
+                    gen_temp = ld.get("general_temperature")
+                    if gen_temp:
+                        item("General temp", f"{gen_temp}°C", 6)
+
+                    # Port table summary
+                    port_table = ld.get("port_table", [])
+                    if port_table:
+                        up_ports = [p for p in port_table if p.get("up")]
+                        poe_ports = [p for p in port_table if p.get("poe_enable")]
+                        print(f"      {YELLOW}Ports:{RESET} {len(port_table)} total, "
+                              f"{GREEN}{len(up_ports)} up{RESET}, "
+                              f"{MAGENTA}{len(poe_ports)} PoE{RESET}")
+                        for p in port_table:
+                            if p.get("up"):
+                                poe_str = ""
+                                if p.get("poe_enable"):
+                                    poe_str = f" │ PoE: {p.get('poe_power', '?')}W"
+                                speed = p.get("speed", 0)
+                                rx = p.get("rx_bytes", 0)
+                                tx = p.get("tx_bytes", 0)
+                                print(
+                                    f"        Port {p.get('port_idx', '?'):>2}: "
+                                    f"{GREEN}UP{RESET} {speed}Mbps │ "
+                                    f"TX: {_fmt_bytes(tx)} │ RX: {_fmt_bytes(rx)}"
+                                    f"{poe_str}"
+                                )
+
+                    # System stats
+                    sys_stats = ld.get("sys_stats") or ld.get("system-stats", {})
+                    if sys_stats:
+                        item("CPU", f"{sys_stats.get('cpu', '?')}%", 6)
+                        item("Memory", f"{sys_stats.get('mem', '?')}%", 6)
+                        item("Uptime", _fmt_seconds(sys_stats.get("uptime", 0)), 6)
+
+                if raw:
+                    print(json.dumps(results["legacy_devices"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Device Statistics (new API) ──────────────────────────────────
+        if not sections or "stats" in sections:
+            section("Device Statistics (new API)")
+            try:
+                for dev_data in results.get("devices", []):
+                    dev_id = dev_data.get("id")
+                    dev_name = dev_data.get("name", dev_data.get("macAddress", "?"))
+                    if not dev_id:
+                        continue
+                    try:
+                        stats = await client.devices.get_statistics(site_id, dev_id)
+                        stats_d = _model_to_dict(stats) if not isinstance(stats, dict) else stats
+                        results.setdefault("device_stats", {})[dev_id] = stats_d
+                        print(f"\n    {BOLD}{dev_name}{RESET}")
+                        for k, v in stats_d.items():
+                            if isinstance(v, dict):
+                                item(k, json.dumps(v, default=str)[:120], 6)
+                            else:
+                                item(k, v, 6)
+                    except Exception as e:
+                        print(f"    {BOLD}{dev_name}{RESET}: {DIM}{e}{RESET}")
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Clients ──────────────────────────────────────────────────────
+        if not sections or "clients" in sections:
+            section("Clients")
+            try:
+                clients = await client.clients.get_all(site_id)
+                results["clients"] = [_model_to_dict(c) for c in clients]
+                wired = [c for c in results["clients"] if c.get("type") == "WIRED"]
+                wireless = [c for c in results["clients"] if c.get("type") == "WIRELESS"]
+                print(f"    {count_label(len(clients), 'client')}"
+                      f" ({GREEN}{len(wired)} wired{RESET}, {BLUE}{len(wireless)} wireless{RESET})")
+                for c in results["clients"]:
+                    conn = c.get("type", "?")
+                    conn_color = GREEN if conn == "WIRED" else BLUE
+                    print(f"      {c.get('name', c.get('hostname', c.get('macAddress', '?'))):30s} "
+                          f"{conn_color}{conn:8s}{RESET} "
+                          f"{c.get('ipAddress', ''):16s} {DIM}{c.get('macAddress', '')}{RESET}")
+                if raw:
+                    print(json.dumps(results["clients"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── WiFi Networks ────────────────────────────────────────────────
+        if not sections or "wifi" in sections:
+            section("WiFi Networks")
+            try:
+                wifi_list = await client.wifi.get_all(site_id)
+                results["wifi"] = [_model_to_dict(w) for w in wifi_list]
+                print(f"    {count_label(len(wifi_list), 'broadcast')}")
+                for w in results["wifi"]:
+                    enabled = w.get("enabled", w.get("isEnabled"))
+                    en_str = f"{GREEN}enabled{RESET}" if enabled else f"{RED}disabled{RESET}"
+                    print(f"      {BOLD}{w.get('name', '?')}{RESET}  {en_str}")
+                    item("ID", w.get("id"), 8)
+                    item("Band", w.get("band", w.get("wlanBand")), 8)
+                    item("Security", w.get("security"), 8)
+                if raw:
+                    print(json.dumps(results["wifi"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Networks (VLANs) ─────────────────────────────────────────────
+        if not sections or "networks" in sections:
+            section("Networks / VLANs")
+            try:
+                nets = await client.networks.get_all(site_id)
+                results["networks"] = [_model_to_dict(n) for n in nets]
+                print(f"    {count_label(len(nets), 'network')}")
+                for n in results["networks"]:
+                    print(f"      {BOLD}{n.get('name', '?')}{RESET}")
+                    item("ID", n.get("id"), 8)
+                    item("Purpose", n.get("purpose", n.get("networkPurpose")), 8)
+                    item("VLAN", n.get("vlan", n.get("vlanId")), 8)
+                    item("Subnet", n.get("ipSubnet", n.get("networkSubnet")), 8)
+                    item("DHCP", n.get("dhcpEnabled", n.get("isDhcpEnabled")), 8)
+                if raw:
+                    print(json.dumps(results["networks"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Firewall Rules ───────────────────────────────────────────────
+        if not sections or "firewall" in sections:
+            section("Firewall Rules")
+            try:
+                rules = await client.firewall.list_rules(site_id)
+                results["firewall_rules"] = [_model_to_dict(r) for r in rules]
+                print(f"    {count_label(len(rules), 'rule')}")
+                for r in results["firewall_rules"]:
+                    enabled = r.get("enabled", r.get("isEnabled", True))
+                    en_str = f"{GREEN}●{RESET}" if enabled else f"{RED}○{RESET}"
+                    action = r.get("action", "?")
+                    action_color = GREEN if action in ("ALLOW", "ACCEPT") else RED
+                    print(f"      {en_str} {BOLD}{r.get('name', r.get('description', '?'))}{RESET}"
+                          f"  [{action_color}{action}{RESET}]")
+                if raw:
+                    print(json.dumps(results["firewall_rules"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+            section("Firewall Zones")
+            try:
+                zones = await client.firewall.list_zones(site_id)
+                results["firewall_zones"] = [_model_to_dict(z) for z in zones]
+                print(f"    {count_label(len(zones), 'zone')}")
+                for z in results["firewall_zones"]:
+                    print(f"      {BOLD}{z.get('name', '?')}{RESET}")
+                    item("ID", z.get("id"), 8)
+                if raw:
+                    print(json.dumps(results["firewall_zones"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Resources ────────────────────────────────────────────────────
+        if not sections or "resources" in sections:
+            section("WAN Interfaces")
+            try:
+                wans = await client.resources.get_wan_interfaces(site_id)
+                results["wans"] = [_model_to_dict(w) for w in wans]
+                for w in results["wans"]:
+                    print(f"      {BOLD}{w.get('name', w.get('identification', '?'))}{RESET}")
+                    for k, v in w.items():
+                        if k not in ("name", "identification") and v:
+                            item(k, str(v)[:100], 8)
+                if raw:
+                    print(json.dumps(results["wans"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+            section("VPN Tunnels")
+            try:
+                tunnels = await client.resources.get_vpn_tunnels(site_id)
+                results["vpn_tunnels"] = [_model_to_dict(t) for t in tunnels]
+                print(f"    {count_label(len(tunnels), 'tunnel')}")
+                if raw and results["vpn_tunnels"]:
+                    print(json.dumps(results["vpn_tunnels"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Vouchers ─────────────────────────────────────────────────────
+        if not sections or "vouchers" in sections:
+            section("Vouchers")
+            try:
+                vouchers = await client.vouchers.get_all(site_id)
+                results["vouchers"] = [_model_to_dict(v) for v in vouchers]
+                print(f"    {count_label(len(vouchers), 'voucher')}")
+                if raw and results["vouchers"]:
+                    print(json.dumps(results["vouchers"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+    return results
+
+
+# ── Protect queries ──────────────────────────────────────────────────────────
+
+async def query_protect(
+    host: str,
+    api_key: str,
+    sections: set[str] | None,
+    raw: bool,
+    save_dir: Path | None,
+) -> dict[str, Any]:
+    """Query all read-only Protect API endpoints."""
+    results: dict[str, Any] = {}
+
+    header("UniFi Protect API")
+    item("Host", host)
+
+    auth = LocalAuth(api_key=api_key, verify_ssl=False)
+    async with UniFiProtectClient(
+        auth=auth,
+        base_url=f"https://{host}",
+        connection_type=ConnectionType.LOCAL,
+    ) as client:
+
+        # ── NVR ──────────────────────────────────────────────────────────
+        if not sections or "nvr" in sections:
+            section("NVR")
+            try:
+                nvr = await client.nvr.get()
+                nvr_d = _model_to_dict(nvr)
+                results["nvr"] = nvr_d
+                item("Name", nvr_d.get("name"), 4)
+                item("Model", nvr_d.get("modelKey") or nvr_d.get("model"), 4)
+                item("Version", nvr_d.get("firmwareVersion") or nvr_d.get("version"), 4)
+                item("State", nvr_d.get("state"), 4)
+                item("Uptime", _fmt_seconds(nvr_d.get("uptime", 0)), 4)
+                storage = nvr_d.get("storageInfo") or nvr_d.get("storage", {})
+                if storage:
+                    item("Storage used", storage.get("usedSpaceBytes") or storage.get("used"), 4)
+                    item("Storage total", storage.get("totalSpaceBytes") or storage.get("total"), 4)
+                if raw:
+                    print(json.dumps(nvr_d, indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Cameras ──────────────────────────────────────────────────────
+        if not sections or "cameras" in sections:
+            section("Cameras")
+            try:
+                cameras = await client.cameras.get_all()
+                results["cameras"] = [_model_to_dict(c) for c in cameras]
+                print(f"    {count_label(len(cameras), 'camera')}")
+                for c in results["cameras"]:
+                    state = c.get("state", "?")
+                    state_color = GREEN if state == "CONNECTED" else RED
+                    print(f"\n    {BOLD}{c.get('name', '?')}{RESET}")
+                    item("ID", c.get("id"), 6)
+                    item("Model", c.get("modelKey") or c.get("model"), 6)
+                    item("State", f"{state_color}{state}{RESET}", 6)
+                    item("MAC", c.get("mac"), 6)
+                    item("Firmware", c.get("firmwareVersion"), 6)
+                    item("Recording mode", c.get("recordingSettings", {}).get("mode")
+                         if isinstance(c.get("recordingSettings"), dict)
+                         else c.get("recordingMode"), 6)
+                    item("HDR", c.get("hdrType") or c.get("hdrMode"), 6)
+                    item("Mic enabled", c.get("isMicEnabled"), 6)
+                    item("Mic volume", c.get("micVolume"), 6)
+
+                    # Smart detect
+                    ff = c.get("featureFlags", {})
+                    if isinstance(ff, dict):
+                        smart = ff.get("smartDetectTypes", [])
+                        if smart:
+                            item("Smart detect", smart, 6)
+
+                    # Last motion
+                    last_motion = c.get("lastMotion")
+                    if last_motion:
+                        item("Last motion", _fmt_timestamp(last_motion), 6)
+
+                if raw:
+                    print(json.dumps(results["cameras"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Lights ───────────────────────────────────────────────────────
+        if not sections or "lights" in sections:
+            section("Lights")
+            try:
+                lights = await client.lights.get_all()
+                results["lights"] = [_model_to_dict(l) for l in lights]
+                print(f"    {count_label(len(lights), 'light')}")
+                for l_item in results["lights"]:
+                    state = l_item.get("state", "?")
+                    state_color = GREEN if state == "CONNECTED" else RED
+                    print(f"      {BOLD}{l_item.get('name', '?')}{RESET} "
+                          f"[{state_color}{state}{RESET}]")
+                    item("ID", l_item.get("id"), 8)
+                    item("Brightness", l_item.get("brightness", l_item.get("lightDeviceSettings", {}).get("ledLevel")), 8)
+                    item("Mode", l_item.get("lightModeSettings", {}).get("mode") if isinstance(l_item.get("lightModeSettings"), dict) else None, 8)
+                if raw and results["lights"]:
+                    print(json.dumps(results["lights"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Sensors ──────────────────────────────────────────────────────
+        if not sections or "sensors" in sections:
+            section("Sensors")
+            try:
+                sensors = await client.sensors.get_all()
+                results["sensors"] = [_model_to_dict(s) for s in sensors]
+                print(f"    {count_label(len(sensors), 'sensor')}")
+                for s in results["sensors"]:
+                    state = s.get("state", "?")
+                    state_color = GREEN if state == "CONNECTED" else RED
+                    print(f"      {BOLD}{s.get('name', '?')}{RESET} "
+                          f"[{state_color}{state}{RESET}]")
+                    item("ID", s.get("id"), 8)
+                    # Battery
+                    battery = s.get("batteryStatus", {})
+                    if isinstance(battery, dict):
+                        item("Battery", f"{battery.get('percentage', '?')}%", 8)
+                        item("Battery low", battery.get("isLow"), 8)
+                    stats_data = s.get("stats", {})
+                    if isinstance(stats_data, dict):
+                        for k, v in stats_data.items():
+                            if v is not None:
+                                item(k, v, 8)
+                if raw and results["sensors"]:
+                    print(json.dumps(results["sensors"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Chimes ───────────────────────────────────────────────────────
+        if not sections or "chimes" in sections:
+            section("Chimes")
+            try:
+                chimes = await client.chimes.get_all()
+                results["chimes"] = [_model_to_dict(c) for c in chimes]
+                print(f"    {count_label(len(chimes), 'chime')}")
+                for c in results["chimes"]:
+                    state = c.get("state", "?")
+                    state_color = GREEN if state == "CONNECTED" else RED
+                    print(f"      {BOLD}{c.get('name', '?')}{RESET} "
+                          f"[{state_color}{state}{RESET}]")
+                    item("Volume", c.get("volume"), 8)
+                if raw and results["chimes"]:
+                    print(json.dumps(results["chimes"], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+        # ── Recent Events ────────────────────────────────────────────────
+        if not sections or "events" in sections:
+            section("Recent Events (last 1 hour)")
+            try:
+                now = datetime.now(timezone.utc)
+                one_hour_ago = now - timedelta(hours=1)
+                events = await client.events.get_all(
+                    start=one_hour_ago,
+                    end=now,
+                )
+                results["events"] = [_model_to_dict(e) for e in events]
+                print(f"    {count_label(len(events), 'event')}")
+                for ev in results["events"][:20]:
+                    ev_type = ev.get("type", "?")
+                    camera = ev.get("camera", ev.get("cameraId", ""))
+                    ts = ev.get("start") or ev.get("timestamp")
+                    print(f"      {DIM}{_fmt_timestamp(ts)}{RESET}  "
+                          f"{YELLOW}{ev_type}{RESET}  {camera}")
+                if len(results["events"]) > 20:
+                    print(f"      {DIM}... and {len(results['events']) - 20} more{RESET}")
+                if raw and results["events"]:
+                    print(json.dumps(results["events"][:5], indent=2, default=str))
+            except Exception as e:
+                print(f"    {RED}Error: {e}{RESET}")
+
+    return results
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _fmt_bytes(n: int | float | None) -> str:
+    if n is None:
+        return "?"
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def _fmt_seconds(s: int | float | None) -> str:
+    if not s:
+        return "?"
+    s = int(s)
+    days, s = divmod(s, 86400)
+    hours, s = divmod(s, 3600)
+    minutes, _ = divmod(s, 60)
+    parts = []
+    if days:
+        parts.append(f"{days}d")
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    return " ".join(parts) or "0m"
+
+
+def _fmt_timestamp(ts: Any) -> str:
+    if ts is None:
+        return "?"
+    if isinstance(ts, (int, float)):
+        # Might be ms or s
+        if ts > 1e12:
+            ts = ts / 1000
+        try:
+            return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        except (ValueError, OSError):
+            return str(ts)
+    return str(ts)
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+async def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Non-destructive UniFi API query tool",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--network", action="store_true", help="Query Network API only")
+    parser.add_argument("--protect", action="store_true", help="Query Protect API only")
+    parser.add_argument(
+        "--section", "-s", action="append", dest="sections",
+        help="Query specific section(s): sites, devices, legacy, stats, clients, "
+             "wifi, networks, firewall, resources, vouchers, nvr, cameras, lights, "
+             "sensors, chimes, events",
+    )
+    parser.add_argument("--raw", action="store_true", help="Print raw JSON responses")
+    parser.add_argument("--save", action="store_true", help="Save responses to .ai-scratch/api-dump/")
+    args = parser.parse_args()
+
+    host, api_key = load_env()
+    sections = set(args.sections) if args.sections else None
+
+    # Default: both APIs
+    query_net = not args.protect or args.network
+    query_prot = not args.network or args.protect
+
+    save_dir = None
+    if args.save:
+        save_dir = Path(__file__).resolve().parent.parent / ".ai-scratch" / "api-dump"
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+    all_results: dict[str, Any] = {}
+
+    if query_net:
+        try:
+            net_results = await query_network(host, api_key, sections, args.raw, save_dir)
+            all_results["network"] = net_results
+        except Exception as e:
+            print(f"\n{RED}Network API error: {e}{RESET}")
+
+    if query_prot:
+        try:
+            prot_results = await query_protect(host, api_key, sections, args.raw, save_dir)
+            all_results["protect"] = prot_results
+        except Exception as e:
+            print(f"\n{RED}Protect API error: {e}{RESET}")
+
+    # Summary
+    header("Summary")
+    net = all_results.get("network", {})
+    prot = all_results.get("protect", {})
+
+    if net:
+        print(f"  {BOLD}Network:{RESET}")
+        item("Sites", len(net.get("sites", [])), 4)
+        item("Devices", len(net.get("devices", [])), 4)
+        item("Clients", len(net.get("clients", [])), 4)
+        item("WiFi broadcasts", len(net.get("wifi", [])), 4)
+        item("Networks/VLANs", len(net.get("networks", [])), 4)
+        item("Firewall rules", len(net.get("firewall_rules", [])), 4)
+    if prot:
+        print(f"  {BOLD}Protect:{RESET}")
+        item("Cameras", len(prot.get("cameras", [])), 4)
+        item("Lights", len(prot.get("lights", [])), 4)
+        item("Sensors", len(prot.get("sensors", [])), 4)
+        item("Chimes", len(prot.get("chimes", [])), 4)
+        item("Recent events", len(prot.get("events", [])), 4)
+
+    if save_dir:
+        out_file = save_dir / f"api-dump-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"
+        out_file.write_text(json.dumps(all_results, indent=2, default=str))
+        print(f"\n  {GREEN}Saved to {out_file}{RESET}")
+
+    print()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -694,13 +694,14 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                 )
 
             # Add port sensors for switches with port interfaces
-            # Handle both camelCase and snake_case for interface keys
-            interfaces = get_field(device_data, "interfaces", default={})
-            # Ensure interfaces is a dict before accessing ports
-            if isinstance(interfaces, dict):
-                ports = get_field(interfaces, "ports", default=[])
-            else:
-                ports = []
+            # Port data can come from:
+            # 1. device_data["ports"] - merged from legacy port_table by coordinator
+            # 2. device_data["interfaces"]["ports"] - new API format (dict)
+            ports = device_data.get("ports", [])
+            if not ports:
+                interfaces = get_field(device_data, "interfaces", default={})
+                if isinstance(interfaces, dict):
+                    ports = get_field(interfaces, "ports", default=[])
             if ports:
                 _LOGGER.debug(
                     "Device %s has %d ports, creating port sensors",
@@ -990,13 +991,17 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             return None
 
         # Find the port data
-        # Handle interfaces being a list (from get_all) vs dict (from get)
-        interfaces = device_data.get("interfaces", {})
-        # interfaces is a list from get_all(), dict from get()
-        ports = interfaces.get("ports", []) if isinstance(interfaces, dict) else []
+        # Port data can come from:
+        # 1. device_data["ports"] - merged from legacy port_table by coordinator
+        # 2. device_data["interfaces"]["ports"] - new API format (dict)
+        ports = device_data.get("ports", [])
+        if not ports:
+            interfaces = device_data.get("interfaces", {})
+            ports = interfaces.get("ports", []) if isinstance(interfaces, dict) else []
         port_data = None
         for port in ports:
-            if port.get("idx") == self._port_idx:
+            idx = port.get("idx") or port.get("port_idx")
+            if idx == self._port_idx:
                 port_data = port
                 break
 
@@ -1055,16 +1060,20 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             return False
 
         # Find the port data
-        ports = device_data.get("interfaces", {})
-        if not isinstance(ports, dict):
-            return False
-        port_list = ports.get("ports", [])
+        # Check device_data["ports"] first (from legacy merge),
+        # fall back to interfaces["ports"]
+        port_list = device_data.get("ports", [])
+        if not port_list:
+            interfaces = device_data.get("interfaces", {})
+            if isinstance(interfaces, dict):
+                port_list = interfaces.get("ports", [])
         if not isinstance(port_list, list):
             return False
 
         port_data = None
         for port in port_list:
-            if port.get("idx") == self._port_idx:
+            idx = port.get("idx") or port.get("port_idx")
+            if idx == self._port_idx:
                 port_data = port
                 break
 

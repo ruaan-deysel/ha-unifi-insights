@@ -131,6 +131,64 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
 
         device_dict["hasTemperature"] = True
 
+    @classmethod
+    def _merge_legacy_port_data(
+        cls,
+        device_dict: dict[str, Any],
+        legacy_devices_by_mac: dict[str, dict[str, Any]],
+    ) -> None:
+        """Merge port_table from legacy device data into device dict."""
+        mac_address = cls._normalize_mac(
+            device_dict.get("macAddress") or device_dict.get("mac")
+        )
+        if mac_address is None:
+            return
+
+        legacy_device = legacy_devices_by_mac.get(mac_address)
+        if legacy_device is None:
+            return
+
+        port_table = legacy_device.get("port_table")
+        if not isinstance(port_table, list) or not port_table:
+            return
+
+        # Normalize port_table entries into the format expected by sensor.py
+        ports: list[dict[str, Any]] = []
+        for port in port_table:
+            if not isinstance(port, dict):
+                continue
+            port_idx = port.get("port_idx")
+            if port_idx is None:
+                continue
+
+            normalized: dict[str, Any] = {
+                "idx": port_idx,
+                "port_idx": port_idx,
+                "state": "UP" if port.get("up") else "DOWN",
+                "speedMbps": port.get("speed"),
+                "speed": port.get("speed"),
+            }
+
+            # PoE data
+            poe_enabled = port.get("poe_enable") or port.get("port_poe")
+            poe_power = port.get("poe_power") or port.get("poePower")
+            if poe_enabled or poe_power is not None:
+                normalized["poe"] = {
+                    "enabled": bool(poe_enabled),
+                    "power": poe_power,
+                }
+
+            # TX/RX bytes
+            normalized["stats"] = {
+                "txBytes": port.get("tx_bytes", 0),
+                "rxBytes": port.get("rx_bytes", 0),
+            }
+
+            ports.append(normalized)
+
+        if ports:
+            device_dict["ports"] = ports
+
     def _map_legacy_site_names(
         self,
         site_ids: list[str],
@@ -269,6 +327,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
             if legacy_devices_by_mac:
                 for device in devices:
                     self._merge_legacy_temperature_data(device, legacy_devices_by_mac)
+                    self._merge_legacy_port_data(device, legacy_devices_by_mac)
 
             _LOGGER.debug(
                 "Device coordinator: Site %s - Found %d devices and %d clients",

@@ -1,13 +1,16 @@
 """Tests for UniFi Insights coordinator."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,

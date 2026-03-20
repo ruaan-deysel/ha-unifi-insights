@@ -73,16 +73,16 @@ async def async_setup_entry(
 
 ## Existing Platforms
 
-| Platform | Purpose | Key patterns |
-|----------|---------|-------------|
-| `sensor.py` | CPU, memory, uptime, TX/RX, port stats | Per-port metrics only for ports with state UP |
-| `binary_sensor.py` | Online/offline, motion, smart detection | Uses `lastMotion*`, `lastSmartDetectTypes` |
-| `switch.py` | Port enable/disable, PoE, WiFi, client block | Action-based with API calls |
-| `button.py` | Device restart, port power cycle | Fire-and-forget actions |
-| `select.py` | Recording mode, HDR, video mode, light mode | Protect-specific selections |
-| `number.py` | Volume, light level controls | Numeric Protect controls |
-| `event.py` | Motion, ring, smart detection events | Event-driven from coordinator |
-| `device_tracker.py` | Client presence tracking | Based on client data |
-| `update.py` | Firmware update entities | Based on device firmware info |
-| `camera.py` | Live view, snapshots, RTSPS | Protect camera streams |
-| `light.py` | Protect light brightness/mode | Protect light control |
+| Platform            | Purpose                                      | Key patterns                                  |
+| ------------------- | -------------------------------------------- | --------------------------------------------- |
+| `sensor.py`         | CPU, memory, uptime, TX/RX, port stats       | Per-port metrics only for ports with state UP |
+| `binary_sensor.py`  | Online/offline, motion, smart detection      | Uses `lastMotion*`, `lastSmartDetectTypes`    |
+| `switch.py`         | Port enable/disable, PoE, WiFi, client block | Action-based with API calls                   |
+| `button.py`         | Device restart, port power cycle             | Fire-and-forget actions                       |
+| `select.py`         | Recording mode, HDR, video mode, light mode  | Protect-specific selections                   |
+| `number.py`         | Volume, light level controls                 | Numeric Protect controls                      |
+| `event.py`          | Motion, ring, smart detection events         | Event-driven from coordinator                 |
+| `device_tracker.py` | Client presence tracking                     | Based on client data                          |
+| `update.py`         | Firmware update entities                     | Based on device firmware info                 |
+| `camera.py`         | Live view, snapshots, RTSPS                  | Protect camera streams                        |
+| `light.py`          | Protect light brightness/mode                | Protect light control                         |

@@ -44,6 +44,7 @@ Ensure the sensor description is included in the entity creation loop within `as
 ### 3. Check data availability
 
 Verify the data field exists:
+
 - For network devices: Check coordinator data under `devices`
 - For Protect devices: Check coordinator data under `protect`
 - May need to extend `data_transforms.py` if field needs normalization

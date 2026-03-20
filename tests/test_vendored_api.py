@@ -167,12 +167,8 @@ async def test_get_legacy_site_devices_returns_device_list() -> None:
 
     result = await client.devices.get_legacy_site_devices("default")
 
-    assert result == [
-        {"mac": "aa:bb:cc:dd:ee:ff", "general_temperature": 47.5}
-    ]
-    client._get.assert_awaited_once_with(
-        "/proxy/network/api/s/default/stat/device"
-    )
+    assert result == [{"mac": "aa:bb:cc:dd:ee:ff", "general_temperature": 47.5}]
+    client._get.assert_awaited_once_with("/proxy/network/api/s/default/stat/device")
 
 
 async def test_get_port_metrics_normalizes_and_derives_total() -> None:

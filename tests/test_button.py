@@ -1,9 +1,9 @@
 """Tests for UniFi Insights buttons."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
@@ -15,6 +15,9 @@ from custom_components.unifi_insights.button import (
     UnifiProtectPTZPatrolStopButton,
     async_setup_entry,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
 class TestButtonTypes:

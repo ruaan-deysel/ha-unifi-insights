@@ -1,11 +1,14 @@
 """Tests for UniFi Insights entity base classes."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity import EntityDescription
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.const import (
     DEVICE_TYPE_CAMERA,

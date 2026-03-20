@@ -108,7 +108,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:  # noqa: ARG00
     return True
 
 
-async def async_setup_entry(  # noqa: PLR0915
+async def async_setup_entry(
     hass: HomeAssistant, entry: UnifiInsightsConfigEntry
 ) -> bool:
     """Set up UniFi Insights from a config entry."""
@@ -131,7 +131,7 @@ async def async_setup_entry(  # noqa: PLR0915
             )
 
             # Create authentication object for local connection
-            auth = LocalAuth(
+            auth: LocalAuth | ApiKeyAuth = LocalAuth(
                 api_key=entry.data[CONF_API_KEY],
                 verify_ssl=verify_ssl,
             )
@@ -198,7 +198,7 @@ async def async_setup_entry(  # noqa: PLR0915
                     "UniFi Protect API validated successfully, found %d cameras",
                     len(cameras),
                 )
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.warning(
                     "Error validating UniFi Protect API connection, "
                     "continuing without Protect support: %s",
@@ -271,7 +271,7 @@ async def async_setup_entry(  # noqa: PLR0915
         protect_coordinator=protect_coordinator,
     )
     # Initial aggregation of data
-    facade_coordinator._aggregate_data()  # noqa: SLF001
+    facade_coordinator._aggregate_data()
 
     # Store runtime data in config entry (Gold requirement)
     entry.runtime_data = UnifiInsightsData(
@@ -315,14 +315,14 @@ async def async_unload_entry(
             # Close Protect client (await the async close)
             try:
                 await data.protect_client.close()
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.debug("Error closing Protect client: %s", err)
 
         # Close Network client (await the async close)
         if data.network_client:
             try:
                 await data.network_client.close()
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.debug("Error closing Network client: %s", err)
 
     unload_ok: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

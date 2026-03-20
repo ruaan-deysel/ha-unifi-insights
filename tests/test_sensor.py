@@ -1,10 +1,13 @@
 """Tests for UniFi Insights sensors."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import PERCENTAGE, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.sensor import (
     NVR_SENSOR_TYPES,

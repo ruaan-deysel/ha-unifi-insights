@@ -135,9 +135,6 @@ def _get_temperature_entry_value(
     """Return a temperature value from a named legacy device temperature entry."""
     preferred_name_lower = preferred_name.lower()
     for temperature in temperatures:
-        if not isinstance(temperature, dict):
-            continue
-
         name = temperature.get("name")
         value = temperature.get("value")
         if (
@@ -614,7 +611,7 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
 )
 
 
-async def async_setup_entry(  # noqa: PLR0912, PLR0915
+async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -783,15 +780,15 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                     "Device %s is a gateway, creating WAN sensors", device_name
                 )
 
-                for description in WAN_SENSOR_TYPES:
-                    entities.append(  # noqa: PERF401
-                        UnifiInsightsSensor(
-                            coordinator=coordinator,
-                            description=description,
-                            site_id=site_id,
-                            device_id=device_id,
-                        )
+                entities.extend(
+                    UnifiInsightsSensor(
+                        coordinator=coordinator,
+                        description=description,
+                        site_id=site_id,
+                        device_id=device_id,
                     )
+                    for description in WAN_SENSOR_TYPES
+                )
 
     # Add UniFi Protect sensors if API is available
     if coordinator.protect_client:
@@ -805,15 +802,15 @@ async def async_setup_entry(  # noqa: PLR0912, PLR0915
                 sensor_name,
             )
 
-            for description in PROTECT_SENSOR_TYPES:
-                if description.device_type == DEVICE_TYPE_SENSOR:
-                    entities.append(  # noqa: PERF401
-                        UnifiProtectSensor(
-                            coordinator=coordinator,
-                            description=description,
-                            device_id=sensor_id,
-                        )
-                    )
+            entities.extend(
+                UnifiProtectSensor(
+                    coordinator=coordinator,
+                    description=description,
+                    device_id=sensor_id,
+                )
+                for description in PROTECT_SENSOR_TYPES
+                if description.device_type == DEVICE_TYPE_SENSOR
+            )
 
         # Add sensors for UniFi Protect NVRs
         for nvr_id, nvr_data in coordinator.data["protect"]["nvrs"].items():
@@ -1042,7 +1039,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
         return value
 
     @property
-    def available(self) -> bool:  # noqa: PLR0911
+    def available(self) -> bool:
         """Return if entity is available."""
         # Port sensors are available if the device is available AND the port is UP
         if not self.coordinator.last_update_success:

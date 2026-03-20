@@ -109,7 +109,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     self._handle_event_update
                 )
             _LOGGER.debug("Protect coordinator: WebSocket callbacks registered")
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.debug(
                 "Protect coordinator: WebSocket callbacks not supported: %s", err
             )
@@ -268,7 +268,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 len(self.data["liveviews"]),
             )
 
-            return self.data  # noqa: TRY300
+            return self.data
 
         except UniFiAuthenticationError as err:
             self._handle_auth_error(err)
@@ -278,7 +278,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             self._handle_timeout_error(err)
         except UniFiResponseError as err:
             self._handle_response_error(err)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             self._handle_generic_error(err)
 
         # Should never reach here due to raises above
@@ -350,7 +350,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 "Protect coordinator: Successfully fetched %d sensors",
                 len(sensors_models),
             )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.warning("Protect coordinator: Error fetching sensors: %s", err)
 
     async def _fetch_nvr(self) -> None:
@@ -369,7 +369,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     _LOGGER.debug(
                         "Protect coordinator: Successfully fetched NVR: %s", nvr_id
                     )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.debug("Protect coordinator: Error fetching NVR: %s", err)
 
     async def _fetch_chimes(self) -> None:
@@ -389,7 +389,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 "Protect coordinator: Successfully fetched %d chimes",
                 len(chimes_models),
             )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.warning("Protect coordinator: Error fetching chimes: %s", err)
 
     async def _fetch_viewers(self) -> None:
@@ -410,7 +410,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     "Protect coordinator: Successfully fetched %d viewers",
                     len(viewers_models),
                 )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.debug("Protect coordinator: Error fetching viewers: %s", err)
 
     async def _fetch_liveviews(self) -> None:
@@ -431,7 +431,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     "Protect coordinator: Successfully fetched %d liveviews",
                     len(liveviews_models),
                 )
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.debug("Protect coordinator: Error fetching liveviews: %s", err)
 
     def _cleanup_stale_devices(self) -> None:

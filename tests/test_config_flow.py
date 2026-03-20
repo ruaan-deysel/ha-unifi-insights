@@ -1,11 +1,11 @@
 """Tests for the UniFi Insights config flow."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -25,6 +25,9 @@ from custom_components.unifi_insights.const import (
     CONNECTION_TYPE_REMOTE,
     DOMAIN,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 # All tests require custom_integrations to be enabled
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -508,9 +511,7 @@ async def test_remote_flow_connection_error(hass: HomeAssistant) -> None:
 
 async def test_remote_flow_timeout_error(hass: HomeAssistant) -> None:
     """Test remote flow with timeout error."""
-    discovery_cm = _make_client_context(
-        enter_side_effect=UniFiTimeoutError("Timeout")
-    )
+    discovery_cm = _make_client_context(enter_side_effect=UniFiTimeoutError("Timeout"))
 
     with (
         patch(

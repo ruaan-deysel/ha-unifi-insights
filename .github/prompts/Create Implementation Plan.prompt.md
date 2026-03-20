@@ -31,24 +31,30 @@ Write a temporary plan file (never committed):
 # Implementation Plan: [Feature Name]
 
 ## Goal
+
 [What we're building and why]
 
 ## Affected Files
+
 - [ ] `file1.py` — What changes
 - [ ] `file2.py` — What changes
 
 ## Data Flow
+
 [How data moves through the system]
 
 ## Implementation Order
+
 1. [First change — lowest dependency]
 2. [Second change — builds on first]
 3. [Third change — integrates everything]
 
 ## Breaking Changes
+
 [Any impacts on existing users]
 
 ## Open Questions
+
 [Things to clarify before starting]
 ```
 

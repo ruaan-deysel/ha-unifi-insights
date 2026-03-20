@@ -50,6 +50,7 @@ Search for `translation_key` in Python files and verify each has a corresponding
 ### 2. Add/update strings
 
 Follow these conventions:
+
 - **Sentence case** — Capitalize first word and proper nouns only
 - **Second person** — Use "you" and "your" for user messages
 - **Clear language** — Write for non-native English speakers

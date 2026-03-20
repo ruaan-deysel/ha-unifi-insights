@@ -97,7 +97,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                         len(wifi_dict),
                         site_id,
                     )
-                except Exception as err:  # noqa: BLE001
+                except Exception as err:
                     _LOGGER.warning(
                         "Config coordinator: Error fetching WiFi networks "
                         "for site %s: %s",
@@ -127,7 +127,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                         len(firewall_rules_dict),
                         site_id,
                     )
-                except Exception as err:  # noqa: BLE001
+                except Exception as err:
                     _LOGGER.debug(
                         "Config coordinator: Firewall rules unavailable for site %s: "
                         "%s",
@@ -145,7 +145,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 sum(len(rules) for rules in self.data["firewall_rules"].values()),
             )
 
-            return self.data  # noqa: TRY300
+            return self.data
 
         except UniFiAuthenticationError as err:
             self._handle_auth_error(err)
@@ -155,7 +155,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             self._handle_timeout_error(err)
         except UniFiResponseError as err:
             self._handle_response_error(err)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             self._handle_generic_error(err)
 
         # Should never reach here due to raises above
@@ -173,8 +173,10 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
 
     def get_wifi_networks(self, site_id: str) -> dict[str, Any]:
         """Get WiFi networks for a site."""
-        return self.data.get("wifi", {}).get(site_id, {})
+        result: dict[str, Any] = self.data.get("wifi", {}).get(site_id, {})
+        return result
 
     def get_firewall_rules(self, site_id: str) -> dict[str, Any]:
         """Get firewall rules for a site."""
-        return self.data.get("firewall_rules", {}).get(site_id, {})
+        result: dict[str, Any] = self.data.get("firewall_rules", {}).get(site_id, {})
+        return result

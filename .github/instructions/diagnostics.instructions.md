@@ -11,6 +11,7 @@ applyTo: "custom_components/unifi_insights/diagnostics.py"
 **ALWAYS** use `async_redact_data()` from `homeassistant.helpers.redact` to remove sensitive data before returning diagnostics.
 
 **Must redact:**
+
 - API keys and tokens
 - Passwords and secrets
 - MAC addresses (if privacy-sensitive)
@@ -36,6 +37,7 @@ async def async_get_config_entry_diagnostics(
 ## Structure
 
 Return a dictionary with:
+
 - Config entry data (redacted)
 - Coordinator data (redacted)
 - Any relevant state information for debugging

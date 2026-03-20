@@ -305,7 +305,7 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
 )
 
 
-async def async_setup_entry(  # noqa: PLR0912
+async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -408,18 +408,16 @@ async def async_setup_entry(  # noqa: PLR0912
                 "Creating binary sensors for sensor %s (%s)", sensor_id, sensor_name
             )
 
-            for description in BINARY_SENSOR_TYPES:
-                if (
-                    description.entity_type == "protect"
-                    and description.device_type == DEVICE_TYPE_SENSOR
-                ):
-                    entities.append(  # noqa: PERF401
-                        UnifiProtectBinarySensor(
-                            coordinator=coordinator,
-                            description=description,
-                            device_id=sensor_id,
-                        )
-                    )
+            entities.extend(
+                UnifiProtectBinarySensor(
+                    coordinator=coordinator,
+                    description=description,
+                    device_id=sensor_id,
+                )
+                for description in BINARY_SENSOR_TYPES
+                if description.entity_type == "protect"
+                and description.device_type == DEVICE_TYPE_SENSOR
+            )
 
     _LOGGER.info("Adding %d UniFi Insights binary sensors", len(entities))
     async_add_entities(entities)

@@ -1,7 +1,12 @@
 """Tests for the UniFi Insights diagnostics."""
 
-from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.diagnostics import (
     async_get_config_entry_diagnostics,

@@ -73,7 +73,11 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[misc,c
         for host in hosts:
             host_id = host.get("id")
             host_type = host.get("type")
-            if not isinstance(host_id, str) or not host_id or not isinstance(host_type, str):
+            if (
+                not isinstance(host_id, str)
+                or not host_id
+                or not isinstance(host_type, str)
+            ):
                 continue
 
             if host_type == "console":
@@ -424,7 +428,7 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[misc,c
                 errors["base"] = "cannot_connect"
             except UniFiTimeoutError:
                 errors["base"] = "cannot_connect"
-            except Exception:  # noqa: BLE001
+            except Exception:
                 errors["base"] = "unknown"
 
         return self.async_show_form(
@@ -497,13 +501,14 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[misc,c
                                         reason="account_mismatch"
                                     )
 
+                                    new_data = {
+                                        CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE,
+                                        CONF_CONSOLE_ID: console_id,
+                                        CONF_API_KEY: api_key,
+                                    }
                                     return self.async_update_reload_and_abort(
                                         entry,
-                                        data={
-                                            CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE,
-                                            CONF_CONSOLE_ID: console_id,
-                                            CONF_API_KEY: api_key,
-                                        },
+                                        data=new_data,
                                     )
                                 errors[CONF_CONSOLE_ID] = "invalid_console_id"
                             except UniFiAuthenticationError:

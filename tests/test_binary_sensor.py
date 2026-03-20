@@ -1,10 +1,10 @@
 """Tests for UniFi Insights binary sensors."""
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
-from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.binary_sensor import (
     BINARY_SENSOR_TYPES,
@@ -21,6 +21,9 @@ from custom_components.unifi_insights.const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_SENSOR,
 )
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
 class TestIsDoorbellCamera:

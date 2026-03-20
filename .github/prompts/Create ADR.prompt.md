@@ -36,22 +36,27 @@ Write the ADR in `.ai-scratch/` first for review, then move to `docs/development
 ## Alternatives Considered
 
 ### Option A: [Name]
+
 - Pros: ...
 - Cons: ...
 
 ### Option B: [Name]
+
 - Pros: ...
 - Cons: ...
 
 ## Consequences
 
 ### Positive
+
 - ...
 
 ### Negative
+
 - ...
 
 ### Neutral
+
 - ...
 ```
 

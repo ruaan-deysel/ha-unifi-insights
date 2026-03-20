@@ -48,6 +48,7 @@ Add registration in the service setup function within `services.py`.
 **File:** `custom_components/unifi_insights/strings.json`
 
 Add under the `services` section:
+
 ```json
 "action_name": {
   "name": "Action display name",

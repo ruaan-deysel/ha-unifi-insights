@@ -33,6 +33,7 @@ The UniFi API client is vendored in-repo under `custom_components/unifi_insights
 ## Version Format
 
 This project uses calendar versioning: `YYYY.MM.PATCH`
+
 - Year and month of release
 - Patch increments within the same month
 

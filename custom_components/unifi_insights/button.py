@@ -52,7 +52,7 @@ BUTTON_TYPES: tuple[UnifiInsightsButtonEntityDescription, ...] = (
 )
 
 
-async def async_setup_entry(  # noqa: PLR0912
+async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -60,7 +60,7 @@ async def async_setup_entry(  # noqa: PLR0912
     """Set up buttons for UniFi Insights integration."""
     _ = hass
     coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
-    entities = []
+    entities: list[ButtonEntity] = []
 
     _LOGGER.debug("Setting up buttons for UniFi Insights")
 
@@ -89,15 +89,15 @@ async def async_setup_entry(  # noqa: PLR0912
                 site_name,
             )
 
-            for description in BUTTON_TYPES:
-                entities.append(  # noqa: PERF401
-                    UnifiInsightsButton(
-                        coordinator=coordinator,
-                        description=description,
-                        site_id=site_id,
-                        device_id=device_id,
-                    )
+            entities.extend(
+                UnifiInsightsButton(
+                    coordinator=coordinator,
+                    description=description,
+                    site_id=site_id,
+                    device_id=device_id,
                 )
+                for description in BUTTON_TYPES
+            )
 
     # Add port power cycle buttons for PoE-capable switch ports
     for site_id, devices in coordinator.data["devices"].items():
@@ -404,7 +404,7 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
             )
 
     @property
-    def available(self) -> bool:  # noqa: PLR0911
+    def available(self) -> bool:
         """Return if the port is available for power cycling."""
         devices = self.coordinator.data.get("devices", {})
         if not isinstance(devices, dict):

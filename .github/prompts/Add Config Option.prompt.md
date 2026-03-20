@@ -38,6 +38,7 @@ Add the field to the appropriate step's schema and handle the value.
 **File:** `custom_components/unifi_insights/strings.json`
 
 Add under the appropriate `config.step` section:
+
 ```json
 "data": {
   "new_option": "Option label"

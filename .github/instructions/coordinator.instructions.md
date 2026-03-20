@@ -51,6 +51,7 @@ await coordinator.async_config_entry_first_refresh()
 ## Data Schema
 
 Coordinator stores data under keys:
+
 - `sites` — Site configuration data
 - `devices` — Network device data
 - `clients` — Network client data

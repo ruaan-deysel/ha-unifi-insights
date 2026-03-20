@@ -304,7 +304,7 @@ SET_LIVEVIEW_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR0915
+async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up the UniFi Insights services."""
     _LOGGER.debug("Setting up UniFi Insights services")
 
@@ -376,7 +376,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR0
                     "Failed to restart device %s in site %s", device_id, site_id
                 )
                 msg = f"Failed to restart device {device_id}"
-                raise HomeAssistantError(msg)  # noqa: TRY301
+                raise HomeAssistantError(msg)
 
         except Exception as err:
             _LOGGER.exception(
@@ -1094,7 +1094,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:  # noqa: C901, PLR0
     _LOGGER.info("UniFi Insights services registered successfully")
 
 
-async def async_unload_services(hass: HomeAssistant) -> None:  # noqa: PLR0912
+async def async_unload_services(hass: HomeAssistant) -> None:
     """Unload UniFi Insights services."""
     _LOGGER.debug("Unloading UniFi Insights services")
 

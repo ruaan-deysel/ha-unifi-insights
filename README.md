@@ -86,7 +86,9 @@ A comprehensive Home Assistant custom integration for monitoring and controlling
    - **Remote**: Connection via UniFi Cloud
 5. Enter your credentials:
    - **Local**: Host URL (e.g., `https://192.168.1.1`) and API Key
-  - **Remote**: API Key first, then select one of the discovered UniFi Cloud consoles
+
+- **Remote**: API Key first, then select one of the discovered UniFi Cloud consoles
+
 6. Click **Submit** and complete the prompted console selection for remote connections
 
 ### Options

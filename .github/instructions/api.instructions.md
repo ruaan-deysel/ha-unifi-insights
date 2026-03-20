@@ -19,6 +19,7 @@ applyTo: "custom_components/unifi_insights/__init__.py, custom_components/unifi_
 This integration vendors the upstream `unifi-official-api` project under `custom_components/unifi_insights/api`. It is not declared as a runtime dependency in `manifest.json`.
 
 **Rules:**
+
 - NEVER create a custom HTTP client — reuse or extend the vendored package
 - Reuse `network_client` and `protect_client` methods
 - Never duplicate API endpoint paths — reference `const.py`
@@ -26,6 +27,7 @@ This integration vendors the upstream `unifi-official-api` project under `custom
 ## Client Setup
 
 In `__init__.py`:
+
 - Network client: Created for both local and remote modes
 - Protect client: Only for local mode
 - Validates connectivity by fetching sites
@@ -47,9 +49,9 @@ In `__init__.py`:
 
 Map library exceptions to HA exceptions:
 
-| Library Exception | HA Exception | When |
-|------------------|-------------|------|
-| `AuthenticationError` | `ConfigEntryAuthFailed` | Bad credentials |
-| `TimeoutError` | `ConfigEntryNotReady` | Controller unreachable |
-| `ApiError` | `UpdateFailed` | Transient API failure |
-| Any API error | `HomeAssistantError` | In service calls |
+| Library Exception     | HA Exception            | When                   |
+| --------------------- | ----------------------- | ---------------------- |
+| `AuthenticationError` | `ConfigEntryAuthFailed` | Bad credentials        |
+| `TimeoutError`        | `ConfigEntryNotReady`   | Controller unreachable |
+| `ApiError`            | `UpdateFailed`          | Transient API failure  |
+| Any API error         | `HomeAssistantError`    | In service calls       |

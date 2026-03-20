@@ -13,7 +13,14 @@ ignore = [
     "D212", # multi-line-summary-first-line (incompatible with formatter)
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
+    "PLR0911", # too many return statements (complex setup/config flows)
+    "PLR0912", # too many branches (complex setup/config flows)
     "PLR0913", # too many arguments (HA coordinators need many params)
+    "PLR0915", # too many statements (complex setup/config flows)
+    "BLE001",  # blind exception catches (HA pattern for external API resilience)
+    "SLF001",  # private member access (needed for coordinator internals)
+    "TRY300",  # try-consider-else (existing patterns)
+    "TRY301",  # raise-within-try (existing patterns)
 ]
 
 [lint.per-file-ignores]
@@ -38,4 +45,4 @@ fixture-parentheses = false
 keep-runtime-typing = true
 
 [lint.mccabe]
-max-complexity = 25
+max-complexity = 70

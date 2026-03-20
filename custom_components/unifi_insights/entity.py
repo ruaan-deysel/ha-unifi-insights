@@ -179,7 +179,7 @@ class UnifiProtectEntity(CoordinatorEntity[UnifiFacadeCoordinator]):  # type: ig
 
     _attr_has_entity_name = True
 
-    def __init__(  # noqa: PLR0912, PLR0915
+    def __init__(
         self,
         coordinator: UnifiFacadeCoordinator,
         device_type: str,

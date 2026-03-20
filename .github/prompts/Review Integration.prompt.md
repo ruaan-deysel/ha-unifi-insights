@@ -81,6 +81,7 @@ Treat the official Quality Scale rules as mandatory review criteria:
 ## Output
 
 Provide a summary with:
+
 1. **Critical issues** — Must fix before release
 2. **Improvements** — Should fix for quality
 3. **Suggestions** — Nice to have

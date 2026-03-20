@@ -268,9 +268,9 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                 ]
                 stats["id"] = device_id
 
-            return device_id, device_dict, stats  # noqa: TRY300
+            return device_id, device_dict, stats
 
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             _LOGGER.debug(
                 "Error getting stats for device %s (%s): %s",
                 device_name,
@@ -299,7 +299,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                             legacy_site_name
                         )
                     )
-                except Exception as err:  # noqa: BLE001
+                except Exception as err:
                     _LOGGER.debug(
                         "Device coordinator: Failed to fetch legacy device data "
                         "for site %s (%s): %s",
@@ -363,7 +363,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                 client.get("id"): client for client in clients if client.get("id")
             }
 
-            return devices_dict, stats_dict, clients_dict  # noqa: TRY300
+            return devices_dict, stats_dict, clients_dict
 
         except Exception:
             _LOGGER.exception("Device coordinator: Error processing site %s", site_id)
@@ -390,7 +390,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
             try:
                 legacy_sites = await self.network_client.sites.get_legacy_all()
                 legacy_site_names = self._map_legacy_site_names(site_ids, legacy_sites)
-            except Exception as err:  # noqa: BLE001
+            except Exception as err:
                 _LOGGER.debug(
                     "Device coordinator: Unable to fetch legacy site mapping: %s",
                     err,
@@ -430,7 +430,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                 len(site_ids),
             )
 
-            return self.data  # noqa: TRY300
+            return self.data
 
         except UniFiAuthenticationError as err:
             self._handle_auth_error(err)
@@ -440,7 +440,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
             self._handle_timeout_error(err)
         except UniFiResponseError as err:
             self._handle_response_error(err)
-        except Exception as err:  # noqa: BLE001
+        except Exception as err:
             self._handle_generic_error(err)
 
         # Should never reach here due to raises above
@@ -490,4 +490,5 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
 
     def get_clients(self, site_id: str) -> dict[str, Any]:
         """Get all clients for a site."""
-        return self.data.get("clients", {}).get(site_id, {})
+        result: dict[str, Any] = self.data.get("clients", {}).get(site_id, {})
+        return result

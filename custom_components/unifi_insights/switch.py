@@ -66,7 +66,7 @@ def _is_predefined_firewall_rule(rule_data: dict[str, Any]) -> bool:
     )
 
 
-async def async_setup_entry(  # noqa: PLR0912
+async def async_setup_entry(
     hass: HomeAssistant,
     entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -302,7 +302,7 @@ class UnifiFirewallRuleSwitch(SwitchEntity):  # type: ignore[misc]
             if _device_has_feature(
                 device_data, "gateway", "router"
             ) or model.startswith(("UDM", "USG", "UXG", "UCG")):
-                return device_id
+                return str(device_id)
 
         return None
 
@@ -1132,7 +1132,7 @@ class UnifiWifiSwitch(SwitchEntity):  # type: ignore[misc]
             .get(self._site_id, {})
             .get(self._wifi_id, {})
         )
-        return result if result else self._wifi_data
+        return result or self._wifi_data
 
     @property
     def available(self) -> bool:

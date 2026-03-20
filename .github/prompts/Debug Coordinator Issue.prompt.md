@@ -52,17 +52,18 @@ Identify where in the chain the data breaks.
 
 ### 6. Common issues
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| All entities unavailable | Coordinator failing to update | Check `_async_update_data` exceptions |
-| Stale data | Polling not triggering | Check update interval and HA scheduler |
-| Missing devices | Stale cleanup too aggressive | Check device ID tracking |
-| Protect entities missing | Protect client not initialized | Check local-only requirement |
-| Auth failures loop | Reauth not triggering | Ensure `ConfigEntryAuthFailed` is raised |
+| Symptom                  | Likely Cause                   | Fix                                      |
+| ------------------------ | ------------------------------ | ---------------------------------------- |
+| All entities unavailable | Coordinator failing to update  | Check `_async_update_data` exceptions    |
+| Stale data               | Polling not triggering         | Check update interval and HA scheduler   |
+| Missing devices          | Stale cleanup too aggressive   | Check device ID tracking                 |
+| Protect entities missing | Protect client not initialized | Check local-only requirement             |
+| Auth failures loop       | Reauth not triggering          | Ensure `ConfigEntryAuthFailed` is raised |
 
 ### 7. Log analysis
 
 Check `config/home-assistant.log` for:
+
 - `UpdateFailed` messages
 - Connection timeout errors
 - Authentication errors

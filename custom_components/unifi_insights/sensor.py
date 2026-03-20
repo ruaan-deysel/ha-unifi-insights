@@ -829,13 +829,9 @@ async def async_setup_entry(
             # when interfaces.ports is unavailable
             def _create_port_sensors_from_stats(
                 stat_key: str,
-                sensor_descriptions: tuple[
-                    UnifiInsightsSensorEntityDescription, ...
-                ]
+                sensor_descriptions: tuple[UnifiInsightsSensorEntityDescription, ...]
                 | list[UnifiInsightsSensorEntityDescription],
-                port_filter: Callable[
-                    [UnifiInsightsSensorEntityDescription], bool
-                ],
+                port_filter: Callable[[UnifiInsightsSensorEntityDescription], bool],
                 *,
                 _site_id: str = site_id,
                 _device_id: str = device_id,
@@ -895,9 +891,7 @@ async def async_setup_entry(
             _create_port_sensors_from_stats(
                 stat_key="port_bytes",
                 sensor_descriptions=PORT_SENSOR_TYPES,
-                port_filter=lambda desc: desc.key in (
-                    "port_tx_bytes", "port_rx_bytes"
-                ),
+                port_filter=lambda desc: desc.key in ("port_tx_bytes", "port_rx_bytes"),
             )
             # Add WAN sensors for gateway devices
             features = get_field(device_data, "features", default={})

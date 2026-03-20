@@ -1,0 +1,30 @@
+{
+  "include": [
+    "custom_components/unifi_insights",
+    "tests"
+  ],
+  "exclude": [
+    "custom_components/unifi_insights/api",
+    "**/__pycache__"
+  ],
+  "ignore": [
+    "custom_components/unifi_insights/api"
+  ],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": false,
+  "reportPrivateImportUsage": false,
+  "reportIncompatibleVariableOverride": false,
+  "reportTypedDictNotRequiredAccess": false,
+  "reportOptionalMemberAccess": "warning",
+  "reportOptionalSubscript": "warning",
+  "reportOptionalCall": "warning",
+  "reportGeneralTypeIssues": "warning",
+  "reportArgumentType": "warning",
+  "reportAttributeAccessIssue": "warning",
+  "reportOperatorIssue": "warning",
+  "reportReturnType": "warning",
+  "pythonVersion": "3.14",
+  "pythonPlatform": "Linux",
+  "venvPath": ".local",
+  "venv": "ha-venv"
+}

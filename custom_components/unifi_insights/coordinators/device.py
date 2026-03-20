@@ -363,7 +363,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                             def _to_float(v: Any) -> float | None:
                                 try:
                                     return float(v)
-                                except (TypeError, ValueError):
+                                except TypeError, ValueError:
                                     return None
 
                             maxw_f = _to_float(poe_maxw)
@@ -420,11 +420,11 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                             tx_raw = pt.get("tx_bytes")
                             try:
                                 rx_b = int(rx_raw) if rx_raw is not None else None
-                            except (TypeError, ValueError):
+                            except TypeError, ValueError:
                                 rx_b = None
                             try:
                                 tx_b = int(tx_raw) if tx_raw is not None else None
-                            except (TypeError, ValueError):
+                            except TypeError, ValueError:
                                 tx_b = None
 
                             if rx_b is not None or tx_b is not None:
@@ -444,7 +444,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                                         if poe_power_raw is not None
                                         else 0.0
                                     )
-                                except (TypeError, ValueError):
+                                except TypeError, ValueError:
                                     poe_w = 0.0
 
                                 poe_ports[port_idx] = poe_w
@@ -467,7 +467,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                             try:
                                 if total_used is not None:
                                     total_w = float(total_used)
-                            except (TypeError, ValueError):
+                            except TypeError, ValueError:
                                 total_w = None
 
                             if total_w is None and poe_ports:

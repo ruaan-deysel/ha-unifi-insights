@@ -159,7 +159,7 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         translation_key="device_status",
         name="Device Status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        value_fn=lambda device: is_device_online(device),
+        value_fn=is_device_online,
         entity_type="device",
     ),
     # WAN status (gateway devices only)
@@ -170,7 +170,7 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:wan",
-        value_fn=lambda device: is_device_online(device),
+        value_fn=is_device_online,
         entity_type="device",
     ),
     # Camera motion detection - uses isMotionDetected from API

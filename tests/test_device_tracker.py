@@ -752,7 +752,7 @@ class TestUnifiClientTrackerEdgeCases:
 
         # Create a mock async_on_remove
         remove_callbacks = []
-        tracker.async_on_remove = lambda callback: remove_callbacks.append(callback)
+        tracker.async_on_remove = remove_callbacks.append
 
         await tracker.async_added_to_hass()
 

@@ -239,11 +239,9 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[mi
             f"Unable to restart device {self._device_id}",
             self._site_id,
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.restart_device(
-                    self._site_id,
-                    self._device_id,
-                )
+            fallback_factory=lambda: self.coordinator.network_client.restart_device(
+                self._site_id,
+                self._device_id,
             ),
         )
         if not success:
@@ -328,11 +326,9 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
             f"Unable to play ringtone on chime {self._device_id}",
             self._device_id,
             ringtone_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.play_chime(
-                    chime_id=self._device_id,
-                    ringtone_id=ringtone_id,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.play_chime(
+                chime_id=self._device_id,
+                ringtone_id=ringtone_id,
             ),
         )
 
@@ -534,11 +530,9 @@ class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
             f"Unable to reconnect client {self._client_id}",
             self._site_id,
             self._client_id,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.clients.reconnect(
-                    self._site_id,
-                    self._client_id,
-                )
+            fallback_factory=lambda: self.coordinator.network_client.clients.reconnect(
+                self._site_id,
+                self._client_id,
             ),
         )
         _LOGGER.info(
@@ -573,11 +567,9 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
             f"Unable to start PTZ patrol for camera {self._device_id}",
             self._device_id,
             0,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.ptz_start_patrol(
-                    camera_id=self._device_id,
-                    slot=0,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.ptz_start_patrol(
+                camera_id=self._device_id,
+                slot=0,
             ),
         )
         _LOGGER.info("Successfully started PTZ patrol for camera %s", self._device_id)
@@ -607,10 +599,8 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
             "async_stop_ptz_patrol",
             f"Unable to stop PTZ patrol for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.ptz_stop_patrol(
-                    camera_id=self._device_id,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.ptz_stop_patrol(
+                camera_id=self._device_id,
             ),
         )
         _LOGGER.info("Successfully stopped PTZ patrol for camera %s", self._device_id)

@@ -40,6 +40,7 @@ from .const import (
     DEVICE_TYPE_SENSOR,
 )
 from .entity import UnifiInsightsEntity, UnifiProtectEntity, get_field
+from .entity import get_client_type as _get_client_type
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -52,25 +53,6 @@ if TYPE_CHECKING:
     from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _get_client_type(client: dict[str, Any]) -> str:
-    """
-    Extract client type from client data.
-
-    The vendored API package serializes the ClientType enum to string values
-    ("WIRED" or "WIRELESS"). This helper normalizes the value for comparison
-    and handles edge cases.
-    """
-    client_type = client.get("type") or client.get("connection_type", "")
-    # Normalize to uppercase string
-    type_str = str(client_type).upper()
-    # Handle both direct values and any legacy enum format
-    if "WIRED" in type_str:
-        return "WIRED"
-    if "WIRELESS" in type_str:
-        return "WIRELESS"
-    return type_str
 
 
 # Coordinator handles updates centrally (Gold/Platinum requirement)

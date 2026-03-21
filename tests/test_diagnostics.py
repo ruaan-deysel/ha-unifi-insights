@@ -26,8 +26,8 @@ async def test_diagnostics(
     assert "entry" in diagnostics
     assert "data" in diagnostics
 
-    # Check connection info
-    assert diagnostics["connection"]["host"] == "https://192.168.1.1"
+    # Check connection info - host is always redacted in diagnostics
+    assert diagnostics["connection"]["host"] == "**REDACTED**"
     assert diagnostics["connection"]["network_client_connected"] is True
     assert diagnostics["connection"]["protect_client_connected"] is True
 

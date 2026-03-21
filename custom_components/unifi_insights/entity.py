@@ -55,6 +55,25 @@ def is_device_online(data: dict[str, Any]) -> bool:
     return False
 
 
+def get_client_type(client: dict[str, Any]) -> str:
+    """
+    Extract client type from client data.
+
+    The vendored API package serializes the ClientType enum to string values
+    ("WIRED" or "WIRELESS"). This helper normalizes the value for comparison
+    and handles edge cases.
+    """
+    client_type = client.get("type") or client.get("connection_type", "")
+    # Normalize to uppercase string
+    type_str = str(client_type).upper()
+    # Handle both direct values and any legacy enum format
+    if "WIRED" in type_str:
+        return "WIRED"
+    if "WIRELESS" in type_str:
+        return "WIRELESS"
+    return type_str
+
+
 def camera_supports_ptz(camera_data: dict[str, Any]) -> bool:
     """Return True if a Protect camera advertises PTZ support."""
     is_ptz = get_field(camera_data, "isPtz", "is_ptz", "hasPtz", default=False)

@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed coordinator updates to merge legacy device temperature data without failing refreshes when legacy controller endpoints are unavailable
 - Fixed diagnostics and tests to report and validate the vendored API package instead of the removed external dependency
 - Fixed vendored WiFi broadcast updates to send full controller-compatible payloads on update
+- Added `_attr_translation_key` to 18 Protect and network entity classes for proper HA name localization
+- Removed unused SSDP discovery matchers from `manifest.json` (no `async_step_ssdp` handler existed)
+- Downgraded auth, connection, and timeout error logging from `exception` to `warning` to reduce log noise on expected failures
+- Deduplicated `_get_client_type` helper into `entity.py` as the shared `get_client_type` function
+- Added `mac` and `mac_address` to diagnostics redaction set alongside the existing `macAddress` entry
+- Fixed `update.py` `latest_version` to return the actual target firmware version instead of a static placeholder string
+- Added complete entity translation entries in `strings.json` for switch, select, number, event, and update platforms
+- Fixed pre-existing test failures in diagnostics, entity, and update test modules
 
 ### Removed
 

@@ -149,11 +149,9 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):  # type: ignore[misc]
             f"Unable to turn on light {self._device_id}",
             self._device_id,
             LIGHT_MODE_ALWAYS,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.set_light_mode(
-                    light_id=self._device_id,
-                    mode=LIGHT_MODE_ALWAYS,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.set_light_mode(
+                light_id=self._device_id,
+                mode=LIGHT_MODE_ALWAYS,
             ),
         )
 
@@ -173,11 +171,9 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):  # type: ignore[misc]
             f"Unable to turn off light {self._device_id}",
             self._device_id,
             LIGHT_MODE_OFF,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.set_light_mode(
-                    light_id=self._device_id,
-                    mode=LIGHT_MODE_OFF,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.set_light_mode(
+                light_id=self._device_id,
+                mode=LIGHT_MODE_OFF,
             ),
         )
 

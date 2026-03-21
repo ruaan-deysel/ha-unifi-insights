@@ -44,9 +44,9 @@ class TestGetField:
         assert get_field(data, "key1", "key2", default="default") == "default"
 
     def test_get_field_none_value(self):
-        """Test get_field returns None value when key exists with None."""
+        """Test get_field skips None values and falls back to default."""
         data = {"key1": None}
-        assert get_field(data, "key1", default="default") is None
+        assert get_field(data, "key1", default="default") == "default"
 
     def test_get_field_no_default(self):
         """Test get_field returns None when no default specified."""

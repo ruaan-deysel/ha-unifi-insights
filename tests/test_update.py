@@ -223,8 +223,22 @@ class TestUnifiNetworkDeviceUpdate:
             device_id="device1",
         )
 
-        # When firmwareUpdatable=True, returns placeholder
-        assert entity.latest_version == "Update Available"
+        # When firmwareUpdatable=True but no upgrade version field,
+        # returns current version with +update suffix
+        assert entity.latest_version == "6.5.55+update"
+
+    def test_latest_version_with_upgrade_firmware(self, mock_coordinator) -> None:
+        """Test latest version returns actual firmware version when available."""
+        device = mock_coordinator.data["devices"]["site1"]["device1"]
+        device["upgradeToFirmware"] = "7.0.0"
+
+        entity = UnifiNetworkDeviceUpdate(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+        )
+
+        assert entity.latest_version == "7.0.0"
 
     def test_latest_version_no_update(self, mock_coordinator) -> None:
         """Test latest version when no update available."""

@@ -422,6 +422,46 @@ class TestUnifiProtectEntity:
 
         assert entity.available is False
 
+    async def test_protect_entity_coordinator_update_refreshes_state(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test coordinator updates refresh Protect entity state."""
+        entity = UnifiProtectEntity(
+            coordinator=mock_coordinator,
+            device_type=DEVICE_TYPE_CAMERA,
+            device_id="camera1",
+        )
+        entity.async_write_ha_state = MagicMock()
+        entity._update_from_data = MagicMock()
+
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["state"] = "DISCONNECTED"
+
+        entity._handle_coordinator_update()
+
+        assert entity._attr_available is False
+        entity._update_from_data.assert_called_once()
+        entity.async_write_ha_state.assert_called_once()
+
+    async def test_protect_entity_coordinator_update_handles_missing_device(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test coordinator updates mark missing Protect devices unavailable."""
+        entity = UnifiProtectEntity(
+            coordinator=mock_coordinator,
+            device_type=DEVICE_TYPE_CAMERA,
+            device_id="camera1",
+        )
+        entity.async_write_ha_state = MagicMock()
+        entity._update_from_data = MagicMock()
+
+        del mock_coordinator.data["protect"]["cameras"]["camera1"]
+
+        entity._handle_coordinator_update()
+
+        assert entity._attr_available is False
+        entity._update_from_data.assert_not_called()
+        entity.async_write_ha_state.assert_called_once()
+
     async def test_protect_entity_device_data(
         self, hass: HomeAssistant, mock_coordinator
     ):

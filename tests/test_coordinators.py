@@ -170,7 +170,7 @@ def _create_mock_protect_client() -> MagicMock:
                     "state": "CONNECTED",
                     "type": "UVC-G4-DOORBELL",
                     "mac": "11:22:33:44:55:66",
-                    "feature_flags": {"smart_detect_types": ["person", "vehicle"]},
+                    "featureFlags": {"smartDetectTypes": ["person", "vehicle"]},
                 }
             )
         ]
@@ -1570,9 +1570,10 @@ class TestUnifiProtectCoordinator:
             return_value={
                 "id": "camera1",
                 "name": "Front Camera",
-                "feature_flags": {
-                    "smart_detect_types": ["person", "vehicle"],
+                "featureFlags": {
+                    "smartDetectTypes": ["person", "vehicle"],
                 },
+                "isPtz": True,
             }
         )
         coordinator.protect_client.cameras.get_all = AsyncMock(
@@ -1586,6 +1587,7 @@ class TestUnifiProtectCoordinator:
             "person",
             "vehicle",
         ]
+        assert coordinator.data["cameras"]["camera1"]["hasPtz"] is True
 
     @pytest.mark.asyncio
     async def test_fetch_cameras_non_dict_feature_flags(
@@ -1597,7 +1599,7 @@ class TestUnifiProtectCoordinator:
             return_value={
                 "id": "camera2",
                 "name": "Camera 2",
-                "feature_flags": "not_a_dict",  # Invalid type
+                "featureFlags": "not_a_dict",  # Invalid type
             }
         )
         coordinator.protect_client.cameras.get_all = AsyncMock(
@@ -1607,7 +1609,7 @@ class TestUnifiProtectCoordinator:
         await coordinator._fetch_cameras()
 
         assert "camera2" in coordinator.data["cameras"]
-        # Should default to empty list when feature_flags is not a dict
+        # Should default to empty list when featureFlags is not a dict
         assert coordinator.data["cameras"]["camera2"]["smartDetectTypes"] == []
 
     @pytest.mark.asyncio
@@ -1620,7 +1622,7 @@ class TestUnifiProtectCoordinator:
             return_value={
                 "id": "camera3",
                 "name": "Camera 3",
-                # No feature_flags key
+                # No featureFlags key
             }
         )
         coordinator.protect_client.cameras.get_all = AsyncMock(
@@ -2299,17 +2301,17 @@ class TestProtectCoordinatorEdgeCases:
     async def test_fetch_cameras_feature_flags_not_dict(
         self, coordinator: UnifiProtectCoordinator
     ):
-        """Test camera fetch when feature_flags is not a dict."""
+        """Test camera fetch when featureFlags is not a dict."""
         camera_mock = MagicMock()
         camera_mock.id = "camera1"
         camera_mock.name = "Test Camera"
         camera_mock.feature_flags = "not_a_dict"  # Invalid type
-        # Make model_dump return the non-dict feature_flags
+        # Make model_dump return the non-dict featureFlags
         camera_mock.model_dump = MagicMock(
             return_value={
                 "id": "camera1",
                 "name": "Test Camera",
-                "feature_flags": "not_a_dict",
+                "featureFlags": "not_a_dict",
             }
         )
         coordinator.protect_client.cameras.get_all = AsyncMock(

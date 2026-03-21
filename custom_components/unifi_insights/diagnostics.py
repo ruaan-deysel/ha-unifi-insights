@@ -19,6 +19,7 @@ _LOGGER = logging.getLogger(__name__)
 
 TO_REDACT = {
     CONF_API_KEY,
+    CONF_HOST,
     "unique_id",  # Also redact unique_id as it may contain the API key
     "macAddress",
     "id",
@@ -43,7 +44,7 @@ async def async_get_config_entry_diagnostics(
 
     # Get sanitized connection info
     connection_info = {
-        "host": entry.data.get(CONF_HOST, "unknown"),
+        "host": "**REDACTED**",
         "network_client_connected": coordinator.network_client is not None,
         "protect_client_connected": coordinator.protect_client is not None,
     }

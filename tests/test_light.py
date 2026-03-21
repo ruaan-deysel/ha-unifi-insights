@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.light import ATTR_BRIGHTNESS, ColorMode
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.unifi_insights.const import (
     ATTR_LIGHT_DARK,
@@ -369,6 +370,42 @@ class TestUnifiProtectLight:
         await light.async_turn_off(some_extra_kwarg="value")
 
         mock_coordinator.protect_client.set_light_mode.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_on_error(self, mock_coordinator) -> None:
+        """Test turning light on surfaces Home Assistant errors."""
+        mock_coordinator.protect_client.set_light_mode.side_effect = Exception(
+            "API error"
+        )
+
+        light = UnifiProtectLight(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+        light.async_write_ha_state = MagicMock()
+
+        with pytest.raises(HomeAssistantError, match="Unable to turn on light"):
+            await light.async_turn_on()
+
+        light.async_write_ha_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_off_error(self, mock_coordinator) -> None:
+        """Test turning light off surfaces Home Assistant errors."""
+        mock_coordinator.protect_client.set_light_mode.side_effect = Exception(
+            "API error"
+        )
+
+        light = UnifiProtectLight(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+        light.async_write_ha_state = MagicMock()
+
+        with pytest.raises(HomeAssistantError, match="Unable to turn off light"):
+            await light.async_turn_off()
+
+        light.async_write_ha_state.assert_not_called()
 
     def test_missing_light_data(self, mock_coordinator) -> None:
         """Test handling missing light data."""

@@ -11,6 +11,7 @@ from homeassistant.components.button import (
     ButtonEntity,
     ButtonEntityDescription,
 )
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     ATTR_CHIME_ID,
@@ -22,7 +23,12 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
 )
-from .entity import UnifiInsightsEntity, UnifiProtectEntity
+from .entity import (
+    UnifiInsightsEntity,
+    UnifiProtectEntity,
+    async_call_coordinator_action,
+    camera_supports_ptz,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -169,9 +175,7 @@ async def async_setup_entry(
 
         # Add PTZ patrol start/stop buttons for cameras with PTZ support
         for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
-            # Check if camera has PTZ support
-            feature_flags = camera_data.get("featureFlags", {})
-            if feature_flags.get("hasPtz"):
+            if camera_supports_ptz(camera_data):
                 camera_name = camera_data.get("name", f"Camera {camera_id}")
 
                 _LOGGER.debug("Adding PTZ patrol buttons for camera %s", camera_name)
@@ -229,28 +233,28 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[mi
             self._site_id,
         )
 
-        try:
-            success = await self.coordinator.network_client.restart_device(
-                self._site_id, self._device_id
-            )
-            if success:
-                _LOGGER.info(
-                    "Successfully initiated restart for device %s in site %s",
-                    self._device_id,
+        success = await async_call_coordinator_action(
+            self.coordinator,
+            "async_restart_device",
+            f"Unable to restart device {self._device_id}",
+            self._site_id,
+            self._device_id,
+            fallback_factory=lambda: (
+                self.coordinator.network_client.restart_device(
                     self._site_id,
-                )
-            else:
-                _LOGGER.error(
-                    "Failed to restart device %s in site %s",
                     self._device_id,
-                    self._site_id,
                 )
-        except Exception:
-            _LOGGER.exception(
-                "Error restarting device %s in site %s",
-                self._device_id,
-                self._site_id,
-            )
+            ),
+        )
+        if not success:
+            msg = "Unable to restart device"
+            raise HomeAssistantError(msg)
+
+        _LOGGER.info(
+            "Successfully initiated restart for device %s in site %s",
+            self._device_id,
+            self._site_id,
+        )
 
     @property
     def available(self) -> bool:
@@ -318,13 +322,19 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
 
         _LOGGER.debug("Playing ringtone %s on chime %s", ringtone_id, self._device_id)
 
-        try:
-            await self.coordinator.protect_client.play_chime(
-                chime_id=self._device_id,
-                ringtone_id=ringtone_id,
-            )
-        except Exception:
-            _LOGGER.exception("Error playing chime ringtone")
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_play_chime",
+            f"Unable to play ringtone on chime {self._device_id}",
+            self._device_id,
+            ringtone_id,
+            fallback_factory=lambda: (
+                self.coordinator.protect_client.play_chime(
+                    chime_id=self._device_id,
+                    ringtone_id=ringtone_id,
+                )
+            ),
+        )
 
 
 class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[misc]
@@ -369,39 +379,50 @@ class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ign
             self._site_id,
         )
 
-        try:
-            # Disable PoE on the port
-            await self.coordinator.network_client.devices.execute_port_action(
-                self._site_id,
-                self._device_id,
-                self._port_idx,
-                poe_mode="off",
-            )
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_execute_port_action",
+            f"Unable to disable PoE on port {self._port_idx}",
+            self._site_id,
+            self._device_id,
+            self._port_idx,
+            fallback_factory=lambda: (
+                self.coordinator.network_client.devices.execute_port_action(
+                    self._site_id,
+                    self._device_id,
+                    self._port_idx,
+                    poe_mode="off",
+                )
+            ),
+            poe_mode="off",
+        )
 
-            # Wait briefly for the port to power down
-            await asyncio.sleep(2)
+        await asyncio.sleep(2)
 
-            # Re-enable PoE on the port
-            await self.coordinator.network_client.devices.execute_port_action(
-                self._site_id,
-                self._device_id,
-                self._port_idx,
-                poe_mode="auto",
-            )
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_execute_port_action",
+            f"Unable to re-enable PoE on port {self._port_idx}",
+            self._site_id,
+            self._device_id,
+            self._port_idx,
+            fallback_factory=lambda: (
+                self.coordinator.network_client.devices.execute_port_action(
+                    self._site_id,
+                    self._device_id,
+                    self._port_idx,
+                    poe_mode="auto",
+                )
+            ),
+            poe_mode="auto",
+        )
 
-            _LOGGER.info(
-                "Successfully power cycled port %s on device %s in site %s",
-                self._port_idx,
-                self._device_id,
-                self._site_id,
-            )
-        except Exception:
-            _LOGGER.exception(
-                "Error power cycling port %d on device %s in site %s",
-                self._port_idx,
-                self._device_id,
-                self._site_id,
-            )
+        _LOGGER.info(
+            "Successfully power cycled port %s on device %s in site %s",
+            self._port_idx,
+            self._device_id,
+            self._site_id,
+        )
 
     @property
     def available(self) -> bool:
@@ -484,7 +505,6 @@ class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
                 "name": client_name,
                 "manufacturer": MANUFACTURER,
                 "model": "Network Client",
-                "via_device": (DOMAIN, site_id),
             }
 
     def _get_client_data(self) -> dict[str, Any]:
@@ -508,21 +528,24 @@ class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
             "Reconnecting client %s in site %s", self._client_id, self._site_id
         )
 
-        try:
-            await self.coordinator.network_client.clients.reconnect(
-                self._site_id, self._client_id
-            )
-            _LOGGER.info(
-                "Successfully reconnected client %s in site %s",
-                self._client_id,
-                self._site_id,
-            )
-        except Exception:
-            _LOGGER.exception(
-                "Error reconnecting client %s in site %s",
-                self._client_id,
-                self._site_id,
-            )
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_reconnect_client",
+            f"Unable to reconnect client {self._client_id}",
+            self._site_id,
+            self._client_id,
+            fallback_factory=lambda: (
+                self.coordinator.network_client.clients.reconnect(
+                    self._site_id,
+                    self._client_id,
+                )
+            ),
+        )
+        _LOGGER.info(
+            "Successfully reconnected client %s in site %s",
+            self._client_id,
+            self._site_id,
+        )
 
 
 class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # type: ignore[misc]
@@ -544,19 +567,20 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
         """Start PTZ patrol."""
         _LOGGER.debug("Starting PTZ patrol for camera %s", self._device_id)
 
-        try:
-            # Start patrol on slot 0 by default
-            await self.coordinator.protect_client.ptz_start_patrol(
-                camera_id=self._device_id,
-                slot=0,
-            )
-            _LOGGER.info(
-                "Successfully started PTZ patrol for camera %s", self._device_id
-            )
-        except Exception:
-            _LOGGER.exception(
-                "Error starting PTZ patrol for camera %s", self._device_id
-            )
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_start_ptz_patrol",
+            f"Unable to start PTZ patrol for camera {self._device_id}",
+            self._device_id,
+            0,
+            fallback_factory=lambda: (
+                self.coordinator.protect_client.ptz_start_patrol(
+                    camera_id=self._device_id,
+                    slot=0,
+                )
+            ),
+        )
+        _LOGGER.info("Successfully started PTZ patrol for camera %s", self._device_id)
 
 
 class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type: ignore[misc]
@@ -578,14 +602,15 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
         """Stop PTZ patrol."""
         _LOGGER.debug("Stopping PTZ patrol for camera %s", self._device_id)
 
-        try:
-            await self.coordinator.protect_client.ptz_stop_patrol(
-                camera_id=self._device_id,
-            )
-            _LOGGER.info(
-                "Successfully stopped PTZ patrol for camera %s", self._device_id
-            )
-        except Exception:
-            _LOGGER.exception(
-                "Error stopping PTZ patrol for camera %s", self._device_id
-            )
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_stop_ptz_patrol",
+            f"Unable to stop PTZ patrol for camera {self._device_id}",
+            self._device_id,
+            fallback_factory=lambda: (
+                self.coordinator.protect_client.ptz_stop_patrol(
+                    camera_id=self._device_id,
+                )
+            ),
+        )
+        _LOGGER.info("Successfully stopped PTZ patrol for camera %s", self._device_id)

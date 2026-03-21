@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 
 from custom_components.unifi_insights.const import (
@@ -264,9 +265,9 @@ class TestUnifiProtectMicrophoneSwitch:
         switch._attr_is_on = False
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to turn on microphone"):
+            await switch.async_turn_on()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
@@ -301,9 +302,9 @@ class TestUnifiProtectMicrophoneSwitch:
         switch._attr_is_on = True
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to turn off microphone"):
+            await switch.async_turn_off()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
@@ -881,7 +882,8 @@ class TestUnifiFirewallRuleSwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to update firewall rule"):
+            await switch.async_turn_on()
 
         switch.async_write_ha_state.assert_not_called()
         assert (
@@ -1102,9 +1104,9 @@ class TestUnifiProtectPrivacySwitch:
         switch._attr_is_on = False
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to enable privacy mode"):
+            await switch.async_turn_on()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1145,9 +1147,9 @@ class TestUnifiProtectPrivacySwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to disable privacy mode"):
+            await switch.async_turn_off()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
 
@@ -1287,9 +1289,9 @@ class TestUnifiProtectStatusLightSwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to turn on status light"):
+            await switch.async_turn_on()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1323,9 +1325,9 @@ class TestUnifiProtectStatusLightSwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to turn off status light"):
+            await switch.async_turn_off()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
 
@@ -1459,9 +1461,9 @@ class TestUnifiProtectHighFPSSwitch:
         switch._attr_is_on = False
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to enable high FPS mode"):
+            await switch.async_turn_on()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1502,9 +1504,9 @@ class TestUnifiProtectHighFPSSwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to disable high FPS mode"):
+            await switch.async_turn_off()
 
-        # Should log error but not update state
         switch.async_write_ha_state.assert_not_called()
 
 
@@ -1827,10 +1829,9 @@ class TestUnifiPortEnableSwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        # Should not raise, but log error
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to enable port"):
+            await switch.async_turn_on()
 
-        # State should not be updated on error
         switch.async_write_ha_state.assert_not_called()
 
     @pytest.mark.asyncio
@@ -1848,10 +1849,9 @@ class TestUnifiPortEnableSwitch:
         )
         switch.async_write_ha_state = MagicMock()
 
-        # Should not raise, but log error
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to disable port"):
+            await switch.async_turn_off()
 
-        # State should not be updated on error
         switch.async_write_ha_state.assert_not_called()
 
 
@@ -2632,10 +2632,9 @@ class TestUnifiPoESwitchEdgeCases:
             port_idx=1,
         )
 
-        # Should not raise
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to enable PoE"):
+            await switch.async_turn_on()
 
-        # Should have attempted to enable
         mock_coordinator.network_client.devices.execute_port_action.assert_called_once()
 
     @pytest.mark.asyncio
@@ -2672,10 +2671,9 @@ class TestUnifiPoESwitchEdgeCases:
             port_idx=1,
         )
 
-        # Should not raise
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to disable PoE"):
+            await switch.async_turn_off()
 
-        # Should have attempted to disable
         mock_coordinator.network_client.devices.execute_port_action.assert_called_once()
 
 
@@ -2823,10 +2821,9 @@ class TestUnifiClientBlockSwitchEdgeCases:
             client_id="client1",
         )
 
-        # Should not raise, but log error
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to allow client"):
+            await switch.async_turn_on()
 
-        # Should have tried to unblock
         mock_coordinator.network_client.clients.unblock.assert_called_once()
 
     @pytest.mark.asyncio
@@ -2842,10 +2839,9 @@ class TestUnifiClientBlockSwitchEdgeCases:
             client_id="client1",
         )
 
-        # Should not raise, but log error
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to block client"):
+            await switch.async_turn_off()
 
-        # Should have tried to block
         mock_coordinator.network_client.clients.block.assert_called_once()
 
 
@@ -2904,10 +2900,9 @@ class TestUnifiWifiSwitchEdgeCases:
             wifi_data=mock_coordinator.data["wifi"]["site1"]["wifi1"],
         )
 
-        # Should not raise, but log error
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError, match="Unable to enable WiFi"):
+            await switch.async_turn_on()
 
-        # Should have tried to enable
         mock_coordinator.network_client.wifi.update.assert_called_once()
 
     @pytest.mark.asyncio
@@ -2924,10 +2919,9 @@ class TestUnifiWifiSwitchEdgeCases:
             wifi_data=mock_coordinator.data["wifi"]["site1"]["wifi1"],
         )
 
-        # Should not raise, but log error
-        await switch.async_turn_off()
+        with pytest.raises(HomeAssistantError, match="Unable to disable WiFi"):
+            await switch.async_turn_off()
 
-        # Should have tried to disable
         mock_coordinator.network_client.wifi.update.assert_called_once()
 
     def test_get_wifi_data_fallback_to_initial_data(self, mock_coordinator) -> None:

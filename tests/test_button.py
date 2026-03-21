@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
@@ -154,7 +155,8 @@ class TestUnifiInsightsButton:
             device_id="device1",
         )
 
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="Unable to restart device"):
+            await button.async_press()
 
         mock_coordinator.network_client.restart_device.assert_called_once()
 
@@ -172,8 +174,8 @@ class TestUnifiInsightsButton:
             device_id="device1",
         )
 
-        # Should not raise
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="Unable to restart device"):
+            await button.async_press()
 
 
 class TestUnifiPortPowerCycleButton:
@@ -311,8 +313,8 @@ class TestUnifiPortPowerCycleButton:
             port_idx=1,
         )
 
-        # Should not raise
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="Unable to disable PoE"):
+            await button.async_press()
 
 
 class TestUnifiClientReconnectButton:
@@ -434,8 +436,8 @@ class TestUnifiClientReconnectButton:
             client_id="client1",
         )
 
-        # Should not raise
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="Unable to reconnect client"):
+            await button.async_press()
 
 
 class TestUnifiProtectChimePlayButton:
@@ -526,8 +528,10 @@ class TestUnifiProtectChimePlayButton:
             chime_id="chime1",
         )
 
-        # Should not raise
-        await button.async_press()
+        with pytest.raises(
+            HomeAssistantError, match="Unable to play ringtone on chime"
+        ):
+            await button.async_press()
 
 
 class TestUnifiProtectPTZButtons:
@@ -555,7 +559,7 @@ class TestUnifiProtectPTZButtons:
                         "id": "camera1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "featureFlags": {"hasPtz": True},
+                        "isPtz": True,
                     },
                 },
                 "lights": {},
@@ -605,8 +609,8 @@ class TestUnifiProtectPTZButtons:
             camera_id="camera1",
         )
 
-        # Should not raise
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="Unable to start PTZ patrol"):
+            await button.async_press()
 
     async def test_ptz_stop_button_init(self, hass: HomeAssistant, mock_coordinator):
         """Test PTZ patrol stop button initialization."""
@@ -675,7 +679,7 @@ class TestAsyncSetupEntry:
                         "id": "camera1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "featureFlags": {"hasPtz": True},
+                        "isPtz": True,
                     },
                 },
                 "lights": {},
@@ -1379,7 +1383,7 @@ class TestPTZPatrolStopButtonException:
                         "id": "camera1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "featureFlags": {"hasPtz": True},
+                        "isPtz": True,
                     },
                 },
                 "lights": {},
@@ -1401,8 +1405,8 @@ class TestPTZPatrolStopButtonException:
             camera_id="camera1",
         )
 
-        # Should not raise - exception is logged
-        await button.async_press()
+        with pytest.raises(HomeAssistantError, match="Unable to stop PTZ patrol"):
+            await button.async_press()
 
         mock_coordinator.protect_client.ptz_stop_patrol.assert_called_once_with(
             camera_id="camera1",

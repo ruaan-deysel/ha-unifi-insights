@@ -2,6 +2,9 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.unifi_insights.const import (
     CHIME_RINGTONE_DEFAULT,
     CHIME_RINGTONE_MECHANICAL,
@@ -63,7 +66,7 @@ class TestAsyncSetupEntry:
                         "id": "cam1",
                         "name": "Front Camera",
                         "state": "CONNECTED",
-                        "hasPtz": False,
+                        "isPtz": False,
                     },
                 },
                 "chimes": {},
@@ -99,7 +102,7 @@ class TestAsyncSetupEntry:
                         "id": "cam1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "hasPtz": True,
+                        "isPtz": True,
                     },
                 },
                 "chimes": {},
@@ -334,8 +337,8 @@ class TestUnifiProtectHDRModeSelect:
         )
         entity.async_write_ha_state = MagicMock()
 
-        await entity.async_select_option("on")
-        # Should not raise, just log the error
+        with pytest.raises(HomeAssistantError, match="Unable to set HDR mode"):
+            await entity.async_select_option("on")
 
 
 class TestUnifiProtectVideoModeSelect:
@@ -447,8 +450,8 @@ class TestUnifiProtectVideoModeSelect:
         )
         entity.async_write_ha_state = MagicMock()
 
-        await entity.async_select_option("highFps")
-        # Should not raise, just log the error
+        with pytest.raises(HomeAssistantError, match="Unable to set video mode"):
+            await entity.async_select_option("highFps")
 
 
 class TestUnifiProtectChimeRingtoneSelect:
@@ -589,8 +592,8 @@ class TestUnifiProtectChimeRingtoneSelect:
         )
         entity.async_write_ha_state = MagicMock()
 
-        await entity.async_select_option("mechanical")
-        # Should not raise, just log the error
+        with pytest.raises(HomeAssistantError, match="Unable to set ringtone"):
+            await entity.async_select_option("mechanical")
 
 
 class TestUnifiProtectPTZPresetSelect:
@@ -607,7 +610,7 @@ class TestUnifiProtectPTZPresetSelect:
                         "id": "cam1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "hasPtz": True,
+                        "isPtz": True,
                         "currentPtzPreset": 2,
                     },
                 },
@@ -642,7 +645,7 @@ class TestUnifiProtectPTZPresetSelect:
                         "id": "cam1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "hasPtz": True,
+                        "isPtz": True,
                         "currentPtzPreset": 0,
                     },
                 },
@@ -681,7 +684,7 @@ class TestUnifiProtectPTZPresetSelect:
                         "id": "cam1",
                         "name": "PTZ Camera",
                         "state": "CONNECTED",
-                        "hasPtz": True,
+                        "isPtz": True,
                         "currentPtzPreset": 0,
                     },
                 },
@@ -704,8 +707,8 @@ class TestUnifiProtectPTZPresetSelect:
         )
         entity.async_write_ha_state = MagicMock()
 
-        await entity.async_select_option("3")
-        # Should not raise, just log the error
+        with pytest.raises(HomeAssistantError, match="Unable to move camera"):
+            await entity.async_select_option("3")
 
 
 class TestUnifiProtectViewerLiveviewSelect:
@@ -857,8 +860,8 @@ class TestUnifiProtectViewerLiveviewSelect:
         )
         entity.async_write_ha_state = MagicMock()
 
-        await entity.async_select_option("All Cameras")
-        # Should not raise, just log the error
+        with pytest.raises(HomeAssistantError, match="Unable to set liveview"):
+            await entity.async_select_option("All Cameras")
 
     async def test_async_select_option_liveview_not_found(self, mock_coordinator):
         """Test selecting liveview that doesn't exist."""
@@ -890,6 +893,7 @@ class TestUnifiProtectViewerLiveviewSelect:
         )
         entity.async_write_ha_state = MagicMock()
 
-        await entity.async_select_option("NonExistent")
+        with pytest.raises(HomeAssistantError, match="Liveview not found"):
+            await entity.async_select_option("NonExistent")
 
         mock_coordinator.protect_client.update_viewer.assert_not_called()

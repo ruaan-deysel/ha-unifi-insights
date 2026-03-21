@@ -385,7 +385,7 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         translation_key="cpu_usage",
         name="CPU Usage",
         native_unit_of_measurement=PERCENTAGE,
-        device_class=SensorDeviceClass.POWER_FACTOR,
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:cpu-64-bit",
         value_fn=lambda stats: get_stats_field(
@@ -397,7 +397,7 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         translation_key="memory_usage",
         name="Memory Usage",
         native_unit_of_measurement=PERCENTAGE,
-        device_class=SensorDeviceClass.POWER_FACTOR,
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:memory",
         value_fn=lambda stats: get_stats_field(
@@ -498,6 +498,7 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         icon="mdi:thermometer",
         value_fn=get_network_device_temperature,
     ),
@@ -1047,16 +1048,6 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[mi
         )
 
         return value
-
-    async def async_update(self) -> None:
-        """Update the sensor."""
-        await super().async_update()
-        _LOGGER.debug(
-            "Updated sensor %s for device %s in site %s",
-            self.entity_description.key,
-            self._device_id,
-            self._site_id,
-        )
 
 
 class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.number import NumberMode
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 
 from custom_components.unifi_insights.const import (
@@ -291,9 +292,9 @@ class TestUnifiProtectMicrophoneVolumeNumber:
         )
         number.async_write_ha_state = MagicMock()
 
-        await number.async_set_native_value(50.0)
+        with pytest.raises(HomeAssistantError, match="Unable to set microphone volume"):
+            await number.async_set_native_value(50.0)
 
-        # Should log error but not update state
         number.async_write_ha_state.assert_not_called()
 
     def test_missing_mic_volume(self, mock_coordinator) -> None:
@@ -411,7 +412,8 @@ class TestUnifiProtectLightLevelNumber:
         )
         number.async_write_ha_state = MagicMock()
 
-        await number.async_set_native_value(60.0)
+        with pytest.raises(HomeAssistantError, match="Unable to set brightness"):
+            await number.async_set_native_value(60.0)
 
         number.async_write_ha_state.assert_not_called()
 
@@ -546,7 +548,8 @@ class TestUnifiProtectChimeVolumeNumber:
         )
         number.async_write_ha_state = MagicMock()
 
-        await number.async_set_native_value(70.0)
+        with pytest.raises(HomeAssistantError, match="Unable to set volume"):
+            await number.async_set_native_value(70.0)
 
         number.async_write_ha_state.assert_not_called()
 
@@ -672,6 +675,7 @@ class TestUnifiProtectChimeRepeatTimesNumber:
         )
         number.async_write_ha_state = MagicMock()
 
-        await number.async_set_native_value(3.0)
+        with pytest.raises(HomeAssistantError, match="Unable to set repeat count"):
+            await number.async_set_native_value(3.0)
 
         number.async_write_ha_state.assert_not_called()

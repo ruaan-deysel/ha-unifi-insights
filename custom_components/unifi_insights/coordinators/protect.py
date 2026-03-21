@@ -129,19 +129,92 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         )
 
         if model_key == DEVICE_TYPE_CAMERA:
-            self.data["cameras"][device_id] = device_data
+            existing_camera = self.data["cameras"].get(device_id, {})
+            merged_camera = {
+                **existing_camera,
+                **device_data,
+            }
+            self.data["cameras"][device_id] = self._normalize_camera_data(merged_camera)
         elif model_key == DEVICE_TYPE_LIGHT:
-            self.data["lights"][device_id] = device_data
+            self.data["lights"][device_id] = {
+                **self.data["lights"].get(device_id, {}),
+                **device_data,
+            }
         elif model_key == DEVICE_TYPE_SENSOR:
-            self.data["sensors"][device_id] = device_data
+            self.data["sensors"][device_id] = {
+                **self.data["sensors"].get(device_id, {}),
+                **device_data,
+            }
         elif model_key == DEVICE_TYPE_NVR:
-            self.data["nvrs"][device_id] = device_data
+            self.data["nvrs"][device_id] = {
+                **self.data["nvrs"].get(device_id, {}),
+                **device_data,
+            }
         elif model_key == DEVICE_TYPE_VIEWER:
-            self.data["viewers"][device_id] = device_data
+            self.data["viewers"][device_id] = {
+                **self.data["viewers"].get(device_id, {}),
+                **device_data,
+            }
         elif model_key == DEVICE_TYPE_CHIME:
-            self.data["chimes"][device_id] = device_data
+            self.data["chimes"][device_id] = {
+                **self.data["chimes"].get(device_id, {}),
+                **device_data,
+            }
 
         self.async_update_listeners()
+
+    def _normalize_camera_data(self, camera: dict[str, Any]) -> dict[str, Any]:
+        """Normalize camera fields across alias and legacy payload shapes."""
+        normalized = dict(camera)
+
+        feature_flags = normalized.get("featureFlags")
+        if not isinstance(feature_flags, dict):
+            legacy_feature_flags = normalized.get("feature_flags")
+            feature_flags = (
+                legacy_feature_flags if isinstance(legacy_feature_flags, dict) else {}
+            )
+        normalized["featureFlags"] = feature_flags
+
+        smart_detect_types = normalized.get("smartDetectTypes")
+        if not isinstance(smart_detect_types, list):
+            legacy_smart_detect_types = normalized.get("smart_detect_types")
+            if isinstance(legacy_smart_detect_types, list):
+                smart_detect_types = legacy_smart_detect_types
+            else:
+                smart_detect_types = feature_flags.get("smartDetectTypes")
+                if not isinstance(smart_detect_types, list):
+                    feature_flag_types = feature_flags.get("smart_detect_types")
+                    smart_detect_types = (
+                        feature_flag_types
+                        if isinstance(feature_flag_types, list)
+                        else []
+                    )
+        normalized["smartDetectTypes"] = smart_detect_types
+
+        is_ptz = normalized.get("isPtz")
+        if not isinstance(is_ptz, bool):
+            legacy_is_ptz = normalized.get("is_ptz")
+            if isinstance(legacy_is_ptz, bool):
+                is_ptz = legacy_is_ptz
+            else:
+                is_ptz = bool(
+                    normalized.get("hasPtz")
+                    or feature_flags.get("hasPtz")
+                    or feature_flags.get("has_ptz")
+                )
+        normalized["isPtz"] = is_ptz
+        normalized["hasPtz"] = is_ptz
+
+        last_smart_detect_types = normalized.get("lastSmartDetectTypes")
+        if not isinstance(last_smart_detect_types, list):
+            normalized["lastSmartDetectTypes"] = []
+
+        if "lastMotion" not in normalized:
+            normalized["lastMotion"] = 0
+        if "lastRing" not in normalized:
+            normalized["lastRing"] = 0
+
+        return normalized
 
     def _handle_event_update(self, event_type: str, event_data: dict[str, Any]) -> None:
         """Handle event update from WebSocket."""
@@ -292,26 +365,9 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         _LOGGER.debug("Protect coordinator: Fetching cameras")
         cameras_models = await self.protect_client.cameras.get_all()
         for camera_model in cameras_models:
-            camera = self._model_to_dict(camera_model)
+            camera = self._normalize_camera_data(self._model_to_dict(camera_model))
             camera_id = camera.get("id")
             if camera_id:
-                # Extract smartDetectTypes from featureFlags
-                feature_flags = camera.get("feature_flags", {})
-                if isinstance(feature_flags, dict):
-                    camera["smartDetectTypes"] = feature_flags.get(
-                        "smart_detect_types", []
-                    )
-                else:
-                    camera["smartDetectTypes"] = []
-
-                # Initialize last detection fields (preserve existing if present)
-                if "lastSmartDetectTypes" not in camera:
-                    camera["lastSmartDetectTypes"] = []
-                if "lastMotion" not in camera:
-                    camera["lastMotion"] = 0
-                if "lastRing" not in camera:
-                    camera["lastRing"] = 0
-
                 self.data["cameras"][camera_id] = camera
 
                 _LOGGER.debug(

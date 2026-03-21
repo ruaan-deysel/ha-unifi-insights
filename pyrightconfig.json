@@ -1,15 +1,7 @@
 {
-  "include": [
-    "custom_components/unifi_insights",
-    "tests"
-  ],
-  "exclude": [
-    "custom_components/unifi_insights/api",
-    "**/__pycache__"
-  ],
-  "ignore": [
-    "custom_components/unifi_insights/api"
-  ],
+  "include": ["custom_components/unifi_insights", "tests"],
+  "exclude": ["custom_components/unifi_insights/api", "**/__pycache__"],
+  "ignore": ["custom_components/unifi_insights/api"],
   "typeCheckingMode": "basic",
   "reportMissingImports": false,
   "reportPrivateImportUsage": false,

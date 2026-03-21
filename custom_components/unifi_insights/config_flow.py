@@ -535,7 +535,7 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[misc,c
                             default=entry.data.get(CONF_HOST, DEFAULT_API_HOST),
                         ): str,
                         vol.Required(
-                            CONF_API_KEY, default=entry.data.get(CONF_API_KEY, "")
+                            CONF_API_KEY,
                         ): str,
                         vol.Optional(
                             CONF_VERIFY_SSL,
@@ -553,7 +553,7 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[misc,c
                         CONF_CONSOLE_ID, default=entry.data.get(CONF_CONSOLE_ID, "")
                     ): str,
                     vol.Required(
-                        CONF_API_KEY, default=entry.data.get(CONF_API_KEY, "")
+                        CONF_API_KEY,
                     ): str,
                 }
             ),

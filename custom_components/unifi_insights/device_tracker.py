@@ -9,6 +9,7 @@ from homeassistant.components.device_tracker.config_entry import ScannerEntity
 from homeassistant.components.device_tracker.const import SourceType
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     CONF_TRACK_CLIENTS,
@@ -18,6 +19,7 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
 )
+from .coordinators import UnifiFacadeCoordinator
 from .entity import get_field
 
 if TYPE_CHECKING:
@@ -25,7 +27,6 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -126,7 +127,7 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(async_add_clients))
 
 
-class UnifiClientTracker(ScannerEntity):  # type: ignore[misc]
+class UnifiClientTracker(CoordinatorEntity[UnifiFacadeCoordinator], ScannerEntity):  # type: ignore[misc]
     """Representation of a UniFi network client."""
 
     _attr_has_entity_name = True
@@ -138,7 +139,7 @@ class UnifiClientTracker(ScannerEntity):  # type: ignore[misc]
         client_id: str,
     ) -> None:
         """Initialize the tracker."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._site_id = site_id
         self._client_id = client_id
 
@@ -195,13 +196,6 @@ class UnifiClientTracker(ScannerEntity):  # type: ignore[misc]
     @property
     def source_type(self) -> SourceType:
         """Return the source type."""
-        client_data = self._get_client_data()
-        if not client_data:
-            return SourceType.ROUTER
-
-        connection_type = get_field(client_data, "type", "connection_type", default="")
-        if isinstance(connection_type, str) and connection_type.upper() == "WIRELESS":
-            return SourceType.ROUTER
         return SourceType.ROUTER
 
     @property
@@ -249,14 +243,3 @@ class UnifiClientTracker(ScannerEntity):  # type: ignore[misc]
             "authorized": get_field(client_data, "authorized", default=True),
             "blocked": get_field(client_data, "blocked", default=False),
         }
-
-    @callback  # type: ignore[misc]
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
-
-    async def async_added_to_hass(self) -> None:
-        """Register callbacks when entity is added."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self._handle_coordinator_update)
-        )

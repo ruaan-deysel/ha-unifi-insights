@@ -337,6 +337,7 @@ async def async_unload_entry(
         if not remaining_entries:
             _LOGGER.debug("No more config entries, unloading services")
             await async_unload_services(hass)
+            hass.data.pop(f"{DOMAIN}_tracked_clients", None)
             if DOMAIN in hass.data:
                 hass.data.pop(DOMAIN)
             _LOGGER.info("UniFi Insights services unloaded")

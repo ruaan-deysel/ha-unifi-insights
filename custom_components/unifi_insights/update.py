@@ -56,6 +56,7 @@ class UnifiNetworkDeviceUpdate(CoordinatorEntity[UnifiFacadeCoordinator], Update
     """Update entity for UniFi network devices."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "firmware"
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_supported_features = UpdateEntityFeature(0)  # No install support for now
 
@@ -133,8 +134,21 @@ class UnifiNetworkDeviceUpdate(CoordinatorEntity[UnifiFacadeCoordinator], Update
             device_data, "firmwareUpdatable", "firmware_updatable", default=False
         )
         if is_updatable:
-            # Return a placeholder version indicating update available
-            return "Update Available"
+            # Try to get the actual available firmware version
+            new_version = get_field(
+                device_data,
+                "upgradeToFirmware",
+                "upgrade_to_firmware",
+                "availableFirmwareVersion",
+                "available_firmware_version",
+            )
+            if new_version:
+                return new_version  # type: ignore[no-any-return]
+            # Fallback: indicate update by returning a synthetic higher version
+            current = self.installed_version
+            if current:
+                return f"{current}+update"
+            return "update-available"
 
         # No update available - return current version
         return self.installed_version

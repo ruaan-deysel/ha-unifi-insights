@@ -175,7 +175,7 @@ async def async_setup_entry(
             )
         except UniFiAuthenticationError as err:
             msg = "Invalid API key or unable to connect to Network API"
-            _LOGGER.exception(msg)
+            _LOGGER.warning(msg)
             raise ConfigEntryAuthFailed(msg) from err
 
         # Initialize UniFi Protect API client (only for local connections currently)
@@ -211,11 +211,11 @@ async def async_setup_entry(
     # Note: UniFiAuthenticationError is already handled in the inner try block
     # at lines 176-179, which converts it to ConfigEntryAuthFailed
     except UniFiConnectionError as err:
-        _LOGGER.exception("Connection error")
+        _LOGGER.warning("Connection error: %s", err)
         msg = f"Error communicating with UniFi API: {err}"
         raise ConfigEntryNotReady(msg) from err
     except UniFiTimeoutError as err:
-        _LOGGER.exception("Timeout error")
+        _LOGGER.warning("Timeout error: %s", err)
         msg = f"Timeout connecting to UniFi API: {err}"
         raise ConfigEntryNotReady(msg) from err
 

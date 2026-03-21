@@ -111,6 +111,7 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):  # t
     """Representation of a UniFi Protect Camera Microphone Volume Number."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "mic_volume"
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -178,6 +179,7 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):  # type: i
     """Representation of a UniFi Protect Light Brightness Level Number."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "brightness_level"
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -241,6 +243,7 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: 
     """Representation of a UniFi Protect Chime Volume Number."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "chime_volume"
     _attr_native_min_value = 0
     _attr_native_max_value = 100
     _attr_native_step = 1
@@ -296,11 +299,9 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: 
             f"Unable to set volume for chime {self._device_id}",
             self._device_id,
             int(value),
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.set_chime_volume(
-                    chime_id=self._device_id,
-                    volume=int(value),
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.set_chime_volume(
+                chime_id=self._device_id,
+                volume=int(value),
             ),
         )
         self._attr_native_value = int(value)
@@ -311,6 +312,7 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):  # t
     """Representation of a UniFi Protect Chime Repeat Times Number."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "repeat_times"
     _attr_native_min_value = 1
     _attr_native_max_value = 10
     _attr_native_step = 1
@@ -368,11 +370,9 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):  # t
             f"Unable to set repeat count for chime {self._device_id}",
             self._device_id,
             int(value),
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.set_chime_repeat(
-                    chime_id=self._device_id,
-                    repeat_times=int(value),
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.set_chime_repeat(
+                chime_id=self._device_id,
+                repeat_times=int(value),
             ),
         )
         self._attr_native_value = int(value)

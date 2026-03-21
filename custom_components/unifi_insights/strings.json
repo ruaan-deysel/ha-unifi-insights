@@ -200,6 +200,12 @@
       }
     },
     "switch": {
+      "microphone": {
+        "name": "Microphone"
+      },
+      "privacy_mode": {
+        "name": "Privacy Mode"
+      },
       "status_light": {
         "name": "Status Light"
       },
@@ -211,6 +217,21 @@
       }
     },
     "select": {
+      "hdr_mode": {
+        "name": "HDR Mode"
+      },
+      "video_mode": {
+        "name": "Video Mode"
+      },
+      "ringtone": {
+        "name": "Ringtone"
+      },
+      "ptz_preset": {
+        "name": "PTZ Preset"
+      },
+      "liveview": {
+        "name": "Liveview"
+      },
       "recording_mode": {
         "name": "Recording Mode"
       },
@@ -222,11 +243,33 @@
       "mic_volume": {
         "name": "Microphone Volume"
       },
+      "brightness_level": {
+        "name": "Brightness Level"
+      },
       "speaker_volume": {
         "name": "Speaker Volume"
       },
       "chime_volume": {
         "name": "Chime Volume"
+      },
+      "repeat_times": {
+        "name": "Repeat Times"
+      }
+    },
+    "event": {
+      "doorbell_ring": {
+        "name": "Doorbell"
+      },
+      "smart_detection": {
+        "name": "Smart Detection"
+      },
+      "sensor_event": {
+        "name": "Door/Window"
+      }
+    },
+    "update": {
+      "firmware": {
+        "name": "Firmware"
       }
     }
   },

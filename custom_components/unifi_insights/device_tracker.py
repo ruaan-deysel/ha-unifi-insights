@@ -20,6 +20,7 @@ from .const import (
     MANUFACTURER,
 )
 from .coordinators import UnifiFacadeCoordinator
+from .entity import get_client_type as _get_client_type
 from .entity import get_field
 
 if TYPE_CHECKING:
@@ -32,25 +33,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # Coordinator handles updates centrally
 PARALLEL_UPDATES = 0
-
-
-def _get_client_type(client: dict[str, Any]) -> str:
-    """
-    Extract client type from client data.
-
-    The vendored API package serializes the ClientType enum to string values
-    ("WIRED" or "WIRELESS"). This helper normalizes the value for comparison
-    and handles edge cases.
-    """
-    client_type = client.get("type") or client.get("connection_type", "")
-    # Normalize to uppercase string
-    type_str = str(client_type).upper()
-    # Handle both direct values and any legacy enum format
-    if "WIRED" in type_str:
-        return "WIRED"
-    if "WIRELESS" in type_str:
-        return "WIRELESS"
-    return type_str
 
 
 async def async_setup_entry(

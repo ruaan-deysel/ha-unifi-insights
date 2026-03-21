@@ -21,6 +21,8 @@ TO_REDACT = {
     CONF_API_KEY,
     CONF_HOST,
     "unique_id",  # Also redact unique_id as it may contain the API key
+    "mac",
+    "mac_address",
     "macAddress",
     "id",
     "deviceId",

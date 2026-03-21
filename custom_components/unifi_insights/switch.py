@@ -409,6 +409,7 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
     """Representation of a UniFi Protect Camera Microphone Switch."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "microphone"
 
     def __init__(
         self,
@@ -453,11 +454,9 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
             "async_update_camera",
             f"Unable to turn on microphone for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.update_camera(
-                    camera_id=self._device_id,
-                    data={"micEnabled": True},
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.update_camera(
+                camera_id=self._device_id,
+                data={"micEnabled": True},
             ),
             micEnabled=True,
         )
@@ -474,11 +473,9 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
             "async_update_camera",
             f"Unable to turn off microphone for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.update_camera(
-                    camera_id=self._device_id,
-                    data={"micEnabled": False},
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.update_camera(
+                camera_id=self._device_id,
+                data={"micEnabled": False},
             ),
             micEnabled=False,
         )
@@ -490,6 +487,7 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
     """Representation of a UniFi Protect Camera Privacy Mode Switch."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "privacy_mode"
     _attr_icon = "mdi:eye-off"
 
     def __init__(
@@ -543,11 +541,9 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to enable privacy mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.cameras.update(
-                    self._device_id,
-                    is_privacy_mode_enabled=True,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+                self._device_id,
+                is_privacy_mode_enabled=True,
             ),
             is_privacy_mode_enabled=True,
         )
@@ -564,11 +560,9 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to disable privacy mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.cameras.update(
-                    self._device_id,
-                    is_privacy_mode_enabled=False,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+                self._device_id,
+                is_privacy_mode_enabled=False,
             ),
             is_privacy_mode_enabled=False,
         )
@@ -580,6 +574,7 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
     """Representation of a UniFi Protect Camera Status Light Switch."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "status_light"
     _attr_icon = "mdi:led-on"
 
     def __init__(
@@ -627,11 +622,9 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
             "async_update_camera_settings",
             f"Unable to turn on status light for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.cameras.update(
-                    self._device_id,
-                    led_settings={"isEnabled": True},
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+                self._device_id,
+                led_settings={"isEnabled": True},
             ),
             led_settings={"isEnabled": True},
         )
@@ -648,11 +641,9 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
             "async_update_camera_settings",
             f"Unable to turn off status light for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.cameras.update(
-                    self._device_id,
-                    led_settings={"isEnabled": False},
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+                self._device_id,
+                led_settings={"isEnabled": False},
             ),
             led_settings={"isEnabled": False},
         )
@@ -664,6 +655,7 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
     """Representation of a UniFi Protect Camera High FPS Mode Switch."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "high_fps_mode"
     _attr_icon = "mdi:fast-forward"
 
     def __init__(
@@ -710,11 +702,9 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to enable high FPS mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.cameras.update(
-                    self._device_id,
-                    video_mode=VIDEO_MODE_HIGH_FPS,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+                self._device_id,
+                video_mode=VIDEO_MODE_HIGH_FPS,
             ),
             video_mode=VIDEO_MODE_HIGH_FPS,
         )
@@ -731,11 +721,9 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to disable high FPS mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: (
-                self.coordinator.protect_client.cameras.update(
-                    self._device_id,
-                    video_mode=VIDEO_MODE_DEFAULT,
-                )
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+                self._device_id,
+                video_mode=VIDEO_MODE_DEFAULT,
             ),
             video_mode=VIDEO_MODE_DEFAULT,
         )
@@ -1121,11 +1109,9 @@ class UnifiClientBlockSwitch(SwitchEntity):  # type: ignore[misc]
             f"Unable to allow client {self._client_id}",
             self._site_id,
             self._client_id,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.clients.unblock(
-                    self._site_id,
-                    self._client_id,
-                )
+            fallback_factory=lambda: self.coordinator.network_client.clients.unblock(
+                self._site_id,
+                self._client_id,
             ),
         )
         _LOGGER.info(
@@ -1146,11 +1132,9 @@ class UnifiClientBlockSwitch(SwitchEntity):  # type: ignore[misc]
             f"Unable to block client {self._client_id}",
             self._site_id,
             self._client_id,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.clients.block(
-                    self._site_id,
-                    self._client_id,
-                )
+            fallback_factory=lambda: self.coordinator.network_client.clients.block(
+                self._site_id,
+                self._client_id,
             ),
         )
         _LOGGER.info(
@@ -1241,12 +1225,10 @@ class UnifiWifiSwitch(SwitchEntity):  # type: ignore[misc]
             f"Unable to enable WiFi network {self._wifi_id}",
             self._site_id,
             self._wifi_id,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.wifi.update(
-                    self._site_id,
-                    self._wifi_id,
-                    enabled=True,
-                )
+            fallback_factory=lambda: self.coordinator.network_client.wifi.update(
+                self._site_id,
+                self._wifi_id,
+                enabled=True,
             ),
             enabled=True,
         )
@@ -1270,12 +1252,10 @@ class UnifiWifiSwitch(SwitchEntity):  # type: ignore[misc]
             f"Unable to disable WiFi network {self._wifi_id}",
             self._site_id,
             self._wifi_id,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.wifi.update(
-                    self._site_id,
-                    self._wifi_id,
-                    enabled=False,
-                )
+            fallback_factory=lambda: self.coordinator.network_client.wifi.update(
+                self._site_id,
+                self._wifi_id,
+                enabled=False,
             ),
             enabled=False,
         )

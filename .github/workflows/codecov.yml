@@ -13,7 +13,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,13 +33,17 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov --junitxml=junit.xml
+          pytest --junitxml=junit.xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          use_oidc: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: false
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

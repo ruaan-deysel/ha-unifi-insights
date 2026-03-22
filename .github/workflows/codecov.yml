@@ -1,5 +1,5 @@
 ---
-name: CI
+name: Codecov
 
 on:
   push:
@@ -8,8 +8,8 @@ on:
     branches: [main]
 
 jobs:
-  unit-test:
-    name: Run unit tests
+  codecov:
+    name: Upload coverage to Codecov
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,7 +32,7 @@ jobs:
           pip install -e .[dev]
           pip install -r requirements.txt
 
-      - name: Test with pytest
+      - name: Run tests with coverage
         run: |
           pytest --cov --junitxml=junit.xml
 

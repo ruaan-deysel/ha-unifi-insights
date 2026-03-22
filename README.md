@@ -1,8 +1,6 @@
 # UniFi Insights Integration for Home Assistant
 
 [![HACS Integration](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
-[![CI](https://github.com/ruaan-deysel/ha-unifi-insights/actions/workflows/ci.yml/badge.svg)](https://github.com/ruaan-deysel/ha-unifi-insights/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/ruaan-deysel/ha-unifi-insights/branch/main/graph/badge.svg)](https://codecov.io/gh/ruaan-deysel/ha-unifi-insights)
 [![GitHub Last Commit](https://img.shields.io/github/last-commit/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/commits/main)
 [![GitHub Release](https://img.shields.io/github/v/release/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/releases)
 [![GitHub Issues](https://img.shields.io/github/issues/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/issues)

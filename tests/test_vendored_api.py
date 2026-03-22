@@ -34,7 +34,7 @@ def test_build_legacy_api_path_remote() -> None:
 
     assert (
         client.build_legacy_api_path("default", "stat/device/aa:bb:cc")
-        == "/v1/connector/consoles/console-id/proxy/network/api/s/default/"
+        == "/v1/connector/consoles/console-id/network/api/s/default/"
         "stat/device/aa:bb:cc"
     )
 
@@ -60,7 +60,7 @@ def test_build_legacy_global_api_path_remote() -> None:
 
     assert (
         client.build_legacy_global_api_path("/self/sites")
-        == "/v1/connector/consoles/console-id/proxy/network/api/self/sites"
+        == "/v1/connector/consoles/console-id/network/api/self/sites"
     )
 
 
@@ -125,7 +125,7 @@ async def test_get_legacy_device_stats_handles_wrapped_and_unwrapped_responses(
 
     assert result == expected
     client._get.assert_awaited_once_with(
-        "/v1/connector/consoles/console-id/proxy/network/api/s/default/"
+        "/v1/connector/consoles/console-id/network/api/s/default/"
         "stat/device/aa:bb:cc:dd:ee:ff"
     )
 

@@ -172,10 +172,11 @@ async def test_setup_entry_no_sites_found(
 async def test_setup_entry_remote_connection(
     hass: HomeAssistant,
     mock_network_client,
+    mock_protect_client,
     mock_local_auth,
     enable_custom_integrations,
 ) -> None:
-    """Test setup with remote connection type skips Protect."""
+    """Test setup with remote connection type includes Protect."""
     # Create remote config entry
     remote_entry = MockConfigEntry(
         domain="unifi_insights",

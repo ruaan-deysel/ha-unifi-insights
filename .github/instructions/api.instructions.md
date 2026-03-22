@@ -29,8 +29,8 @@ This integration vendors the upstream `unifi-official-api` project under `custom
 In `__init__.py`:
 
 - Network client: Created for both local and remote modes
-- Protect client: Only for local mode
-- Validates connectivity by fetching sites
+- Protect client: Created for both local and remote modes
+- Validates connectivity by fetching sites (Network) and cameras (Protect)
 
 ## Session management
 

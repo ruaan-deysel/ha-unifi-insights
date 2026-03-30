@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -104,40 +103,6 @@ async def async_setup_entry(
                 )
                 for description in BUTTON_TYPES
             )
-
-    # Add port power cycle buttons for PoE-capable switch ports
-    for site_id, devices in coordinator.data["devices"].items():
-        for device_id in devices:
-            device_data = (
-                coordinator.data.get("devices", {}).get(site_id, {}).get(device_id, {})
-            )
-
-            # Check if device has switching feature and ports
-            features = device_data.get("features", [])
-            if "switching" not in features:
-                continue
-
-            # Get ports from interfaces structure (new API format)
-            # Note: interfaces can be a list (from get_all) or dict (from get)
-            # When it's a list like ['ports'], it only indicates interface types
-            # When it's a dict like {'ports': [...]}, it contains actual port data
-            interfaces = device_data.get("interfaces", {})
-            # interfaces is a list from get_all(), dict from get()
-            ports = interfaces.get("ports", []) if isinstance(interfaces, dict) else []
-            for port in ports:
-                # Only add power cycle button for ports that have PoE enabled
-                poe_config = port.get("poe", {})
-                if poe_config.get("enabled"):
-                    port_idx = port.get("idx") or port.get("portIdx")
-                    if port_idx is not None:
-                        entities.append(
-                            UnifiPortPowerCycleButton(
-                                coordinator=coordinator,
-                                site_id=site_id,
-                                device_id=device_id,
-                                port_idx=port_idx,
-                            )
-                        )
 
     # Add reconnect buttons for connected clients
     for site_id, clients in coordinator.data.get("clients", {}).items():
@@ -274,6 +239,7 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
     """Button to play a ringtone on a UniFi Protect Chime."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "play"
     _attr_icon = "mdi:bell-ring-outline"
 
     def __init__(
@@ -283,9 +249,6 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
     ) -> None:
         """Initialize the button."""
         super().__init__(coordinator, DEVICE_TYPE_CHIME, chime_id, "play")
-
-        # Set name
-        self._attr_name = "Play"
 
         # Set attributes
         self._update_attributes()
@@ -331,130 +294,6 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
                 ringtone_id=ringtone_id,
             ),
         )
-
-
-class UnifiPortPowerCycleButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[misc]
-    """Button to power cycle a PoE port on a UniFi switch."""
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:power-cycle"
-
-    def __init__(
-        self,
-        coordinator: UnifiFacadeCoordinator,
-        site_id: str,
-        device_id: str,
-        port_idx: int,
-    ) -> None:
-        """Initialize the button."""
-        # Create a fake description for the base class
-        description = UnifiInsightsButtonEntityDescription(
-            key=f"port_{port_idx}_power_cycle",
-            name=f"Port {port_idx} Power Cycle",
-            icon="mdi:power-cycle",
-        )
-        super().__init__(coordinator, description, site_id, device_id)
-        self._port_idx = port_idx
-
-        # Override unique ID to include port index
-        self._attr_unique_id = f"{site_id}_{device_id}_port_{port_idx}_power_cycle"
-        self._attr_name = f"Port {port_idx} Power Cycle"
-
-    async def async_press(self) -> None:
-        """
-        Power cycle the PoE port.
-
-        This performs a power cycle by disabling PoE, waiting briefly,
-        then re-enabling PoE. This is useful for rebooting PoE devices
-        like IP cameras or access points.
-        """
-        _LOGGER.debug(
-            "Power cycling port %s on device %s in site %s",
-            self._port_idx,
-            self._device_id,
-            self._site_id,
-        )
-
-        await async_call_coordinator_action(
-            self.coordinator,
-            "async_execute_port_action",
-            f"Unable to disable PoE on port {self._port_idx}",
-            self._site_id,
-            self._device_id,
-            self._port_idx,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.devices.execute_port_action(
-                    self._site_id,
-                    self._device_id,
-                    self._port_idx,
-                    poe_mode="off",
-                )
-            ),
-            poe_mode="off",
-        )
-
-        await asyncio.sleep(2)
-
-        await async_call_coordinator_action(
-            self.coordinator,
-            "async_execute_port_action",
-            f"Unable to re-enable PoE on port {self._port_idx}",
-            self._site_id,
-            self._device_id,
-            self._port_idx,
-            fallback_factory=lambda: (
-                self.coordinator.network_client.devices.execute_port_action(
-                    self._site_id,
-                    self._device_id,
-                    self._port_idx,
-                    poe_mode="auto",
-                )
-            ),
-            poe_mode="auto",
-        )
-
-        _LOGGER.info(
-            "Successfully power cycled port %s on device %s in site %s",
-            self._port_idx,
-            self._device_id,
-            self._site_id,
-        )
-
-    @property
-    def available(self) -> bool:
-        """Return if the port is available for power cycling."""
-        devices = self.coordinator.data.get("devices", {})
-        if not isinstance(devices, dict):
-            return False
-        site_devices = devices.get(self._site_id, {})
-        if not isinstance(site_devices, dict):
-            return False
-        device_data = site_devices.get(self._device_id)
-        if not device_data or not isinstance(device_data, dict):
-            return False
-
-        # Check if device is online
-        state = device_data.get("state")
-        if not isinstance(state, str) or state != "ONLINE":
-            return False
-
-        # Check if port exists and has PoE enabled (new API format)
-        interfaces = device_data.get("interfaces", {})
-        if not isinstance(interfaces, dict):
-            return False
-        ports = interfaces.get("ports", [])
-        if not isinstance(ports, list):
-            return False
-
-        for port in ports:
-            if not isinstance(port, dict):
-                continue
-            port_idx = port.get("idx") or port.get("portIdx")
-            if port_idx == self._port_idx:
-                poe_config = port.get("poe", {})
-                if isinstance(poe_config, dict):
-                    return poe_config.get("enabled", False) is True
-        return False
 
 
 class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
@@ -546,6 +385,7 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
     """Button to start PTZ patrol on a UniFi Protect camera."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "ptz_patrol_start"
     _attr_icon = "mdi:cctv"
 
     def __init__(
@@ -555,7 +395,6 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
     ) -> None:
         """Initialize the button."""
         super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "ptz_patrol_start")
-        self._attr_name = "Start PTZ Patrol"
 
     async def async_press(self) -> None:
         """Start PTZ patrol."""
@@ -579,6 +418,7 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
     """Button to stop PTZ patrol on a UniFi Protect camera."""
 
     _attr_has_entity_name = True
+    _attr_translation_key = "ptz_patrol_stop"
     _attr_icon = "mdi:stop-circle-outline"
 
     def __init__(
@@ -588,7 +428,6 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
     ) -> None:
         """Initialize the button."""
         super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "ptz_patrol_stop")
-        self._attr_name = "Stop PTZ Patrol"
 
     async def async_press(self) -> None:
         """Stop PTZ patrol."""

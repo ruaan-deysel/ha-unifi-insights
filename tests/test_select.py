@@ -231,7 +231,7 @@ class TestUnifiProtectHDRModeSelect:
 
         assert entity._device_type == DEVICE_TYPE_CAMERA
         assert entity._device_id == "cam1"
-        assert entity._attr_name == "HDR Mode"
+        assert entity._attr_translation_key == "hdr_mode"
         assert entity._attr_current_option == "auto"
         assert HDR_MODE_AUTO in entity._attr_options
         assert HDR_MODE_ON in entity._attr_options
@@ -374,7 +374,7 @@ class TestUnifiProtectVideoModeSelect:
 
         assert entity._device_type == DEVICE_TYPE_CAMERA
         assert entity._device_id == "cam1"
-        assert entity._attr_name == "Video Mode"
+        assert entity._attr_translation_key == "video_mode"
         assert entity._attr_current_option == "default"
         assert VIDEO_MODE_DEFAULT in entity._attr_options
         assert VIDEO_MODE_HIGH_FPS in entity._attr_options
@@ -487,7 +487,7 @@ class TestUnifiProtectChimeRingtoneSelect:
 
         assert entity._device_type == DEVICE_TYPE_CHIME
         assert entity._device_id == "chime1"
-        assert entity._attr_name == "Ringtone"
+        assert entity._attr_translation_key == "ringtone"
         assert entity._attr_current_option == "default"
         assert CHIME_RINGTONE_DEFAULT in entity._attr_options
         assert CHIME_RINGTONE_MECHANICAL in entity._attr_options
@@ -630,7 +630,7 @@ class TestUnifiProtectPTZPresetSelect:
 
         assert entity._device_type == DEVICE_TYPE_CAMERA
         assert entity._device_id == "cam1"
-        assert entity._attr_name == "PTZ Preset"
+        assert entity._attr_translation_key == "ptz_preset"
         assert entity._attr_current_option == "2"
         assert "0" in entity._attr_options
 
@@ -747,7 +747,7 @@ class TestUnifiProtectViewerLiveviewSelect:
 
         assert entity._device_type == DEVICE_TYPE_VIEWER
         assert entity._device_id == "viewer1"
-        assert entity._attr_name == "Liveview"
+        assert entity._attr_translation_key == "liveview"
         assert entity._attr_current_option == "Default View"
         assert "Default View" in entity._attr_options
         assert "All Cameras" in entity._attr_options

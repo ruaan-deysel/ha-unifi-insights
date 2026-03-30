@@ -233,7 +233,7 @@ class TestUnifiProtectMicrophoneVolumeNumber:
         assert number._device_id == "camera1"
         assert number._device_type == DEVICE_TYPE_CAMERA
         assert number._attr_has_entity_name is True
-        assert number._attr_name == "Microphone Volume"
+        assert number._attr_translation_key == "mic_volume"
         assert number._attr_entity_category == EntityCategory.CONFIG
         assert number._attr_native_min_value == 0
         assert number._attr_native_max_value == 100
@@ -356,7 +356,7 @@ class TestUnifiProtectLightLevelNumber:
         assert number._device_id == "light1"
         assert number._device_type == DEVICE_TYPE_LIGHT
         assert number._attr_has_entity_name is True
-        assert number._attr_name == "Brightness Level"
+        assert number._attr_translation_key == "brightness_level"
         assert number._attr_entity_category == EntityCategory.CONFIG
         assert number._attr_mode == NumberMode.SLIDER
 
@@ -479,7 +479,7 @@ class TestUnifiProtectChimeVolumeNumber:
         assert number._device_id == "chime1"
         assert number._device_type == DEVICE_TYPE_CHIME
         assert number._attr_has_entity_name is True
-        assert number._attr_name == "Volume"
+        assert number._attr_translation_key == "chime_volume"
         assert number._attr_entity_category == EntityCategory.CONFIG
         assert number._attr_mode == NumberMode.SLIDER
         assert number._attr_icon == "mdi:volume-high"
@@ -603,7 +603,7 @@ class TestUnifiProtectChimeRepeatTimesNumber:
         assert number._device_id == "chime1"
         assert number._device_type == DEVICE_TYPE_CHIME
         assert number._attr_has_entity_name is True
-        assert number._attr_name == "Repeat Times"
+        assert number._attr_translation_key == "repeat_times"
         assert number._attr_entity_category == EntityCategory.CONFIG
         assert number._attr_native_min_value == 1
         assert number._attr_native_max_value == 10

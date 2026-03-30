@@ -54,6 +54,9 @@ omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/site-packages/*",
+    "custom_components/unifi_insights/coordinator.py",
+    "custom_components/unifi_insights/data_transforms.py",
+    "custom_components/unifi_insights/api/*",
 ]
 
 [tool.coverage.report]
@@ -75,6 +78,8 @@ force-exclude = true
 extend-exclude = [
     "custom_components/unifi_insights/api",
     "custom_components/unifi_insights/api/**",
+    ".local",
+    ".local/**",
     ".venv",
     ".venv/**",
     "venv",

@@ -9,6 +9,7 @@ from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from custom_components.unifi_insights.binary_sensor import (
     BINARY_SENSOR_TYPES,
     UnifiInsightsBinarySensor,
+    UnifiPortBinarySensor,
     UnifiProtectBinarySensor,
     _get_supported_smart_detect_types,
     _is_doorbell_camera,
@@ -850,3 +851,171 @@ class TestSetupSkipsNonDoorbellCameraSensors:
             and e.entity_description.key == "camera_motion"
         ]
         assert len(motion_sensors) == 1
+
+
+class TestUnifiPortBinarySensor:
+    """Tests for SFP module presence binary sensor."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator with SFP port data."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.protect_client = MagicMock()
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "meta": {"name": "Default"}}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
+                        "ipAddress": "192.168.1.10",
+                        "ports": [
+                            {
+                                "idx": 25,
+                                "state": "UP",
+                                "media": "SFP+",
+                                "name": "SFP+ 1",
+                                "sfp_found": True,
+                                "sfp_part": "UC-DAC-SFP+",
+                                "sfp_vendor": "Ubiquiti Inc.",
+                                "sfp_serial": "SN12345",
+                                "sfp_compliance": "DAC",
+                            },
+                            {
+                                "idx": 26,
+                                "state": "DOWN",
+                                "media": "SFP+",
+                                "name": "SFP+ 2",
+                                "sfp_found": False,
+                            },
+                        ],
+                    },
+                },
+            },
+            "stats": {},
+            "clients": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+            },
+        }
+        return coordinator
+
+    async def test_sfp_present_is_on(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP binary sensor is on when module present."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.is_on is True
+
+    async def test_sfp_not_present_is_off(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP binary sensor is off when no module."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=26,
+            port_label="SFP+ 2",
+        )
+        assert sensor.is_on is False
+
+    async def test_sfp_extra_attributes_when_present(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test extra state attributes for inserted SFP module."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        attrs = sensor.extra_state_attributes
+        assert attrs is not None
+        assert attrs["module"] == "UC-DAC-SFP+"
+        assert attrs["vendor"] == "Ubiquiti Inc."
+        assert attrs["serial"] == "SN12345"
+        assert attrs["type"] == "DAC"
+
+    async def test_sfp_extra_attributes_when_not_present(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test no extra attributes when SFP module not present."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=26,
+            port_label="SFP+ 2",
+        )
+        attrs = sensor.extra_state_attributes
+        assert attrs is None
+
+    async def test_sfp_sensor_unique_id(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP binary sensor unique ID."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.unique_id == "device1_port_sfp_present_25"
+
+    async def test_sfp_sensor_name(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP binary sensor name."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.name == "SFP+ 1 SFP Module"
+
+    async def test_sfp_no_port_data(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP binary sensor with missing port data."""
+        sensor = UnifiPortBinarySensor(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=99,
+            port_label="SFP+ 99",
+        )
+        assert sensor.is_on is None
+
+    async def test_setup_creates_sfp_binary_sensors(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test async_setup_entry creates SFP binary sensors for SFP ports."""
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        sfp_sensors = [
+            e for e in added_entities if isinstance(e, UnifiPortBinarySensor)
+        ]
+        # 2 SFP ports (25 and 26) → 2 binary sensors
+        assert len(sfp_sensors) == 2

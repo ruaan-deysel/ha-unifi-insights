@@ -16,10 +16,13 @@ from homeassistant.components.sensor import (
 from homeassistant.const import (
     LIGHT_LUX,
     PERCENTAGE,
+    UnitOfDataRate,
     UnitOfInformation,
     UnitOfPower,
     UnitOfTemperature,
 )
+from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     ATTR_NVR_ID,
@@ -108,6 +111,13 @@ def bytes_to_megabits(bytes_per_sec: float | None) -> float | None:
     if bytes_per_sec is None:
         return None
     return round(bytes_per_sec * 8 / 1_000_000, 2)
+
+
+def bytes_to_bits(bytes_per_sec: float | None) -> float | None:
+    """Convert bytes per second to bits per second."""
+    if bytes_per_sec is None:
+        return None
+    return bytes_per_sec * 8
 
 
 def _get_temperature_entry_value(
@@ -409,12 +419,14 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="tx_rate",
         translation_key="tx_rate",
-        name="TX Rate",
-        native_unit_of_measurement="Mbit/s",
+        name="Uplink TX Rate",
+        native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_display_precision=1,
         device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:upload-network",
-        value_fn=lambda stats: bytes_to_megabits(
+        value_fn=lambda stats: bytes_to_bits(
             get_stats_field(stats, "uplink", "uplink_stats", default={}).get(
                 "txRateBps"
             )
@@ -427,12 +439,14 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="rx_rate",
         translation_key="rx_rate",
-        name="RX Rate",
-        native_unit_of_measurement="Mbit/s",
+        name="Uplink RX Rate",
+        native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_display_precision=1,
         device_class=SensorDeviceClass.DATA_RATE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:download-network",
-        value_fn=lambda stats: bytes_to_megabits(
+        value_fn=lambda stats: bytes_to_bits(
             get_stats_field(stats, "uplink", "uplink_stats", default={}).get(
                 "rxRateBps"
             )
@@ -548,12 +562,14 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
             else 0
         ),
     ),
-    # Port TX Bytes
+    # Port TX
     UnifiInsightsSensorEntityDescription(
         key="port_tx_bytes",
         translation_key="port_tx_bytes",
-        name="Port {port_idx} TX Bytes",
+        name="Port {port_idx} TX",
         native_unit_of_measurement=UnitOfInformation.BYTES,
+        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        suggested_display_precision=1,
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
@@ -563,12 +579,14 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
             or get_field(port, "stats", default={}).get("tx_bytes", 0)
         ),
     ),
-    # Port RX Bytes
+    # Port RX
     UnifiInsightsSensorEntityDescription(
         key="port_rx_bytes",
         translation_key="port_rx_bytes",
-        name="Port {port_idx} RX Bytes",
+        name="Port {port_idx} RX",
         native_unit_of_measurement=UnitOfInformation.BYTES,
+        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
+        suggested_display_precision=1,
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.TOTAL_INCREASING,
         entity_category=None,  # Changed from DIAGNOSTIC to make visible by default
@@ -579,6 +597,98 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
         ),
     ),
 )
+
+# Per-port throughput rate sensor descriptions (computed from byte count deltas)
+PORT_RATE_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
+    # Port TX Rate
+    UnifiInsightsSensorEntityDescription(
+        key="port_tx_rate",
+        translation_key="port_tx_rate",
+        name="Port {port_idx} TX Rate",
+        native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_display_precision=1,
+        device_class=SensorDeviceClass.DATA_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=None,
+        icon="mdi:upload-network",
+        value_fn=lambda _port: None,  # Handled in entity native_value
+    ),
+    # Port RX Rate
+    UnifiInsightsSensorEntityDescription(
+        key="port_rx_rate",
+        translation_key="port_rx_rate",
+        name="Port {port_idx} RX Rate",
+        native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
+        suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        suggested_display_precision=1,
+        device_class=SensorDeviceClass.DATA_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=None,
+        icon="mdi:download-network",
+        value_fn=lambda _port: None,  # Handled in entity native_value
+    ),
+)
+
+# SFP sensor descriptions for SFP/SFP+ ports
+SFP_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
+    # SFP Module Model
+    UnifiInsightsSensorEntityDescription(
+        key="port_sfp_module",
+        translation_key="port_sfp_module",
+        name="Port {port_idx} SFP Module",
+        device_class=None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        icon="mdi:expansion-card",
+        value_fn=lambda port: port.get("sfp_part"),
+    ),
+    # SFP Vendor
+    UnifiInsightsSensorEntityDescription(
+        key="port_sfp_vendor",
+        translation_key="port_sfp_vendor",
+        name="Port {port_idx} SFP Vendor",
+        device_class=None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        icon="mdi:factory",
+        value_fn=lambda port: port.get("sfp_vendor"),
+    ),
+    # SFP Compliance (DAC, SR, LR, etc.)
+    UnifiInsightsSensorEntityDescription(
+        key="port_sfp_compliance",
+        translation_key="port_sfp_compliance",
+        name="Port {port_idx} SFP Type",
+        device_class=None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        icon="mdi:tag",
+        value_fn=lambda port: port.get("sfp_compliance"),
+    ),
+    # SFP Serial
+    UnifiInsightsSensorEntityDescription(
+        key="port_sfp_serial",
+        translation_key="port_sfp_serial",
+        name="Port {port_idx} SFP Serial",
+        device_class=None,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        icon="mdi:barcode",
+        value_fn=lambda port: port.get("sfp_serial"),
+    ),
+)
+
+
+def _get_port_label(port: dict[str, Any], port_idx: int) -> str:
+    """Return user-friendly port label based on port type."""
+    name = port.get("name")
+    if name and name != f"Port {port_idx}":
+        return name
+    media = port.get("media", "")
+    if media.startswith("SFP"):
+        return f"{media} {port_idx}"
+    return f"Port {port_idx}"
+
 
 # WAN sensor descriptions for UniFi gateways
 WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
@@ -613,6 +723,68 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
 )
 
 
+@callback
+def _migrate_sensor_units(
+    hass: HomeAssistant,
+    config_entry: UnifiInsightsConfigEntry,
+) -> None:
+    """
+    Migrate existing sensor entities to use updated suggested units.
+
+    Sets the refresh_initial_entity_options flag on sensor entities whose
+    stored suggested_unit_of_measurement differs from the current description.
+    HA will then re-evaluate and apply the new suggested unit on next load.
+    """
+    registry = er.async_get(hass)
+
+    # Build a lookup of current suggested units from sensor descriptions
+    expected_units: dict[str, str | None] = {}
+    for desc in (*SENSOR_TYPES, *PORT_SENSOR_TYPES, *PORT_RATE_SENSOR_TYPES):
+        if desc.suggested_unit_of_measurement is not None:
+            expected_units[desc.key] = str(desc.suggested_unit_of_measurement)
+
+    if not expected_units:
+        return
+
+    for entity_entry in er.async_entries_for_config_entry(
+        registry, config_entry.entry_id
+    ):
+        if entity_entry.domain != "sensor":
+            continue
+
+        # Match entity to a description key via unique_id suffix
+        unique_id = entity_entry.unique_id or ""
+        matched_key: str | None = None
+        for key in expected_units:
+            if unique_id.endswith(f"_{key}"):
+                matched_key = key
+                break
+
+        if matched_key is None:
+            continue
+
+        # Check if stored suggested unit already matches
+        private_opts = entity_entry.options.get("sensor.private", {})
+        stored_suggested = private_opts.get("suggested_unit_of_measurement")
+        if stored_suggested == expected_units[matched_key]:
+            continue
+
+        # Flag for refresh so HA picks up the new suggested unit
+        new_opts = dict(private_opts)
+        new_opts["refresh_initial_entity_options"] = True
+        registry.async_update_entity_options(
+            entity_entry.entity_id,
+            "sensor.private",
+            new_opts,
+        )
+        _LOGGER.debug(
+            "Migrated unit for %s: %s -> %s",
+            entity_entry.entity_id,
+            stored_suggested,
+            expected_units[matched_key],
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
@@ -621,6 +793,9 @@ async def async_setup_entry(
     """Set up sensors for UniFi Insights integration."""
     _ = hass
     _LOGGER.debug("Setting up UniFi Insights sensors")
+
+    # Migrate existing entities to pick up new suggested_unit_of_measurement
+    _migrate_sensor_units(hass, config_entry)
 
     coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
     entities = []
@@ -683,6 +858,36 @@ async def async_setup_entry(
                     )
                     continue
 
+                # Only create uplink rate sensors if uplink data exists
+                if description.key in ("tx_rate", "rx_rate"):
+                    stats = (
+                        coordinator.data.get("stats", {})
+                        .get(site_id, {})
+                        .get(device_id, {})
+                    )
+                    if not isinstance(stats, dict):
+                        continue
+                    uplink = get_field(stats, "uplink", "uplink_stats", default=None)
+                    has_uplink = isinstance(uplink, dict) and bool(uplink)
+                    has_top_level = any(
+                        stats.get(k) is not None
+                        for k in (
+                            "txRateBps",
+                            "tx_rate_bps",
+                            "rxRateBps",
+                            "rx_rate_bps",
+                            "tx_bytes_per_sec",
+                            "rx_bytes_per_sec",
+                        )
+                    )
+                    if not has_uplink and not has_top_level:
+                        _LOGGER.debug(
+                            "Skipping sensor %s for %s - no uplink rate data",
+                            description.key,
+                            device_name,
+                        )
+                        continue
+
                 # Only create Total PoE Power sensor if coordinator
                 if description.key == "poe_total_power":
                     stats = (
@@ -744,23 +949,36 @@ async def async_setup_entry(
                         )
                         continue
 
-                    # Create PoE power sensor for PoE-capable ports
+                    # Determine port label from legacy data
+                    port_label = _get_port_label(port, port_idx)
+                    is_sfp = str(port.get("media", "")).startswith("SFP")
+
+                    # Create PoE power sensor only for ports where a PoE
+                    # device is actually connected and drawing power. Skip
+                    # PoE-capable ports with non-PoE devices attached.
                     poe_data = get_field(port, "poe", default={})
                     poe_marker = False
                     if isinstance(poe_data, dict):
-                        if poe_data.get("type") or poe_data.get("enabled") is True:
+                        # "good" indicates successful PoE negotiation
+                        if poe_data.get("good"):
                             poe_marker = True
                         else:
-                            pwr = poe_data.get("power")
-                            wts = poe_data.get("watts")
-                            if isinstance(pwr, (int, float)) or isinstance(
-                                wts, (int, float)
-                            ):
-                                poe_marker = True
+                            # Fallback: check actual power draw > 0
+                            for pw_key in ("power", "watts"):
+                                pw = poe_data.get(pw_key)
+                                try:
+                                    if pw is not None and float(pw) > 0:
+                                        poe_marker = True
+                                        break
+                                except ValueError, TypeError:
+                                    pass
 
                     if not poe_marker:
                         norm = get_field(port, "poe_power_w")
-                        poe_marker = isinstance(norm, (int, float))
+                        try:
+                            poe_marker = norm is not None and float(norm) > 0
+                        except ValueError, TypeError:
+                            poe_marker = False
 
                     if poe_marker:
                         poe_desc = PORT_SENSOR_TYPES[0]  # PoE power sensor
@@ -771,6 +989,7 @@ async def async_setup_entry(
                                 site_id=site_id,
                                 device_id=device_id,
                                 port_idx=port_idx,
+                                port_label=port_label,
                             )
                         )
 
@@ -783,12 +1002,13 @@ async def async_setup_entry(
                             site_id=site_id,
                             device_id=device_id,
                             port_idx=port_idx,
+                            port_label=port_label,
                         )
                     )
 
-                    # Create TX/RX bytes sensors for all active ports
-                    tx_desc = PORT_SENSOR_TYPES[2]  # TX bytes sensor
-                    rx_desc = PORT_SENSOR_TYPES[3]  # RX bytes sensor
+                    # Create TX/RX sensors for all active ports
+                    tx_desc = PORT_SENSOR_TYPES[2]  # TX sensor
+                    rx_desc = PORT_SENSOR_TYPES[3]  # RX sensor
                     entities.append(
                         UnifiPortSensor(
                             coordinator=coordinator,
@@ -796,6 +1016,7 @@ async def async_setup_entry(
                             site_id=site_id,
                             device_id=device_id,
                             port_idx=port_idx,
+                            port_label=port_label,
                         )
                     )
                     entities.append(
@@ -805,8 +1026,57 @@ async def async_setup_entry(
                             site_id=site_id,
                             device_id=device_id,
                             port_idx=port_idx,
+                            port_label=port_label,
                         )
                     )
+
+                    # Create TX/RX rate sensors for all active ports
+                    tx_rate_desc = PORT_RATE_SENSOR_TYPES[0]
+                    rx_rate_desc = PORT_RATE_SENSOR_TYPES[1]
+                    entities.append(
+                        UnifiPortSensor(
+                            coordinator=coordinator,
+                            description=tx_rate_desc,
+                            site_id=site_id,
+                            device_id=device_id,
+                            port_idx=port_idx,
+                            port_label=port_label,
+                        )
+                    )
+                    entities.append(
+                        UnifiPortSensor(
+                            coordinator=coordinator,
+                            description=rx_rate_desc,
+                            site_id=site_id,
+                            device_id=device_id,
+                            port_idx=port_idx,
+                            port_label=port_label,
+                        )
+                    )
+
+                    # Create SFP module sensors for SFP/SFP+ ports
+                    if is_sfp and port.get("sfp_found"):
+                        entities.extend(
+                            UnifiPortSensor(
+                                coordinator=coordinator,
+                                description=sfp_desc,
+                                site_id=site_id,
+                                device_id=device_id,
+                                port_idx=port_idx,
+                                port_label=port_label,
+                            )
+                            for sfp_desc in SFP_SENSOR_TYPES
+                        )
+
+            # Build set of active (UP) port indices for filtering
+            active_port_indices: set[int] = set()
+            for port in ports:
+                p_idx = get_field(port, "idx", "index", "port_idx")
+                if p_idx is None:
+                    continue
+                p_state = get_field(port, "state", "status", default="DOWN")
+                if str(p_state).upper() == "UP":
+                    active_port_indices.add(int(p_idx))
 
             # Fallback: create PoE power sensors from stats
             # when interfaces.ports is unavailable
@@ -819,6 +1089,7 @@ async def async_setup_entry(
                 _site_id: str = site_id,
                 _device_id: str = device_id,
                 _device_features: dict[str, Any] = device_features,
+                _active_ports: set[int] = active_port_indices,
             ) -> None:
                 """Create per-port sensors from stats."""
                 if "switching" not in _device_features:
@@ -844,6 +1115,22 @@ async def async_setup_entry(
                 }
 
                 for port_idx_int in normalised_ports:
+                    # Only create sensors for active ports
+                    if _active_ports and port_idx_int not in _active_ports:
+                        continue
+
+                    # For PoE stats, skip ports with zero power draw
+                    # (non-PoE device connected to a PoE-capable port)
+                    if stat_key == "poe_ports":
+                        try:
+                            val = per_port_stats.get(port_idx_int)
+                            if val is None:
+                                val = per_port_stats.get(str(port_idx_int))
+                            if val is not None and float(val) <= 0:
+                                continue
+                        except ValueError, TypeError:
+                            pass
+
                     for desc in sensor_descriptions:
                         if not port_filter(desc):
                             continue
@@ -956,6 +1243,20 @@ async def async_setup_entry(
     _LOGGER.info("Adding %d UniFi Insights sensors", len(entities))
     async_add_entities(entities)
 
+    # Clean up stale port entities from previous runs
+    created_uids = {getattr(e, "unique_id", None) for e in entities}
+    ent_reg = er.async_get(hass)
+    stale = [
+        entry
+        for entry in er.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
+        if entry.domain == "sensor"
+        and "_port_" in entry.unique_id
+        and entry.unique_id not in created_uids
+    ]
+    for entry in stale:
+        _LOGGER.debug("Removing stale port sensor entity: %s", entry.unique_id)
+        ent_reg.async_remove(entry.entity_id)
+
 
 class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
     """Representation of a UniFi Insights Sensor."""
@@ -1044,16 +1345,24 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
         site_id: str,
         device_id: str,
         port_idx: int,
+        port_label: str | None = None,
     ) -> None:
         """Initialize the port sensor."""
         super().__init__(coordinator, description, site_id, device_id)
         self._port_idx = port_idx
 
-        # Customize the name to include port number
-        port_name = description.name.format(port_idx=port_idx)
-        self._attr_name = port_name
+        # Use port label (e.g. "SFP+ 1") or fall back to "Port {idx}"
+        label = port_label or f"Port {port_idx}"
+        # Replace "Port {port_idx}" placeholder in the description name
+        # with the actual port label
+        base = description.name
+        if "{port_idx}" in base:
+            # e.g. "Port {port_idx} Speed" → "SFP+ 1 Speed"
+            self._attr_name = base.replace("Port {port_idx}", label)
+        else:
+            self._attr_name = f"{label} {base}"
 
-        # Create unique ID with port index
+        # Create unique ID with port index (stable, doesn't change with rename)
         self._attr_unique_id = f"{device_id}_{description.key}_{port_idx}"
 
         _LOGGER.debug(
@@ -1142,12 +1451,20 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                             if isinstance(v, (int, float)):
                                 return int(v)
 
+            # TX/RX rate sourced from stats when interfaces.ports is unavailable
+            if self.entity_description.key in ("port_tx_rate", "port_rx_rate"):
+                return self._get_port_rate_value()
+
             _LOGGER.debug(
                 "No port data available for port %d on device %s",
                 self._port_idx,
                 self._device_id,
             )
             return None
+
+        # Port TX/RX rate always comes from computed stats, not port data
+        if self.entity_description.key in ("port_tx_rate", "port_rx_rate"):
+            return self._get_port_rate_value()
 
         # Prefer PoE watts from coordinator stats when available
         if self.entity_description.key == "port_poe_power":
@@ -1263,6 +1580,25 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
                         return True
             # Fall through to standard port-state availability logic
 
+        # TX/RX rate availability based on computed port_rates
+        if self.entity_description.key in ("port_tx_rate", "port_rx_rate"):
+            if not self.coordinator.last_update_success:
+                return False
+            stats = (
+                self.coordinator.data.get("stats", {})
+                .get(self._site_id, {})
+                .get(self._device_id, {})
+            )
+            if isinstance(stats, dict):
+                port_rates = stats.get("port_rates")
+                if isinstance(port_rates, dict):
+                    pr = port_rates.get(self._port_idx) or port_rates.get(
+                        str(self._port_idx)
+                    )
+                    if isinstance(pr, dict):
+                        return True
+            # Fall through to standard port-state availability logic
+
         # Port sensors are available if the device is available AND the port is UP
         if not self.coordinator.last_update_success:
             return False
@@ -1299,9 +1635,88 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
         if not port_data:
             return False
 
+        # SFP info sensors stay available regardless of port state
+        if self.entity_description.key.startswith("port_sfp_"):
+            return True
+
         # Port sensor is only available if port state is UP
         port_state = port_data.get("state", "DOWN")
         return isinstance(port_state, str) and port_state == "UP"
+
+    def _get_port_rate_value(self) -> StateType:
+        """Get the computed port byte rate as bits/sec."""
+        stats = (
+            self.coordinator.data.get("stats", {})
+            .get(self._site_id, {})
+            .get(self._device_id, {})
+        )
+        if not isinstance(stats, dict):
+            return None
+
+        port_rates = stats.get("port_rates")
+        if not isinstance(port_rates, dict):
+            return None
+
+        pr = port_rates.get(self._port_idx) or port_rates.get(str(self._port_idx))
+        if not isinstance(pr, dict):
+            return None
+
+        rate_key = (
+            "tx_bytes_rate"
+            if self.entity_description.key == "port_tx_rate"
+            else "rx_bytes_rate"
+        )
+        bytes_per_sec = pr.get(rate_key)
+        if bytes_per_sec is None:
+            return None
+
+        # Convert bytes/sec to bits/sec (native unit)
+        return round(float(bytes_per_sec) * 8)
+
+    def _find_port_data(self) -> dict[str, Any] | None:
+        """Find port data for this sensor's port index."""
+        device_data = (
+            self.coordinator.data.get("devices", {})
+            .get(self._site_id, {})
+            .get(self._device_id, {})
+        )
+        if not device_data:
+            return None
+        ports = device_data.get("ports", [])
+        if not ports:
+            interfaces = device_data.get("interfaces", {})
+            if isinstance(interfaces, dict):
+                ports = interfaces.get("ports", [])
+        for port in ports:
+            idx = port.get("idx") or port.get("port_idx")
+            if idx == self._port_idx:
+                return port
+        return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return port type attributes."""
+        port = self._find_port_data()
+        if not port:
+            return None
+
+        attrs: dict[str, Any] = {}
+        media = port.get("media")
+        if media:
+            attrs["media_type"] = media
+        is_uplink = port.get("is_uplink")
+        if is_uplink is not None:
+            attrs["is_uplink"] = is_uplink
+        network_name = port.get("network_name")
+        if network_name:
+            attrs["network"] = network_name
+        port_name = port.get("name")
+        if port_name:
+            attrs["port_name"] = port_name
+        sfp_found = port.get("sfp_found")
+        if sfp_found is not None:
+            attrs["sfp_module_present"] = sfp_found
+        return attrs or None
 
 
 class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc]

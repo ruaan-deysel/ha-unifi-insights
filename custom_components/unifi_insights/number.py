@@ -130,9 +130,6 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):  # t
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
 
-        # Set name
-        self._attr_name = "Microphone Volume"
-
         # Set initial state
         self._update_from_data()
 
@@ -196,9 +193,6 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):  # type: i
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
 
-        # Set name
-        self._attr_name = "Brightness Level"
-
         # Set initial state
         self._update_from_data()
 
@@ -260,9 +254,6 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: 
 
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
-
-        # Set name
-        self._attr_name = "Volume"
 
         # Set initial state
         self._update_from_data()
@@ -329,9 +320,6 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):  # t
 
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
-
-        # Set name
-        self._attr_name = "Repeat Times"
 
         # Set initial state
         self._update_from_data()

@@ -311,8 +311,7 @@ class TestRestartDeviceService:
     async def test_restart_device_success(self, hass: HomeAssistant):
         """Test restart device success."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.restart_device = AsyncMock(return_value=True)
+        mock_coordinator.async_restart_device = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -331,7 +330,7 @@ class TestRestartDeviceService:
                 blocking=True,
             )
 
-        mock_coordinator.network_client.restart_device.assert_called_once_with(
+        mock_coordinator.async_restart_device.assert_called_once_with(
             "site1", "device1"
         )
 
@@ -340,8 +339,9 @@ class TestRestartDeviceService:
     async def test_restart_device_failure(self, hass: HomeAssistant):
         """Test restart device failure raises error."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.restart_device = AsyncMock(return_value=False)
+        mock_coordinator.async_restart_device = AsyncMock(
+            side_effect=HomeAssistantError("Failed to restart device device1")
+        )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -394,7 +394,7 @@ class TestProtectServices:
         """Test set_recording_mode success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.update_camera = AsyncMock()
+        mock_coordinator.async_set_recording_mode = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -413,7 +413,9 @@ class TestProtectServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.update_camera.assert_called_once()
+        mock_coordinator.async_set_recording_mode.assert_called_once_with(
+            "cam1", "always"
+        )
 
         await async_unload_services(hass)
 
@@ -421,7 +423,7 @@ class TestProtectServices:
         """Test set_hdr_mode success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_hdr_mode = AsyncMock()
+        mock_coordinator.async_set_hdr_mode = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -440,9 +442,7 @@ class TestProtectServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_hdr_mode.assert_called_once_with(
-            camera_id="cam1", mode="auto"
-        )
+        mock_coordinator.async_set_hdr_mode.assert_called_once_with("cam1", "auto")
 
         await async_unload_services(hass)
 
@@ -450,7 +450,7 @@ class TestProtectServices:
         """Test set_video_mode success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_video_mode = AsyncMock()
+        mock_coordinator.async_set_video_mode = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -469,9 +469,7 @@ class TestProtectServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_video_mode.assert_called_once_with(
-            camera_id="cam1", mode="default"
-        )
+        mock_coordinator.async_set_video_mode.assert_called_once_with("cam1", "default")
 
         await async_unload_services(hass)
 
@@ -479,7 +477,7 @@ class TestProtectServices:
         """Test set_mic_volume success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_microphone_volume = AsyncMock()
+        mock_coordinator.async_set_microphone_volume = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -498,9 +496,7 @@ class TestProtectServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_microphone_volume.assert_called_once_with(
-            camera_id="cam1", volume=50
-        )
+        mock_coordinator.async_set_microphone_volume.assert_called_once_with("cam1", 50)
 
         await async_unload_services(hass)
 
@@ -512,7 +508,7 @@ class TestLightServices:
         """Test set_light_mode success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_light_mode = AsyncMock()
+        mock_coordinator.async_set_light_mode = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -531,8 +527,8 @@ class TestLightServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_light_mode.assert_called_once_with(
-            light_id="light1", mode="always"
+        mock_coordinator.async_set_light_mode.assert_called_once_with(
+            "light1", "always"
         )
 
         await async_unload_services(hass)
@@ -541,7 +537,7 @@ class TestLightServices:
         """Test set_light_level success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_light_brightness = AsyncMock()
+        mock_coordinator.async_set_light_brightness = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -560,8 +556,8 @@ class TestLightServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_light_brightness.assert_called_once_with(
-            light_id="light1", level=75
+        mock_coordinator.async_set_light_brightness.assert_called_once_with(
+            "light1", 75
         )
 
         await async_unload_services(hass)
@@ -574,7 +570,7 @@ class TestPTZServices:
         """Test ptz_move success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.ptz_move_to_preset = AsyncMock()
+        mock_coordinator.async_move_ptz_to_preset = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -593,9 +589,7 @@ class TestPTZServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.ptz_move_to_preset.assert_called_once_with(
-            camera_id="cam1", preset=2
-        )
+        mock_coordinator.async_move_ptz_to_preset.assert_called_once_with("cam1", 2)
 
         await async_unload_services(hass)
 
@@ -603,7 +597,7 @@ class TestPTZServices:
         """Test ptz_patrol start success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.ptz_start_patrol = AsyncMock()
+        mock_coordinator.async_start_ptz_patrol = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -622,9 +616,7 @@ class TestPTZServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.ptz_start_patrol.assert_called_once_with(
-            camera_id="cam1", slot=1
-        )
+        mock_coordinator.async_start_ptz_patrol.assert_called_once_with("cam1", 1)
 
         await async_unload_services(hass)
 
@@ -632,7 +624,7 @@ class TestPTZServices:
         """Test ptz_patrol stop success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.ptz_stop_patrol = AsyncMock()
+        mock_coordinator.async_stop_ptz_patrol = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -651,9 +643,7 @@ class TestPTZServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.ptz_stop_patrol.assert_called_once_with(
-            camera_id="cam1"
-        )
+        mock_coordinator.async_stop_ptz_patrol.assert_called_once_with("cam1")
 
         await async_unload_services(hass)
 
@@ -665,7 +655,7 @@ class TestChimeServices:
         """Test set_chime_volume success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_chime_volume = AsyncMock()
+        mock_coordinator.async_set_chime_volume = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -684,7 +674,7 @@ class TestChimeServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_chime_volume.assert_called_once()
+        mock_coordinator.async_set_chime_volume.assert_called_once_with("chime1", 80)
 
         await async_unload_services(hass)
 
@@ -692,7 +682,7 @@ class TestChimeServices:
         """Test play_chime_ringtone success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.play_chime = AsyncMock()
+        mock_coordinator.async_play_chime = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -711,7 +701,7 @@ class TestChimeServices:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.play_chime.assert_called_once()
+        mock_coordinator.async_play_chime.assert_called_once_with("chime1")
 
         await async_unload_services(hass)
 
@@ -720,21 +710,10 @@ class TestNetworkServices:
     """Tests for network service handlers."""
 
     async def test_authorize_guest_success(self, hass: HomeAssistant):
-        """Test authorize_guest success."""
-        mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.authorize_guest = AsyncMock()
-        mock_entry = MagicMock()
-        mock_entry.runtime_data = MagicMock()
-        mock_entry.runtime_data.coordinator = mock_coordinator
-
+        """Test authorize_guest raises not supported error."""
         await async_setup_services(hass)
 
-        with patch.object(
-            hass.config_entries,
-            "async_entries",
-            return_value=[mock_entry],
-        ):
+        with pytest.raises(HomeAssistantError, match="not supported"):
             await hass.services.async_call(
                 DOMAIN,
                 "authorize_guest",
@@ -742,15 +721,12 @@ class TestNetworkServices:
                 blocking=True,
             )
 
-        mock_coordinator.network_client.authorize_guest.assert_called_once()
-
         await async_unload_services(hass)
 
     async def test_generate_voucher_success(self, hass: HomeAssistant):
         """Test generate_voucher success."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.generate_voucher = AsyncMock()
+        mock_coordinator.async_generate_voucher = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -769,15 +745,14 @@ class TestNetworkServices:
                 blocking=True,
             )
 
-        mock_coordinator.network_client.generate_voucher.assert_called_once()
+        mock_coordinator.async_generate_voucher.assert_called_once()
 
         await async_unload_services(hass)
 
     async def test_delete_voucher_success(self, hass: HomeAssistant):
         """Test delete_voucher success."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.delete_voucher = AsyncMock()
+        mock_coordinator.async_delete_voucher = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -796,7 +771,7 @@ class TestNetworkServices:
                 blocking=True,
             )
 
-        mock_coordinator.network_client.delete_voucher.assert_called_once()
+        mock_coordinator.async_delete_voucher.assert_called_once()
 
         await async_unload_services(hass)
 
@@ -879,8 +854,9 @@ class TestServiceErrorHandling:
     async def test_restart_device_failed(self, hass: HomeAssistant):
         """Test restart_device when restart fails."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.restart_device = AsyncMock(return_value=False)
+        mock_coordinator.async_restart_device = AsyncMock(
+            side_effect=HomeAssistantError("Failed to restart device device1")
+        )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -907,9 +883,8 @@ class TestServiceErrorHandling:
     async def test_restart_device_error(self, hass: HomeAssistant):
         """Test restart_device with exception."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.restart_device = AsyncMock(
-            side_effect=Exception("Restart failed")
+        mock_coordinator.async_restart_device = AsyncMock(
+            side_effect=HomeAssistantError("Error restarting device")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -965,8 +940,8 @@ class TestServiceErrorHandling:
         """Test set_recording_mode with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.update_camera = AsyncMock(
-            side_effect=Exception("Update failed")
+        mock_coordinator.async_set_recording_mode = AsyncMock(
+            side_effect=HomeAssistantError("Error setting recording mode")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1022,8 +997,8 @@ class TestServiceErrorHandling:
         """Test set_hdr_mode with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_hdr_mode = AsyncMock(
-            side_effect=Exception("HDR failed")
+        mock_coordinator.async_set_hdr_mode = AsyncMock(
+            side_effect=HomeAssistantError("Error setting HDR mode")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1079,8 +1054,8 @@ class TestServiceErrorHandling:
         """Test set_video_mode with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_video_mode = AsyncMock(
-            side_effect=Exception("Video failed")
+        mock_coordinator.async_set_video_mode = AsyncMock(
+            side_effect=HomeAssistantError("Error setting video mode")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1136,8 +1111,8 @@ class TestServiceErrorHandling:
         """Test set_mic_volume with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_microphone_volume = AsyncMock(
-            side_effect=Exception("Mic failed")
+        mock_coordinator.async_set_microphone_volume = AsyncMock(
+            side_effect=HomeAssistantError("Error setting mic volume")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1193,8 +1168,8 @@ class TestServiceErrorHandling:
         """Test set_light_mode with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_light_mode = AsyncMock(
-            side_effect=Exception("Light mode failed")
+        mock_coordinator.async_set_light_mode = AsyncMock(
+            side_effect=HomeAssistantError("Error setting light mode")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1250,8 +1225,8 @@ class TestServiceErrorHandling:
         """Test set_light_level with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_light_brightness = AsyncMock(
-            side_effect=Exception("Light level failed")
+        mock_coordinator.async_set_light_brightness = AsyncMock(
+            side_effect=HomeAssistantError("Error setting light level")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1307,8 +1282,8 @@ class TestServiceErrorHandling:
         """Test ptz_move with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.ptz_move_to_preset = AsyncMock(
-            side_effect=Exception("PTZ failed")
+        mock_coordinator.async_move_ptz_to_preset = AsyncMock(
+            side_effect=HomeAssistantError("Error moving PTZ")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1364,7 +1339,7 @@ class TestServiceErrorHandling:
         """Test ptz_patrol stop success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.ptz_stop_patrol = AsyncMock()
+        mock_coordinator.async_stop_ptz_patrol = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -1383,7 +1358,7 @@ class TestServiceErrorHandling:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.ptz_stop_patrol.assert_called_once()
+        mock_coordinator.async_stop_ptz_patrol.assert_called_once_with("cam1")
 
         await async_unload_services(hass)
 
@@ -1391,8 +1366,8 @@ class TestServiceErrorHandling:
         """Test ptz_patrol with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.ptz_start_patrol = AsyncMock(
-            side_effect=Exception("Patrol failed")
+        mock_coordinator.async_start_ptz_patrol = AsyncMock(
+            side_effect=HomeAssistantError("Error controlling PTZ patrol")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1448,8 +1423,8 @@ class TestServiceErrorHandling:
         """Test set_chime_volume with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_chime_volume = AsyncMock(
-            side_effect=Exception("Chime volume failed")
+        mock_coordinator.async_set_chime_volume = AsyncMock(
+            side_effect=HomeAssistantError("Error setting chime volume")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1505,8 +1480,8 @@ class TestServiceErrorHandling:
         """Test play_chime_ringtone with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.play_chime = AsyncMock(
-            side_effect=Exception("Play chime failed")
+        mock_coordinator.async_play_chime = AsyncMock(
+            side_effect=HomeAssistantError("Error playing chime")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1562,8 +1537,8 @@ class TestServiceErrorHandling:
         """Test set_chime_ringtone with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_chime_ringtone = AsyncMock(
-            side_effect=Exception("Set ringtone failed")
+        mock_coordinator.async_set_chime_ringtone = AsyncMock(
+            side_effect=HomeAssistantError("Error setting chime ringtone")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1619,8 +1594,8 @@ class TestServiceErrorHandling:
         """Test set_chime_repeat_times with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_chime_repeat = AsyncMock(
-            side_effect=Exception("Set repeat failed")
+        mock_coordinator.async_set_chime_repeat = AsyncMock(
+            side_effect=HomeAssistantError("Error setting chime repeat times")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1649,7 +1624,7 @@ class TestServiceErrorHandling:
         """Test set_chime_ringtone success (covers line 784)."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_chime_ringtone = AsyncMock()
+        mock_coordinator.async_set_chime_ringtone = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -1668,7 +1643,9 @@ class TestServiceErrorHandling:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_chime_ringtone.assert_called_once()
+        mock_coordinator.async_set_chime_ringtone.assert_called_once_with(
+            "chime1", "default"
+        )
 
         await async_unload_services(hass)
 
@@ -1676,7 +1653,7 @@ class TestServiceErrorHandling:
         """Test set_chime_repeat_times success (covers line 816)."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_chime_repeat = AsyncMock()
+        mock_coordinator.async_set_chime_repeat = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
@@ -1695,22 +1672,15 @@ class TestServiceErrorHandling:
                 blocking=True,
             )
 
-        mock_coordinator.protect_client.set_chime_repeat.assert_called_once()
+        mock_coordinator.async_set_chime_repeat.assert_called_once_with("chime1", 3)
 
         await async_unload_services(hass)
 
     async def test_authorize_guest_no_coordinator(self, hass: HomeAssistant):
-        """Test authorize_guest when no coordinator is found."""
+        """Test authorize_guest raises not supported error."""
         await async_setup_services(hass)
 
-        with (
-            patch.object(
-                hass.config_entries,
-                "async_entries",
-                return_value=[],
-            ),
-            pytest.raises(HomeAssistantError, match="No UniFi Insights"),
-        ):
+        with pytest.raises(HomeAssistantError, match="not supported"):
             await hass.services.async_call(
                 DOMAIN,
                 "authorize_guest",
@@ -1721,26 +1691,10 @@ class TestServiceErrorHandling:
         await async_unload_services(hass)
 
     async def test_authorize_guest_error(self, hass: HomeAssistant):
-        """Test authorize_guest with exception."""
-        mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.authorize_guest = AsyncMock(
-            side_effect=Exception("Auth failed")
-        )
-        mock_entry = MagicMock()
-        mock_entry.runtime_data = MagicMock()
-        mock_entry.runtime_data.coordinator = mock_coordinator
-
+        """Test authorize_guest raises not supported error."""
         await async_setup_services(hass)
 
-        with (
-            patch.object(
-                hass.config_entries,
-                "async_entries",
-                return_value=[mock_entry],
-            ),
-            pytest.raises(HomeAssistantError, match="Error authorizing guest"),
-        ):
+        with pytest.raises(HomeAssistantError, match="not supported"):
             await hass.services.async_call(
                 DOMAIN,
                 "authorize_guest",
@@ -1774,9 +1728,8 @@ class TestServiceErrorHandling:
     async def test_generate_voucher_error(self, hass: HomeAssistant):
         """Test generate_voucher with exception."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.generate_voucher = AsyncMock(
-            side_effect=Exception("Generate failed")
+        mock_coordinator.async_generate_voucher = AsyncMock(
+            side_effect=HomeAssistantError("Error generating voucher")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1825,9 +1778,8 @@ class TestServiceErrorHandling:
     async def test_delete_voucher_error(self, hass: HomeAssistant):
         """Test delete_voucher with exception."""
         mock_coordinator = MagicMock()
-        mock_coordinator.network_client = MagicMock()
-        mock_coordinator.network_client.delete_voucher = AsyncMock(
-            side_effect=Exception("Delete failed")
+        mock_coordinator.async_delete_voucher = AsyncMock(
+            side_effect=HomeAssistantError("Error deleting voucher")
         )
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
@@ -1860,23 +1812,26 @@ class TestTriggerAlarmService:
         """Test trigger_alarm service success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.trigger_alarm = AsyncMock()
+        mock_coordinator.async_trigger_alarm = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        # Set up hass.data[DOMAIN] as the service uses it directly
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "trigger_alarm",
+                {"alarm_id": "alarm1"},
+                blocking=True,
+            )
 
-        await hass.services.async_call(
-            DOMAIN,
-            "trigger_alarm",
-            {"alarm_id": "alarm1"},
-            blocking=True,
-        )
-
-        mock_coordinator.protect_client.trigger_alarm.assert_called_once_with(
-            alarm_id="alarm1"
-        )
+        mock_coordinator.async_trigger_alarm.assert_called_once_with("alarm1")
 
         await async_unload_services(hass)
 
@@ -1884,9 +1839,14 @@ class TestTriggerAlarmService:
         """Test trigger_alarm when no coordinator is found."""
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {}
-
-        with pytest.raises(HomeAssistantError, match="No UniFi Protect"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "trigger_alarm",
@@ -1900,12 +1860,20 @@ class TestTriggerAlarmService:
         """Test trigger_alarm when coordinator has no protect_client."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = None
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
-
-        with pytest.raises(HomeAssistantError, match="No UniFi Protect"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "trigger_alarm",
@@ -1919,15 +1887,23 @@ class TestTriggerAlarmService:
         """Test trigger_alarm with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.trigger_alarm = AsyncMock(
-            side_effect=Exception("Alarm failed")
+        mock_coordinator.async_trigger_alarm = AsyncMock(
+            side_effect=HomeAssistantError("Error triggering alarm")
         )
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
-
-        with pytest.raises(HomeAssistantError, match="Error triggering alarm"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="Error triggering alarm"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "trigger_alarm",
@@ -1945,21 +1921,27 @@ class TestCreateLiveviewService:
         """Test create_liveview service success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.create_liveview = AsyncMock()
+        mock_coordinator.async_create_liveview = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "create_liveview",
+                {"name": "Test Liveview", "layout": 2, "is_default": True},
+                blocking=True,
+            )
 
-        await hass.services.async_call(
-            DOMAIN,
-            "create_liveview",
-            {"name": "Test Liveview", "layout": 2, "is_default": True},
-            blocking=True,
-        )
-
-        mock_coordinator.protect_client.create_liveview.assert_called_once_with(
-            data={"name": "Test Liveview", "layout": 2, "isDefault": True}
+        mock_coordinator.async_create_liveview.assert_called_once_with(
+            name="Test Liveview", layout=2, is_default=True
         )
 
         await async_unload_services(hass)
@@ -1968,9 +1950,14 @@ class TestCreateLiveviewService:
         """Test create_liveview when no coordinator is found."""
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {}
-
-        with pytest.raises(HomeAssistantError, match="No UniFi Protect"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "create_liveview",
@@ -1984,12 +1971,20 @@ class TestCreateLiveviewService:
         """Test create_liveview when coordinator has no protect_client."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = None
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
-
-        with pytest.raises(HomeAssistantError, match="No UniFi Protect"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "create_liveview",
@@ -2003,15 +1998,23 @@ class TestCreateLiveviewService:
         """Test create_liveview with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.create_liveview = AsyncMock(
-            side_effect=Exception("Liveview failed")
+        mock_coordinator.async_create_liveview = AsyncMock(
+            side_effect=HomeAssistantError("Error creating liveview")
         )
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
-
-        with pytest.raises(HomeAssistantError, match="Error creating liveview"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="Error creating liveview"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "create_liveview",
@@ -2029,21 +2032,27 @@ class TestSetLiveviewService:
         """Test set_liveview service success."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.update_viewer = AsyncMock()
+        mock_coordinator.async_update_viewer = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_liveview",
+                {"viewer_id": "viewer1", "liveview_id": "liveview1"},
+                blocking=True,
+            )
 
-        await hass.services.async_call(
-            DOMAIN,
-            "set_liveview",
-            {"viewer_id": "viewer1", "liveview_id": "liveview1"},
-            blocking=True,
-        )
-
-        mock_coordinator.protect_client.update_viewer.assert_called_once_with(
-            viewer_id="viewer1", data={"liveview": "liveview1"}
+        mock_coordinator.async_update_viewer.assert_called_once_with(
+            "viewer1", liveview="liveview1"
         )
 
         await async_unload_services(hass)
@@ -2052,9 +2061,14 @@ class TestSetLiveviewService:
         """Test set_liveview when no coordinator is found."""
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {}
-
-        with pytest.raises(HomeAssistantError, match="No UniFi Protect"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "set_liveview",
@@ -2068,12 +2082,20 @@ class TestSetLiveviewService:
         """Test set_liveview when coordinator has no protect_client."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = None
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
-
-        with pytest.raises(HomeAssistantError, match="No UniFi Protect"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "set_liveview",
@@ -2087,15 +2109,23 @@ class TestSetLiveviewService:
         """Test set_liveview with exception."""
         mock_coordinator = MagicMock()
         mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.update_viewer = AsyncMock(
-            side_effect=Exception("Set liveview failed")
+        mock_coordinator.async_update_viewer = AsyncMock(
+            side_effect=HomeAssistantError("Error setting liveview")
         )
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
         await async_setup_services(hass)
 
-        hass.data[DOMAIN] = {"test_entry": mock_coordinator}
-
-        with pytest.raises(HomeAssistantError, match="Error setting liveview"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="Error setting liveview"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "set_liveview",

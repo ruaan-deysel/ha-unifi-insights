@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -1021,6 +1021,58 @@ class TestUnifiDeviceCoordinator:
 
         assert "Error updating data" in str(exc_info.value)
         assert coordinator._available is False
+
+    def test_merge_legacy_port_data_includes_poe_good(
+        self, coordinator: UnifiDeviceCoordinator
+    ):
+        """Test _merge_legacy_port_data passes through poe_good flag."""
+        device_dict: dict[str, Any] = {"macAddress": "AA:BB:CC:DD:EE:FF"}
+        legacy_devices_by_mac: dict[str, dict[str, Any]] = {
+            "aa:bb:cc:dd:ee:ff": {
+                "port_table": [
+                    {
+                        "port_idx": 1,
+                        "up": True,
+                        "port_poe": True,
+                        "poe_enable": True,
+                        "poe_power": "8.50",
+                        "poe_good": True,
+                    },
+                    {
+                        "port_idx": 2,
+                        "up": True,
+                        "port_poe": True,
+                        "poe_enable": True,
+                        "poe_power": "0.00",
+                        "poe_good": False,
+                    },
+                    {
+                        "port_idx": 3,
+                        "up": True,
+                        "port_poe": False,
+                    },
+                ]
+            }
+        }
+
+        UnifiDeviceCoordinator._merge_legacy_port_data(
+            device_dict, legacy_devices_by_mac
+        )
+
+        ports = device_dict.get("ports", [])
+        assert len(ports) == 3
+
+        port1 = next(p for p in ports if p["port_idx"] == 1)
+        assert port1["poe"]["good"] is True
+        assert port1["poe"]["enabled"] is True
+        assert port1["poe"]["power"] == "8.50"
+
+        port2 = next(p for p in ports if p["port_idx"] == 2)
+        assert port2["poe"]["good"] is False
+        assert port2["poe"]["enabled"] is True
+
+        port3 = next(p for p in ports if p["port_idx"] == 3)
+        assert "poe" not in port3
 
 
 # ============================================================================

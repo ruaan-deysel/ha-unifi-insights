@@ -1,10 +1,10 @@
 """Tests for UniFi Insights sensors."""
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.const import PERCENTAGE, UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfTemperature
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -15,6 +15,7 @@ from custom_components.unifi_insights.sensor import (
     PORT_SENSOR_TYPES,
     PROTECT_SENSOR_TYPES,
     SENSOR_TYPES,
+    SFP_SENSOR_TYPES,
     UnifiInsightsSensor,
     UnifiPortSensor,
     UnifiProtectNVRSensor,
@@ -24,9 +25,12 @@ from custom_components.unifi_insights.sensor import (
     _calculate_storage_available,
     _calculate_storage_percent,
     _get_client_type,
+    _get_port_label,
     _get_storage_bytes,
     _has_storage_info,
+    _migrate_sensor_units,
     async_setup_entry,
+    bytes_to_bits,
     bytes_to_megabits,
     format_uptime,
     get_network_device_temperature,
@@ -77,6 +81,27 @@ def mock_coordinator():
                                 "idx": 2,
                                 "state": "DOWN",
                                 "speedMbps": 0,
+                            },
+                            {
+                                "idx": 25,
+                                "state": "UP",
+                                "speedMbps": 10000,
+                                "media": "SFP+",
+                                "name": "SFP+ 1",
+                                "is_uplink": True,
+                                "sfp_found": True,
+                                "sfp_part": "UC-DAC-SFP+",
+                                "sfp_vendor": "Ubiquiti Inc.",
+                                "sfp_serial": "SN12345",
+                                "sfp_compliance": "DAC",
+                            },
+                            {
+                                "idx": 26,
+                                "state": "DOWN",
+                                "speedMbps": 10000,
+                                "media": "SFP+",
+                                "name": "SFP+ 2",
+                                "sfp_found": False,
                             },
                         ]
                     },
@@ -220,6 +245,28 @@ class TestBytesToMegabits:
         assert bytes_to_megabits(125000) == 1.0
 
 
+class TestBytesToBits:
+    """Tests for bytes_to_bits function."""
+
+    def test_bytes_to_bits_none(self):
+        """Test bytes_to_bits with None."""
+        assert bytes_to_bits(None) is None
+
+    def test_bytes_to_bits_zero(self):
+        """Test bytes_to_bits with zero."""
+        assert bytes_to_bits(0) == 0
+
+    def test_bytes_to_bits_calculation(self):
+        """Test bytes_to_bits calculation."""
+        # 1000 bytes/sec = 8000 bits/sec
+        assert bytes_to_bits(1000) == 8000
+
+    def test_bytes_to_bits_large_value(self):
+        """Test bytes_to_bits with large value."""
+        # 1,000,000 bytes/sec = 8,000,000 bits/sec
+        assert bytes_to_bits(1000000) == 8000000
+
+
 class TestGetClientType:
     """Tests for _get_client_type helper function."""
 
@@ -320,7 +367,7 @@ class TestUnifiInsightsSensor:
         assert sensor.native_value == "1d 0h 0m"
 
     async def test_sensor_tx_rate(self, hass: HomeAssistant, mock_coordinator):
-        """Test TX rate sensor."""
+        """Test TX rate sensor returns bits per second."""
         description = next(s for s in SENSOR_TYPES if s.key == "tx_rate")
 
         sensor = UnifiInsightsSensor(
@@ -330,8 +377,8 @@ class TestUnifiInsightsSensor:
             device_id="device1",
         )
 
-        # 1000000 bytes/sec = 8 Mbps
-        assert sensor.native_value == 8.0
+        # 1000000 bytes/sec = 8000000 bits/sec (native unit)
+        assert sensor.native_value == 8000000
 
     async def test_sensor_firmware_version(self, hass: HomeAssistant, mock_coordinator):
         """Test firmware version sensor."""
@@ -518,6 +565,234 @@ class TestUnifiPortSensor:
 
         # Value should be None when device data is missing
         assert sensor.native_value is None
+
+
+class TestGetPortLabel:
+    """Tests for _get_port_label helper."""
+
+    def test_port_label_uses_api_name(self):
+        """Test _get_port_label returns the API name when available."""
+        port = {"name": "SFP+ 1", "media": "SFP+", "idx": 25}
+        assert _get_port_label(port, 25) == "SFP+ 1"
+
+    def test_port_label_sfp_fallback(self):
+        """Test _get_port_label returns media-based label for SFP ports without name."""
+        port = {"media": "SFP+", "idx": 10}
+        assert _get_port_label(port, 10) == "SFP+ 10"
+
+    def test_port_label_regular_port(self):
+        """Test _get_port_label returns generic label for regular ports."""
+        port = {"media": "GE", "idx": 1}
+        assert _get_port_label(port, 1) == "Port 1"
+
+    def test_port_label_no_media(self):
+        """Test _get_port_label returns generic label when no media info."""
+        port = {"idx": 5}
+        assert _get_port_label(port, 5) == "Port 5"
+
+    def test_port_label_ignores_generic_name(self):
+        """Test _get_port_label ignores default 'Port N' name and uses media."""
+        port = {"name": "Port 25", "media": "SFP+", "idx": 25}
+        assert _get_port_label(port, 25) == "SFP+ 25"
+
+
+class TestSFPPortSensors:
+    """Tests for SFP port sensor features."""
+
+    async def test_sfp_sensor_types_defined(self):
+        """Test that SFP sensor types are defined."""
+        assert len(SFP_SENSOR_TYPES) == 4
+        keys = {s.key for s in SFP_SENSOR_TYPES}
+        assert keys == {
+            "port_sfp_module",
+            "port_sfp_vendor",
+            "port_sfp_compliance",
+            "port_sfp_serial",
+        }
+
+    async def test_sfp_module_sensor_value(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP module sensor returns sfp_part."""
+        description = next(s for s in SFP_SENSOR_TYPES if s.key == "port_sfp_module")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.native_value == "UC-DAC-SFP+"
+
+    async def test_sfp_vendor_sensor_value(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP vendor sensor returns sfp_vendor."""
+        description = next(s for s in SFP_SENSOR_TYPES if s.key == "port_sfp_vendor")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.native_value == "Ubiquiti Inc."
+
+    async def test_sfp_compliance_sensor_value(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test SFP compliance sensor returns sfp_compliance."""
+        description = next(
+            s for s in SFP_SENSOR_TYPES if s.key == "port_sfp_compliance"
+        )
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.native_value == "DAC"
+
+    async def test_sfp_serial_sensor_value(self, hass: HomeAssistant, mock_coordinator):
+        """Test SFP serial sensor returns sfp_serial."""
+        description = next(s for s in SFP_SENSOR_TYPES if s.key == "port_sfp_serial")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert sensor.native_value == "SN12345"
+
+    async def test_sfp_sensor_available_even_when_port_down(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test SFP sensors stay available even when port state is DOWN."""
+        description = next(s for s in SFP_SENSOR_TYPES if s.key == "port_sfp_module")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=26,  # Port 26 is DOWN but has SFP media
+        )
+        # SFP info sensors stay available regardless of port state
+        assert sensor.available is True
+
+    async def test_port_label_in_sensor_name(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test port label is used in sensor name."""
+        description = next(s for s in PORT_SENSOR_TYPES if s.key == "port_speed")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert "SFP+ 1" in sensor.name
+
+    async def test_sfp_sensor_name_uses_port_label(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test SFP sensor name includes port label."""
+        description = next(s for s in SFP_SENSOR_TYPES if s.key == "port_sfp_module")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        assert "SFP+ 1" in sensor.name
+
+    async def test_port_extra_state_attributes(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test port sensor extra_state_attributes include port type info."""
+        description = next(s for s in PORT_SENSOR_TYPES if s.key == "port_speed")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=25,
+            port_label="SFP+ 1",
+        )
+        attrs = sensor.extra_state_attributes
+        assert attrs is not None
+        assert attrs["media_type"] == "SFP+"
+        assert attrs["is_uplink"] is True
+        assert attrs["port_name"] == "SFP+ 1"
+        assert attrs["sfp_module_present"] is True
+
+    async def test_port_extra_state_attributes_regular_port(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test regular port has no extra attributes if no type info."""
+        description = next(s for s in PORT_SENSOR_TYPES if s.key == "port_speed")
+        sensor = UnifiPortSensor(
+            coordinator=mock_coordinator,
+            description=description,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+        )
+        attrs = sensor.extra_state_attributes
+        # Regular port without media/is_uplink/etc. has no attributes
+        assert attrs is None
+
+    async def test_setup_creates_sfp_sensors(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test async_setup_entry creates SFP sensors for SFP ports with modules."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        sfp_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiPortSensor)
+            and e.entity_description.key.startswith("port_sfp_")
+        ]
+        # Port 25 has sfp_found=True → 4 SFP sensors
+        # Port 26 has sfp_found=False → 0 SFP sensors
+        assert len(sfp_sensors) == 4
+
+    async def test_setup_port_labels_passed(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test async_setup_entry passes port labels to port sensors."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        # Find a speed sensor for port 25 (SFP+)
+        sfp_speed = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiPortSensor)
+            and e.entity_description.key == "port_speed"
+            and e._port_idx == 25
+        ]
+        assert len(sfp_speed) == 1
+        assert "SFP+ 1" in sfp_speed[0].name
 
 
 class TestUnifiProtectSensor:
@@ -1452,6 +1727,191 @@ class TestAsyncSetupEntryEdgeCases:
         port_sensors = [e for e in entities if isinstance(e, UnifiPortSensor)]
         assert len(port_sensors) == 0
 
+    async def test_setup_entry_stats_fallback_respects_port_state(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test stats fallback does not create sensors for inactive ports."""
+        # Device with switching feature and one UP port, one DOWN port
+        mock_coordinator.data["devices"]["site1"]["device1"]["features"] = ["switching"]
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [
+                {"idx": 1, "state": "UP", "poe": {"enabled": True}},
+                {"idx": 2, "state": "DOWN"},
+            ]
+        }
+        # Stats have poe_ports and port_bytes for BOTH ports (including DOWN)
+        mock_coordinator.data["stats"]["site1"]["device1"]["poe_ports"] = {
+            1: {"power": 10.0},
+            2: {"power": 0.0},
+        }
+        mock_coordinator.data["stats"]["site1"]["device1"]["port_bytes"] = {
+            "1": {"tx_bytes": 5000, "rx_bytes": 3000},
+            "2": {"tx_bytes": 0, "rx_bytes": 0},
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        port_sensors = [e for e in entities if isinstance(e, UnifiPortSensor)]
+        port_indices = {s._port_idx for s in port_sensors}
+        # Only port 1 (UP) should have sensors, not port 2 (DOWN)
+        assert 1 in port_indices
+        assert 2 not in port_indices
+
+    async def test_setup_entry_no_poe_sensor_for_non_poe_device(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test PoE sensor is NOT created when a non-PoE device is on a PoE port."""
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [
+                {
+                    "idx": 1,
+                    "state": "UP",
+                    "speedMbps": 1000,
+                    # PoE port enabled but power is 0 (non-PoE device connected)
+                    "poe": {"enabled": True, "power": 0.0, "good": False},
+                },
+                {
+                    "idx": 2,
+                    "state": "UP",
+                    "speedMbps": 1000,
+                    # PoE port with a PoE device actually drawing power
+                    "poe": {"enabled": True, "power": 8.5, "good": True},
+                },
+            ]
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        poe_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiPortSensor)
+            and e.entity_description.key == "port_poe_power"
+        ]
+        poe_port_indices = {s._port_idx for s in poe_sensors}
+
+        # Port 1 should NOT have PoE sensor (non-PoE device, power=0)
+        assert 1 not in poe_port_indices
+        # Port 2 should have PoE sensor (PoE device, power=8.5)
+        assert 2 in poe_port_indices
+
+    async def test_setup_entry_poe_sensor_created_when_poe_good(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test PoE sensor IS created when poe_good is True even with 0 power."""
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [
+                {
+                    "idx": 1,
+                    "state": "UP",
+                    "speedMbps": 1000,
+                    # PoE negotiation succeeded but no current draw (e.g. standby)
+                    "poe": {"enabled": True, "power": 0.0, "good": True},
+                },
+            ]
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        poe_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiPortSensor)
+            and e.entity_description.key == "port_poe_power"
+        ]
+        # Sensor should be created because poe_good=True
+        assert len(poe_sensors) == 1
+        assert poe_sensors[0]._port_idx == 1
+
+    async def test_setup_entry_poe_sensor_only_enabled_no_power(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test PoE sensor is NOT created when port has only enabled=True."""
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [
+                {
+                    "idx": 1,
+                    "state": "UP",
+                    "speedMbps": 1000,
+                    # PoE enabled but no power or good flag
+                    "poe": {"enabled": True},
+                },
+            ]
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        poe_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiPortSensor)
+            and e.entity_description.key == "port_poe_power"
+        ]
+        # No PoE sensor: enabled=True alone doesn't confirm a PoE device
+        assert len(poe_sensors) == 0
+
+    async def test_setup_entry_stats_fallback_skips_zero_poe(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test stats fallback skips PoE sensors for ports with zero power."""
+        mock_coordinator.data["devices"]["site1"]["device1"]["features"] = ["switching"]
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = {
+            "ports": [
+                {"idx": 1, "state": "UP"},
+                {"idx": 2, "state": "UP"},
+            ]
+        }
+        # Stats: port 1 draws power, port 2 draws zero
+        mock_coordinator.data["stats"]["site1"]["device1"]["poe_ports"] = {
+            1: 12.5,
+            2: 0.0,
+        }
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        poe_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiPortSensor)
+            and e.entity_description.key == "port_poe_power"
+        ]
+        poe_port_indices = {s._port_idx for s in poe_sensors}
+
+        # Port 1 should have PoE sensor (power > 0)
+        assert 1 in poe_port_indices
+        # Port 2 should NOT have PoE sensor (power = 0, non-PoE device)
+        assert 2 not in poe_port_indices
+
     async def test_setup_entry_wan_sensors_for_gateway(
         self, hass: HomeAssistant, mock_coordinator, mock_config_entry
     ):
@@ -1476,6 +1936,79 @@ class TestAsyncSetupEntryEdgeCases:
             and e.entity_description.key.startswith("wan_")
         ]
         assert len(wan_sensors) > 0
+
+    async def test_setup_entry_uplink_rate_sensors_created_with_uplink_data(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test uplink rate sensors are created when uplink data exists."""
+        # device1 already has uplink stats in default mock data
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        rate_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiInsightsSensor)
+            and e.entity_description.key in ("tx_rate", "rx_rate")
+        ]
+        rate_keys = {s.entity_description.key for s in rate_sensors}
+        assert "tx_rate" in rate_keys
+        assert "rx_rate" in rate_keys
+
+    async def test_setup_entry_uplink_rate_sensors_skipped_without_data(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test uplink rate sensors are NOT created when no uplink data exists."""
+        # Remove uplink data from device1 stats
+        mock_coordinator.data["stats"]["site1"]["device1"].pop("uplink", None)
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        rate_sensors = [
+            e
+            for e in entities
+            if isinstance(e, UnifiInsightsSensor)
+            and e.entity_description.key in ("tx_rate", "rx_rate")
+        ]
+        # device1 has no uplink stats; device2 never had any
+        assert len(rate_sensors) == 0
+
+    async def test_setup_entry_uplink_rate_name_includes_uplink(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test uplink rate sensors have 'Uplink' in name."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, mock_add_entities)
+
+        tx_sensor = next(
+            (
+                e
+                for e in entities
+                if isinstance(e, UnifiInsightsSensor)
+                and e.entity_description.key == "tx_rate"
+            ),
+            None,
+        )
+        assert tx_sensor is not None
+        assert "Uplink" in tx_sensor.entity_description.name
 
 
 class TestUnifiInsightsSensorEdgeCases:
@@ -1676,3 +2209,137 @@ class TestUnifiProtectNVRSensorEdgeCases:
 
         assert sensor._attr_extra_state_attributes is not None
         assert "nvr_id" in sensor._attr_extra_state_attributes
+
+
+class TestMigrateSensorUnits:
+    """Test _migrate_sensor_units for entity registry unit migration."""
+
+    def test_migrate_sets_refresh_flag_for_port_rx_bytes(self, hass, mock_config_entry):
+        """Test migration sets refresh_initial_entity_options for port_rx_bytes."""
+        mock_entry = MagicMock()
+        mock_entry.domain = "sensor"
+        mock_entry.unique_id = "aa:bb:cc:dd:ee:ff_port_rx_bytes"
+        mock_entry.entity_id = "sensor.device_port_rx_bytes"
+        mock_entry.options = {}
+
+        mock_registry = MagicMock()
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_registry,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_entry],
+            ),
+        ):
+            _migrate_sensor_units(hass, mock_config_entry)
+
+        mock_registry.async_update_entity_options.assert_called_once()
+        call_args = mock_registry.async_update_entity_options.call_args
+        assert call_args[0][0] == "sensor.device_port_rx_bytes"
+        assert call_args[0][1] == "sensor.private"
+        assert call_args[0][2]["refresh_initial_entity_options"] is True
+
+    def test_migrate_skips_non_sensor_entities(self, hass, mock_config_entry):
+        """Test migration skips non-sensor domain entities."""
+        mock_entry = MagicMock()
+        mock_entry.domain = "binary_sensor"
+        mock_entry.unique_id = "aa:bb:cc:dd:ee:ff_port_rx_bytes"
+        mock_entry.entity_id = "binary_sensor.something"
+        mock_entry.options = {}
+
+        mock_registry = MagicMock()
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_registry,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_entry],
+            ),
+        ):
+            _migrate_sensor_units(hass, mock_config_entry)
+
+        mock_registry.async_update_entity_options.assert_not_called()
+
+    def test_migrate_skips_already_correct_units(self, hass, mock_config_entry):
+        """Test migration skips entities whose suggested unit already matches."""
+        mock_entry = MagicMock()
+        mock_entry.domain = "sensor"
+        mock_entry.unique_id = "aa:bb:cc:dd:ee:ff_port_tx_bytes"
+        mock_entry.entity_id = "sensor.device_port_tx_bytes"
+        mock_entry.options = {
+            "sensor.private": {
+                "suggested_unit_of_measurement": str(UnitOfInformation.GIGABYTES),
+            }
+        }
+
+        mock_registry = MagicMock()
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_registry,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_entry],
+            ),
+        ):
+            _migrate_sensor_units(hass, mock_config_entry)
+
+        mock_registry.async_update_entity_options.assert_not_called()
+
+    def test_migrate_skips_unrelated_sensor_keys(self, hass, mock_config_entry):
+        """Test migration skips sensors whose key has no suggested unit."""
+        mock_entry = MagicMock()
+        mock_entry.domain = "sensor"
+        mock_entry.unique_id = "aa:bb:cc:dd:ee:ff_cpu_utilization"
+        mock_entry.entity_id = "sensor.device_cpu_utilization"
+        mock_entry.options = {}
+
+        mock_registry = MagicMock()
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_registry,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_entry],
+            ),
+        ):
+            _migrate_sensor_units(hass, mock_config_entry)
+
+        mock_registry.async_update_entity_options.assert_not_called()
+
+    def test_migrate_handles_uplink_rate_sensors(self, hass, mock_config_entry):
+        """Test migration sets refresh flag for uplink rate sensors."""
+        mock_entry = MagicMock()
+        mock_entry.domain = "sensor"
+        mock_entry.unique_id = "aa:bb:cc:dd:ee:ff_tx_rate"
+        mock_entry.entity_id = "sensor.device_tx_rate"
+        mock_entry.options = {}
+
+        mock_registry = MagicMock()
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_registry,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_entry],
+            ),
+        ):
+            _migrate_sensor_units(hass, mock_config_entry)
+
+        mock_registry.async_update_entity_options.assert_called_once()
+        call_args = mock_registry.async_update_entity_options.call_args
+        assert call_args[0][2]["refresh_initial_entity_options"] is True

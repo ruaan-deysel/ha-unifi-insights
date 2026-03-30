@@ -238,23 +238,6 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ig
         """Update camera settings (alias for async_update_camera)."""
         await self.async_update_camera(camera_id, **kwargs)
 
-    async def async_execute_port_action(
-        self,
-        site_id: str,
-        device_id: str,
-        port_idx: int,
-        **kwargs: Any,
-    ) -> None:
-        """Execute a network port action."""
-        await self._async_execute_api_action(
-            f"Unable to update port {port_idx} on device {device_id}",
-            self.network_client.devices.execute_port_action,
-            site_id,
-            device_id,
-            port_idx,
-            **kwargs,
-        )
-
     async def async_unblock_client(self, site_id: str, client_id: str) -> None:
         """Unblock a network client."""
         await self._async_execute_api_action(

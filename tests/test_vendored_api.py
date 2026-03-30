@@ -185,12 +185,14 @@ async def test_get_port_metrics_normalizes_and_derives_total() -> None:
                     "port_table": [
                         {
                             "port_idx": 1,
+                            "port_poe": True,
                             "poe_power": "1.25",
                             "rx_bytes": 10,
                             "tx_bytes": 20,
                         },
                         {
                             "portIdx": "2",
+                            "portPoe": True,
                             "poePower": "2.75",
                             "rxBytes": 30,
                             "txBytes": 40,
@@ -209,6 +211,49 @@ async def test_get_port_metrics_normalizes_and_derives_total() -> None:
     assert metrics.port_bytes[1].tx_bytes == 20
     assert metrics.port_bytes[2].rx_bytes == 30
     assert metrics.port_bytes[2].tx_bytes == 40
+
+
+async def test_get_port_metrics_skips_non_poe_ports() -> None:
+    """Test that ports with port_poe=false are excluded from poe_ports."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        connection_type=ConnectionType.REMOTE,
+        console_id="console-id",
+    )
+    client._get = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "port_table": [
+                        {
+                            "port_idx": 1,
+                            "port_poe": False,
+                            "poe_power": "0.00",
+                            "poe_enable": False,
+                            "poe_class": "Class 0",
+                            "rx_bytes": 100,
+                            "tx_bytes": 200,
+                        },
+                        {
+                            "port_idx": 9,
+                            "port_poe": False,
+                            "poe_power": "0.00",
+                            "rx_bytes": 300,
+                            "tx_bytes": 400,
+                        },
+                    ]
+                }
+            ]
+        }
+    )
+
+    metrics = await client.devices.get_port_metrics("default", "aa:bb:cc:dd:ee:ff")
+
+    assert metrics.poe_total_w is None
+    assert metrics.poe_ports == {}
+    # TX/RX bytes should still be collected
+    assert metrics.port_bytes[1].rx_bytes == 100
+    assert metrics.port_bytes[9].tx_bytes == 400
 
 
 async def test_get_port_metrics_returns_defaults_for_empty_payload() -> None:
@@ -292,3 +337,122 @@ async def test_wifi_update_uses_put_with_existing_payload() -> None:
     )
     client._patch.assert_not_awaited()
     assert result.enabled is True
+
+
+async def test_clients_get_all_paginates_automatically() -> None:
+    """Test that get_all fetches all pages when total exceeds page size."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+
+    page1 = {
+        "offset": 0,
+        "limit": 100,
+        "count": 2,
+        "totalCount": 3,
+        "data": [
+            {
+                "id": "c1",
+                "macAddress": "aa:bb:cc:dd:ee:01",
+                "type": "WIRED",
+                "name": "Client 1",
+            },
+            {
+                "id": "c2",
+                "macAddress": "aa:bb:cc:dd:ee:02",
+                "type": "WIRED",
+                "name": "Client 2",
+            },
+        ],
+    }
+    page2 = {
+        "offset": 2,
+        "limit": 100,
+        "count": 1,
+        "totalCount": 3,
+        "data": [
+            {
+                "id": "c3",
+                "macAddress": "aa:bb:cc:dd:ee:03",
+                "type": "WIRELESS",
+                "name": "Client 3",
+            },
+        ],
+    }
+    client._get = AsyncMock(side_effect=[page1, page2])
+
+    result = await client.clients.get_all("site-1")
+
+    assert len(result) == 3
+    assert result[0].name == "Client 1"
+    assert result[2].name == "Client 3"
+    assert client._get.await_count == 2
+
+
+async def test_clients_get_all_single_page() -> None:
+    """Test that get_all stops after one page when all clients fit."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    client._get = AsyncMock(
+        return_value={
+            "offset": 0,
+            "limit": 100,
+            "count": 2,
+            "totalCount": 2,
+            "data": [
+                {
+                    "id": "c1",
+                    "macAddress": "aa:bb:cc:dd:ee:01",
+                    "type": "WIRED",
+                    "name": "Client 1",
+                },
+                {
+                    "id": "c2",
+                    "macAddress": "aa:bb:cc:dd:ee:02",
+                    "type": "WIRELESS",
+                    "name": "Client 2",
+                },
+            ],
+        }
+    )
+
+    result = await client.clients.get_all("site-1")
+
+    assert len(result) == 2
+    assert client._get.await_count == 1
+
+
+async def test_clients_get_all_explicit_limit_no_pagination() -> None:
+    """Test that explicit offset/limit skips auto-pagination."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    client._get = AsyncMock(
+        return_value={
+            "offset": 0,
+            "limit": 5,
+            "count": 5,
+            "totalCount": 20,
+            "data": [
+                {
+                    "id": f"c{i}",
+                    "macAddress": f"aa:bb:cc:dd:ee:{i:02d}",
+                    "type": "WIRED",
+                    "name": f"Client {i}",
+                }
+                for i in range(5)
+            ],
+        }
+    )
+
+    result = await client.clients.get_all("site-1", limit=5)
+
+    assert len(result) == 5
+    assert client._get.await_count == 1

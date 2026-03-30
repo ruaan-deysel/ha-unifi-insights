@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.3.2] - 2026-03-31
+
+### Added
+
+- Added SFP/SFP+ port differentiation with user-friendly port names (e.g., "SFP+ 1" instead of "Port 25")
+- Added SFP module diagnostic sensors: module model, vendor, type (compliance), and serial number
+- Added SFP module presence binary sensor for all SFP/SFP+ ports with module detail attributes
+- Added port type extra state attributes (media type, uplink status, network, SFP presence) to all port sensors
+- Added auto-pagination support for wired client fetching to handle large networks correctly
+
+### Fixed
+
+- Fixed PoE sensor creation failing on non-PoE devices (e.g., UDM Pro) by checking port PoE capability before creating sensors
+- Fixed firewall rule switches to properly filter predefined/system rules and group by gateway device
+- Fixed port sensor filtering to skip inactive (DOWN) ports
+- Fixed `get_port_metrics` endpoint to check PoE capability before requesting PoE data
+
+### Removed
+
+- Removed port enable/disable switches (unreliable with current UniFi API)
+- Removed PoE toggle switches (unreliable with current UniFi API)
+- Removed port power cycle buttons for PoE ports
+
 ## [2026.3.1] - 2026-03-22
 
 ### Fixed

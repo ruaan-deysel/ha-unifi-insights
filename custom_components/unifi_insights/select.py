@@ -154,9 +154,6 @@ class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):  # type: igno
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
 
-        # Set name
-        self._attr_name = "HDR Mode"
-
         # Set initial state
         self._update_from_data()
 
@@ -217,9 +214,6 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):  # type: ig
 
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
-
-        # Set name
-        self._attr_name = "Video Mode"
 
         # Set initial state
         self._update_from_data()
@@ -286,9 +280,6 @@ class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):  # type
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
 
-        # Set name
-        self._attr_name = "Ringtone"
-
         # Set initial state
         self._update_from_data()
 
@@ -352,9 +343,6 @@ class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):  # type: ig
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
 
-        # Set name
-        self._attr_name = "PTZ Preset"
-
         # Set initial state
         self._update_from_data()
 
@@ -412,9 +400,6 @@ class UnifiProtectViewerLiveviewSelect(UnifiProtectEntity, SelectEntity):  # typ
 
         # Set entity category
         self._attr_entity_category = EntityCategory.CONFIG
-
-        # Set name
-        self._attr_name = "Liveview"
 
         # Set initial state
         self._update_from_data()

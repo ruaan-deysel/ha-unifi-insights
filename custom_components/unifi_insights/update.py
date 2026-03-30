@@ -81,9 +81,6 @@ class UnifiNetworkDeviceUpdate(CoordinatorEntity[UnifiFacadeCoordinator], Update
         # Set unique ID
         self._attr_unique_id = f"{site_id}_{device_id}_firmware_update"
 
-        # Set name
-        self._attr_name = "Firmware"
-
         # Create device info
         device_info: dict[str, Any] = {
             "identifiers": {(DOMAIN, f"{site_id}_{device_id}")},

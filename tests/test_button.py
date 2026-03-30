@@ -10,7 +10,6 @@ from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
     UnifiClientReconnectButton,
     UnifiInsightsButton,
-    UnifiPortPowerCycleButton,
     UnifiProtectChimePlayButton,
     UnifiProtectPTZPatrolStartButton,
     UnifiProtectPTZPatrolStopButton,
@@ -175,145 +174,6 @@ class TestUnifiInsightsButton:
         )
 
         with pytest.raises(HomeAssistantError, match="Unable to restart device"):
-            await button.async_press()
-
-
-class TestUnifiPortPowerCycleButton:
-    """Tests for UnifiPortPowerCycleButton."""
-
-    @pytest.fixture
-    def mock_coordinator(self, hass: HomeAssistant):
-        """Create mock coordinator."""
-        coordinator = MagicMock()
-        coordinator.hass = hass
-        coordinator.network_client = MagicMock()
-        coordinator.network_client.base_url = "https://192.168.1.1"
-        coordinator.network_client.devices = MagicMock()
-        coordinator.network_client.devices.execute_port_action = AsyncMock()
-        coordinator.protect_client = None
-        coordinator.data = {
-            "sites": {"site1": {"id": "site1"}},
-            "devices": {
-                "site1": {
-                    "device1": {
-                        "id": "device1",
-                        "name": "PoE Switch",
-                        "model": "USW-24-POE",
-                        "state": "ONLINE",
-                        "macAddress": "AA:BB:CC:DD:EE:FF",
-                        "ipAddress": "192.168.1.10",
-                        "features": ["switching"],
-                        "interfaces": {
-                            "ports": [
-                                {"idx": 1, "poe": {"enabled": True}},
-                                {"idx": 2, "poe": {"enabled": False}},
-                            ],
-                        },
-                    },
-                },
-            },
-            "stats": {},
-            "clients": {},
-            "protect": {
-                "cameras": {},
-                "lights": {},
-                "sensors": {},
-                "nvrs": {},
-                "viewers": {},
-                "chimes": {},
-                "liveviews": {},
-            },
-        }
-        return coordinator
-
-    async def test_port_button_init(self, hass: HomeAssistant, mock_coordinator):
-        """Test port power cycle button initialization."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        assert button._port_idx == 1
-        assert "Port 1 Power Cycle" in button._attr_name
-
-    async def test_port_button_available_poe_enabled(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test button available when PoE enabled."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        assert button.available is True
-
-    async def test_port_button_unavailable_poe_disabled(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test button unavailable when PoE disabled."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=2,
-        )
-
-        assert button.available is False
-
-    async def test_port_button_press(self, hass: HomeAssistant, mock_coordinator):
-        """Test port power cycle button press."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        await button.async_press()
-
-        # Power cycle uses two calls: first disable PoE, then re-enable
-        assert (
-            mock_coordinator.network_client.devices.execute_port_action.call_count == 2
-        )
-
-        # First call should disable PoE
-        first_call = (
-            mock_coordinator.network_client.devices.execute_port_action.call_args_list[
-                0
-            ]
-        )
-        assert first_call[0] == ("site1", "device1", 1)
-        assert first_call[1] == {"poe_mode": "off"}
-
-        # Second call should re-enable PoE
-        second_call = (
-            mock_coordinator.network_client.devices.execute_port_action.call_args_list[
-                1
-            ]
-        )
-        assert second_call[0] == ("site1", "device1", 1)
-        assert second_call[1] == {"poe_mode": "auto"}
-
-    async def test_port_button_press_exception(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test port button handles exception."""
-        mock_coordinator.network_client.devices.execute_port_action = AsyncMock(
-            side_effect=Exception("API Error")
-        )
-
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        with pytest.raises(HomeAssistantError, match="Unable to disable PoE"):
             await button.async_press()
 
 
@@ -487,7 +347,7 @@ class TestUnifiProtectChimePlayButton:
         )
 
         assert button._device_id == "chime1"
-        assert button._attr_name == "Play"
+        assert button._attr_translation_key == "play"
 
     async def test_chime_button_attributes(self, hass: HomeAssistant, mock_coordinator):
         """Test chime button attributes."""
@@ -580,7 +440,7 @@ class TestUnifiProtectPTZButtons:
         )
 
         assert button._device_id == "camera1"
-        assert button._attr_name == "Start PTZ Patrol"
+        assert button._attr_translation_key == "ptz_patrol_start"
 
     async def test_ptz_start_button_press(self, hass: HomeAssistant, mock_coordinator):
         """Test PTZ patrol start button press."""
@@ -620,7 +480,7 @@ class TestUnifiProtectPTZButtons:
         )
 
         assert button._device_id == "camera1"
-        assert button._attr_name == "Stop PTZ Patrol"
+        assert button._attr_translation_key == "ptz_patrol_stop"
 
     async def test_ptz_stop_button_press(self, hass: HomeAssistant, mock_coordinator):
         """Test PTZ patrol stop button press."""
@@ -735,22 +595,6 @@ class TestAsyncSetupEntry:
         ]
         assert len(device_buttons) > 0
 
-    async def test_setup_entry_creates_port_buttons(
-        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
-    ):
-        """Test that setup creates port power cycle buttons."""
-        added_entities: list = []
-
-        def add_entities(new_entities, **kwargs):
-            added_entities.extend(new_entities)
-
-        await async_setup_entry(hass, mock_config_entry, add_entities)
-
-        port_buttons = [
-            e for e in added_entities if isinstance(e, UnifiPortPowerCycleButton)
-        ]
-        assert len(port_buttons) > 0
-
     async def test_setup_entry_creates_chime_buttons(
         self, hass: HomeAssistant, mock_coordinator, mock_config_entry
     ):
@@ -831,171 +675,6 @@ class TestAsyncSetupEntry:
             added_entities.extend(new_entities)
 
         await async_setup_entry(hass, mock_config_entry, add_entities)
-
-        # Port buttons should only be from device1 (with switching)
-        port_buttons = [
-            e for e in added_entities if isinstance(e, UnifiPortPowerCycleButton)
-        ]
-        for btn in port_buttons:
-            assert btn._device_id == "device1"
-
-
-class TestPortPowerCycleButtonEdgeCases:
-    """Test edge cases for UnifiPortPowerCycleButton availability."""
-
-    @pytest.fixture
-    def mock_coordinator(self, hass: HomeAssistant):
-        """Create mock coordinator."""
-        coordinator = MagicMock()
-        coordinator.hass = hass
-        coordinator.network_client = MagicMock()
-        coordinator.network_client.base_url = "https://192.168.1.1"
-        coordinator.network_client.devices = MagicMock()
-        coordinator.network_client.devices.execute_port_action = AsyncMock()
-        coordinator.protect_client = None
-        coordinator.data = {
-            "sites": {"site1": {"id": "site1"}},
-            "devices": {
-                "site1": {
-                    "device1": {
-                        "id": "device1",
-                        "name": "PoE Switch",
-                        "model": "USW-24-POE",
-                        "state": "ONLINE",
-                        "features": ["switching"],
-                        "interfaces": {
-                            "ports": [
-                                {"idx": 1, "poe": {"enabled": True}},
-                            ],
-                        },
-                    },
-                },
-            },
-            "stats": {},
-            "clients": {},
-            "protect": {
-                "cameras": {},
-                "lights": {},
-                "sensors": {},
-                "nvrs": {},
-                "viewers": {},
-                "chimes": {},
-            },
-        }
-        return coordinator
-
-    async def test_availability_devices_not_dict(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when devices is not a dict."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"] = []  # Not a dict
-        assert button.available is False
-
-    async def test_availability_site_devices_not_dict(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when site devices is not a dict."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"]["site1"] = []  # Not a dict
-        assert button.available is False
-
-    async def test_availability_device_not_dict(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when device data is not a dict."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"]["site1"]["device1"] = None
-        assert button.available is False
-
-    async def test_availability_device_state_not_string(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when device state is not a string."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"]["site1"]["device1"]["state"] = None
-        assert button.available is False
-
-    async def test_availability_interfaces_not_dict(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when interfaces is not a dict."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"] = []
-        assert button.available is False
-
-    async def test_availability_ports_not_list(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when ports is not a list."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"]["ports"] = {}
-        assert button.available is False
-
-    async def test_availability_port_not_dict(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when port entry is not a dict."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=1,
-        )
-
-        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"]["ports"] = [
-            "not a dict"
-        ]
-        assert button.available is False
-
-    async def test_availability_port_idx_not_found(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
-        """Test availability when port idx not found."""
-        button = UnifiPortPowerCycleButton(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            device_id="device1",
-            port_idx=99,  # Non-existent
-        )
-
-        assert button.available is False
 
 
 class TestClientReconnectButtonEdgeCases:

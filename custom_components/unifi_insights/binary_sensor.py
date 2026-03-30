@@ -364,6 +364,26 @@ async def async_setup_entry(
                         )
                     )
 
+            # Add SFP module binary sensors for ports with SFP media type
+            ports = device_data.get("ports", [])
+            for port in ports:
+                media = port.get("media", "")
+                if not isinstance(media, str) or not media.startswith("SFP"):
+                    continue
+                port_idx = port.get("idx") or port.get("port_idx")
+                if port_idx is None:
+                    continue
+                port_name = port.get("name") or f"{media} {port_idx}"
+                entities.append(
+                    UnifiPortBinarySensor(
+                        coordinator=coordinator,
+                        site_id=site_id,
+                        device_id=device_id,
+                        port_idx=port_idx,
+                        port_label=port_name,
+                    )
+                )
+
     # Add binary sensors for Protect devices
     if coordinator.protect_client:
         # Add camera binary sensors
@@ -547,3 +567,72 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
                 ATTR_SENSOR_LEAK_DETECTED: device_data.get("isLeakDetected", False),
                 ATTR_SENSOR_LEAK_DETECTED_AT: device_data.get("leakDetectedAt", 0),
             }
+
+
+class UnifiPortBinarySensor(UnifiInsightsEntity, BinarySensorEntity):  # type: ignore[misc]
+    """Binary sensor indicating whether an SFP module is inserted."""
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        site_id: str,
+        device_id: str,
+        port_idx: int,
+        port_label: str,
+    ) -> None:
+        """Initialize the SFP module binary sensor."""
+        desc = UnifiInsightsBinarySensorEntityDescription(
+            key=f"port_sfp_present_{port_idx}",
+            translation_key="port_sfp_present",
+            name=f"{port_label} SFP Module",
+            device_class=BinarySensorDeviceClass.CONNECTIVITY,
+            entity_category=EntityCategory.DIAGNOSTIC,
+            entity_type="device",
+        )
+        super().__init__(coordinator, desc, site_id, device_id)
+        self.entity_description = desc
+        self._port_idx = port_idx
+        self._attr_name = f"{port_label} SFP Module"
+        self._attr_unique_id = f"{device_id}_port_sfp_present_{port_idx}"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def _find_port_data(self) -> dict[str, Any] | None:
+        """Find port data for this sensor's port index."""
+        device_data = (
+            self.coordinator.data.get("devices", {})
+            .get(self._site_id, {})
+            .get(self._device_id, {})
+        )
+        if not device_data:
+            return None
+        for port in device_data.get("ports", []):
+            idx = port.get("idx") or port.get("port_idx")
+            if idx == self._port_idx:
+                return port
+        return None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if SFP module is inserted."""
+        port = self._find_port_data()
+        if port is None:
+            return None
+        return bool(port.get("sfp_found", False))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return SFP module details."""
+        port = self._find_port_data()
+        if not port or not port.get("sfp_found"):
+            return None
+        attrs: dict[str, Any] = {}
+        for key, label in (
+            ("sfp_part", "module"),
+            ("sfp_vendor", "vendor"),
+            ("sfp_serial", "serial"),
+            ("sfp_compliance", "type"),
+        ):
+            val = port.get(key)
+            if val:
+                attrs[label] = val
+        return attrs or None

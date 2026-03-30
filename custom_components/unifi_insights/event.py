@@ -141,7 +141,6 @@ class UnifiProtectDoorbellEventEntity(
         camera_name = camera_data.get("name", f"Camera {device_id}")
 
         self._attr_unique_id = f"{DOMAIN}_camera_{device_id}_doorbell_event"
-        self._attr_name = "Doorbell"
 
         # Set device info
         self._attr_device_info = {
@@ -217,7 +216,6 @@ class UnifiProtectSmartDetectEventEntity(
         camera_name = camera_data.get("name", f"Camera {device_id}")
 
         self._attr_unique_id = f"{DOMAIN}_camera_{device_id}_smart_detect_event"
-        self._attr_name = "Smart Detection"
 
         # Set device info
         self._attr_device_info = {
@@ -302,7 +300,6 @@ class UnifiProtectSensorEventEntity(
         sensor_name = sensor_data.get("name", f"Sensor {device_id}")
 
         self._attr_unique_id = f"{DOMAIN}_sensor_{device_id}_event"
-        self._attr_name = "Door/Window"
 
         # Set device info
         self._attr_device_info = {

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -2105,6 +2105,377 @@ class TestUnifiFacadeCoordinator:
         facade_coordinator._handle_coordinator_update()
 
         assert listener_called
+
+    @pytest.mark.asyncio
+    async def test_require_protect_client_raises(
+        self, facade_coordinator_no_protect: UnifiFacadeCoordinator
+    ):
+        """Test _require_protect_client raises when protect is None."""
+        with pytest.raises(HomeAssistantError, match="Protect is not available"):
+            facade_coordinator_no_protect._require_protect_client()
+
+    @pytest.mark.asyncio
+    async def test_require_protect_client_returns_client(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test _require_protect_client returns client when available."""
+        client = facade_coordinator._require_protect_client()
+        assert client is facade_coordinator.protect_client
+
+    @pytest.mark.asyncio
+    async def test_async_execute_api_action_success(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test _async_execute_api_action on success."""
+        action = AsyncMock(return_value="ok")
+        result = await facade_coordinator._async_execute_api_action(
+            "test error", action, "arg1"
+        )
+        assert result == "ok"
+        action.assert_called_once_with("arg1")
+
+    @pytest.mark.asyncio
+    async def test_async_execute_api_action_ha_error(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test _async_execute_api_action re-raises HomeAssistantError."""
+        action = AsyncMock(side_effect=HomeAssistantError("ha error"))
+        with pytest.raises(HomeAssistantError, match="ha error"):
+            await facade_coordinator._async_execute_api_action("test error", action)
+
+    @pytest.mark.asyncio
+    async def test_async_execute_api_action_generic_error(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test _async_execute_api_action wraps generic errors."""
+        action = AsyncMock(side_effect=RuntimeError("boom"))
+        with pytest.raises(HomeAssistantError, match="test error"):
+            await facade_coordinator._async_execute_api_action("test error", action)
+
+    @pytest.mark.asyncio
+    async def test_async_restart_device(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_restart_device delegates to network client."""
+        facade_coordinator.network_client.devices.restart = AsyncMock(return_value=True)
+        result = await facade_coordinator.async_restart_device("site1", "dev1")
+        assert result is True
+        facade_coordinator.network_client.devices.restart.assert_called_once_with(
+            "site1", "dev1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_firewall_rule_enabled(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_firewall_rule_enabled delegates correctly."""
+        facade_coordinator.network_client.firewall.update_rule = AsyncMock()
+        await facade_coordinator.async_set_firewall_rule_enabled(
+            "site1", "rule1", enabled=True
+        )
+        facade_coordinator.network_client.firewall.update_rule.assert_called_once_with(
+            "site1", "rule1", enabled=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_update_camera(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_update_camera delegates to protect client."""
+        facade_coordinator.protect_client.cameras.update = AsyncMock()
+        await facade_coordinator.async_update_camera("cam1", hdrMode="on")
+        facade_coordinator.protect_client.cameras.update.assert_called_once_with(
+            "cam1", hdrMode="on"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_update_camera_settings(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_update_camera_settings is alias for async_update_camera."""
+        facade_coordinator.protect_client.cameras.update = AsyncMock()
+        await facade_coordinator.async_update_camera_settings("cam1", videoMode="hd")
+        facade_coordinator.protect_client.cameras.update.assert_called_once_with(
+            "cam1", videoMode="hd"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_unblock_client(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_unblock_client delegates correctly."""
+        facade_coordinator.network_client.clients.unblock = AsyncMock()
+        await facade_coordinator.async_unblock_client("site1", "client1")
+        facade_coordinator.network_client.clients.unblock.assert_called_once_with(
+            "site1", "client1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_block_client(self, facade_coordinator: UnifiFacadeCoordinator):
+        """Test async_block_client delegates correctly."""
+        facade_coordinator.network_client.clients.block = AsyncMock()
+        await facade_coordinator.async_block_client("site1", "client1")
+        facade_coordinator.network_client.clients.block.assert_called_once_with(
+            "site1", "client1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_reconnect_client(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_reconnect_client delegates correctly."""
+        facade_coordinator.network_client.clients.reconnect = AsyncMock()
+        await facade_coordinator.async_reconnect_client("site1", "client1")
+        facade_coordinator.network_client.clients.reconnect.assert_called_once_with(
+            "site1", "client1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_update_wifi_network(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_update_wifi_network delegates correctly."""
+        facade_coordinator.network_client.wifi.update = AsyncMock()
+        await facade_coordinator.async_update_wifi_network(
+            "site1", "wifi1", enabled=False
+        )
+        facade_coordinator.network_client.wifi.update.assert_called_once_with(
+            "site1", "wifi1", enabled=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_play_chime(self, facade_coordinator: UnifiFacadeCoordinator):
+        """Test async_play_chime delegates correctly."""
+        facade_coordinator.protect_client.chimes.play = AsyncMock()
+        await facade_coordinator.async_play_chime("chime1")
+        facade_coordinator.protect_client.chimes.play.assert_called_once_with("chime1")
+
+    @pytest.mark.asyncio
+    async def test_async_start_ptz_patrol(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_start_ptz_patrol delegates correctly."""
+        facade_coordinator.protect_client.cameras.ptz_patrol_start = AsyncMock()
+        await facade_coordinator.async_start_ptz_patrol("cam1", 1)
+        facade_coordinator.protect_client.cameras.ptz_patrol_start.assert_called_once_with(
+            "cam1", 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_stop_ptz_patrol(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_stop_ptz_patrol delegates correctly."""
+        facade_coordinator.protect_client.cameras.ptz_patrol_stop = AsyncMock()
+        await facade_coordinator.async_stop_ptz_patrol("cam1")
+        facade_coordinator.protect_client.cameras.ptz_patrol_stop.assert_called_once_with(
+            "cam1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_hdr_mode(self, facade_coordinator: UnifiFacadeCoordinator):
+        """Test async_set_hdr_mode delegates correctly."""
+        facade_coordinator.protect_client.cameras.set_hdr_mode = AsyncMock()
+        await facade_coordinator.async_set_hdr_mode("cam1", "auto")
+        facade_coordinator.protect_client.cameras.set_hdr_mode.assert_called_once_with(
+            "cam1", "auto"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_video_mode(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_video_mode delegates correctly."""
+        facade_coordinator.protect_client.cameras.set_video_mode = AsyncMock()
+        await facade_coordinator.async_set_video_mode("cam1", "highFps")
+        facade_coordinator.protect_client.cameras.set_video_mode.assert_called_once_with(
+            "cam1", "highFps"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_recording_mode(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_recording_mode delegates correctly."""
+        facade_coordinator.protect_client.cameras.update = AsyncMock()
+        await facade_coordinator.async_set_recording_mode("cam1", "always")
+        facade_coordinator.protect_client.cameras.update.assert_called_once_with(
+            "cam1", recordingMode="always"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_chime_ringtone(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_chime_ringtone delegates correctly."""
+        facade_coordinator.protect_client.chimes.update = AsyncMock()
+        await facade_coordinator.async_set_chime_ringtone("chime1", "ring2")
+        facade_coordinator.protect_client.chimes.update.assert_called_once_with(
+            "chime1", ringtone="ring2"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_move_ptz_to_preset(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_move_ptz_to_preset delegates correctly."""
+        facade_coordinator.protect_client.cameras.ptz_goto_preset = AsyncMock()
+        await facade_coordinator.async_move_ptz_to_preset("cam1", 3)
+        facade_coordinator.protect_client.cameras.ptz_goto_preset.assert_called_once_with(
+            "cam1", "3"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_update_viewer(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_update_viewer delegates correctly."""
+        facade_coordinator.protect_client.viewers.update = AsyncMock()
+        await facade_coordinator.async_update_viewer("viewer1", liveview="lv1")
+        facade_coordinator.protect_client.viewers.update.assert_called_once_with(
+            "viewer1", liveview="lv1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_microphone_volume(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_microphone_volume delegates correctly."""
+        facade_coordinator.protect_client.cameras.set_microphone_volume = AsyncMock()
+        await facade_coordinator.async_set_microphone_volume("cam1", 50)
+        facade_coordinator.protect_client.cameras.set_microphone_volume.assert_called_once_with(
+            "cam1", 50
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_light_brightness(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_light_brightness delegates correctly."""
+        facade_coordinator.protect_client.lights.set_brightness = AsyncMock()
+        await facade_coordinator.async_set_light_brightness("light1", 75)
+        facade_coordinator.protect_client.lights.set_brightness.assert_called_once_with(
+            "light1", 75
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_light_mode(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_light_mode delegates correctly."""
+        facade_coordinator.protect_client.lights.update = AsyncMock()
+        await facade_coordinator.async_set_light_mode("light1", "motion")
+        facade_coordinator.protect_client.lights.update.assert_called_once_with(
+            "light1", lightMode="motion"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_chime_volume(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_chime_volume delegates correctly."""
+        facade_coordinator.protect_client.chimes.set_volume = AsyncMock()
+        await facade_coordinator.async_set_chime_volume("chime1", 80)
+        facade_coordinator.protect_client.chimes.set_volume.assert_called_once_with(
+            "chime1", 80
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_chime_repeat(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_chime_repeat delegates correctly."""
+        facade_coordinator.protect_client.chimes.update = AsyncMock()
+        await facade_coordinator.async_set_chime_repeat("chime1", 3)
+        facade_coordinator.protect_client.chimes.update.assert_called_once_with(
+            "chime1", repeatTimes=3
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_generate_voucher(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_generate_voucher delegates correctly."""
+        facade_coordinator.network_client.vouchers.create = AsyncMock()
+        await facade_coordinator.async_generate_voucher(
+            "site1",
+            count=5,
+            time_limit_minutes=60,
+            tx_rate_limit_kbps=1024,
+            rx_rate_limit_kbps=2048,
+            data_usage_limit_mbytes=500,
+            name="test",
+        )
+        facade_coordinator.network_client.vouchers.create.assert_called_once_with(
+            "site1",
+            count=5,
+            time_limit_minutes=60,
+            tx_rate_limit_kbps=1024,
+            rx_rate_limit_kbps=2048,
+            data_usage_limit_mbytes=500,
+            name="test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_generate_voucher_minimal(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_generate_voucher with minimal args."""
+        facade_coordinator.network_client.vouchers.create = AsyncMock()
+        await facade_coordinator.async_generate_voucher("site1")
+        facade_coordinator.network_client.vouchers.create.assert_called_once_with(
+            "site1", count=1
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_delete_voucher(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_delete_voucher delegates correctly."""
+        facade_coordinator.network_client.vouchers.delete = AsyncMock()
+        await facade_coordinator.async_delete_voucher("site1", "voucher1")
+        facade_coordinator.network_client.vouchers.delete.assert_called_once_with(
+            "site1", "voucher1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_trigger_alarm(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_trigger_alarm delegates correctly."""
+        facade_coordinator.protect_client.application.trigger_alarm_webhook = (
+            AsyncMock()
+        )
+        await facade_coordinator.async_trigger_alarm("alarm1")
+        facade_coordinator.protect_client.application.trigger_alarm_webhook.assert_called_once_with(
+            "alarm1"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_create_liveview(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_create_liveview delegates correctly."""
+        facade_coordinator.protect_client.liveviews.create = AsyncMock()
+        await facade_coordinator.async_create_liveview(
+            name="Main View", layout=2, is_default=True
+        )
+        facade_coordinator.protect_client.liveviews.create.assert_called_once_with(
+            name="Main View", layout=2, isDefault=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_protect_methods_raise_without_protect(
+        self, facade_coordinator_no_protect: UnifiFacadeCoordinator
+    ):
+        """Test protect methods raise when protect is unavailable."""
+        coord = facade_coordinator_no_protect
+        with pytest.raises(HomeAssistantError, match="Protect is not available"):
+            await coord.async_update_camera("cam1")
+        with pytest.raises(HomeAssistantError, match="Protect is not available"):
+            await coord.async_play_chime("chime1")
+        with pytest.raises(HomeAssistantError, match="Protect is not available"):
+            await coord.async_trigger_alarm("alarm1")
 
 
 # ============================================================================

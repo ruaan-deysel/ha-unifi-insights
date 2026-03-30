@@ -1,6 +1,21 @@
 ---
 agent: "agent"
-tools: ["search/codebase", "edit", "search"]
+# Tools:
+#   - search/codebase, edit, search: standard code exploration and editing
+#   - execute/runInTerminal, execute/getTerminalOutput: needed for running
+#     validation commands (tests, linters, type checks, reproducible builds)
+#
+# Terminal tool constraints:
+#   Allowed commands: pytest, ruff, mypy, pre-commit, ./script/lint,
+#     ./script/develop, pip, git (read-only: log, diff, status, show)
+#   Allowed command prefixes: python -m pytest, python -m ruff, python -m mypy
+#   Working directory: must remain within the workspace root
+#   Prohibited operations: rm -rf, mv (destructive), network-modifying commands,
+#     git push, git reset --hard, pip install (global)
+#   Timeouts: commands should complete within 120 seconds
+#   Environment: commands run inside the dev container (sandboxed);
+#     verify by checking that $PWD is under /workspaces/
+tools: ["search/codebase", "edit", "search", "execute/runInTerminal", "execute/getTerminalOutput"]
 description: "Perform a comprehensive quality review of the UniFi Insights integration"
 ---
 

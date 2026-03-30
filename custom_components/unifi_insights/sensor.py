@@ -199,7 +199,6 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="temperature",
         translation_key="temperature",
-        name="Temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -213,7 +212,6 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="humidity",
         translation_key="humidity",
-        name="Humidity",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.HUMIDITY,
         state_class=SensorStateClass.MEASUREMENT,
@@ -227,7 +225,6 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="light",
         translation_key="light",
-        name="Light",
         native_unit_of_measurement=LIGHT_LUX,
         device_class=SensorDeviceClass.ILLUMINANCE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -239,7 +236,6 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="battery",
         translation_key="battery",
-        name="Battery",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
         state_class=SensorStateClass.MEASUREMENT,
@@ -349,7 +345,6 @@ NVR_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="storage_used",
         translation_key="storage_used",
-        name="Storage Used",
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -361,7 +356,6 @@ NVR_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="storage_total",
         translation_key="storage_total",
-        name="Storage Total",
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -373,7 +367,6 @@ NVR_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="storage_available",
         translation_key="storage_available",
-        name="Storage Available",
         native_unit_of_measurement=UnitOfInformation.GIGABYTES,
         device_class=SensorDeviceClass.DATA_SIZE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -385,7 +378,6 @@ NVR_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     UnifiProtectSensorEntityDescription(
         key="storage_used_percent",
         translation_key="storage_used_percent",
-        name="Storage Used Percentage",
         native_unit_of_measurement=PERCENTAGE,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -400,7 +392,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="cpu_usage",
         translation_key="cpu_usage",
-        name="CPU Usage",
         native_unit_of_measurement=PERCENTAGE,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -412,7 +403,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="memory_usage",
         translation_key="memory_usage",
-        name="Memory Usage",
         native_unit_of_measurement=PERCENTAGE,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -428,7 +418,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="uptime",
         translation_key="uptime",
-        name="Uptime",
         device_class=None,
         # Diagnostic - uptime is informational/troubleshooting data
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -444,7 +433,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="tx_rate",
         translation_key="tx_rate",
-        name="Uplink TX Rate",
         native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
         suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
         suggested_display_precision=1,
@@ -464,7 +452,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="rx_rate",
         translation_key="rx_rate",
-        name="Uplink RX Rate",
         native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
         suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
         suggested_display_precision=1,
@@ -484,7 +471,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="poe_total_power",
         translation_key="poe_total_power",
-        name="Total PoE Power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -502,7 +488,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="firmware_version",
         translation_key="firmware_version",
-        name="Firmware Version",
         entity_category=EntityCategory.DIAGNOSTIC,
         # Gold: Disable diagnostic entities by default
         entity_registry_enabled_default=False,
@@ -514,7 +499,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="general_temperature",
         translation_key="general_temperature",
-        name="Temperature",
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -526,7 +510,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="wired_clients",
         translation_key="wired_clients",
-        name="Wired Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:network",
         # Only show on switch devices (devices with 'switching' feature)
@@ -538,7 +521,6 @@ SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="wireless_clients",
         translation_key="wireless_clients",
-        name="Wireless Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wifi",
         # Only show on access point devices (devices with 'accessPoint' feature)
@@ -556,7 +538,6 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_poe_power",
         translation_key="port_poe_power",
-        name="Port {port_idx} PoE Power",
         native_unit_of_measurement=UnitOfPower.WATT,
         device_class=SensorDeviceClass.POWER,
         state_class=SensorStateClass.MEASUREMENT,
@@ -572,7 +553,6 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_speed",
         translation_key="port_speed",
-        name="Port {port_idx} Speed",
         native_unit_of_measurement="Mbps",
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
@@ -591,7 +571,6 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_tx_bytes",
         translation_key="port_tx_bytes",
-        name="Port {port_idx} TX",
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
         suggested_display_precision=1,
@@ -608,7 +587,6 @@ PORT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_rx_bytes",
         translation_key="port_rx_bytes",
-        name="Port {port_idx} RX",
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
         suggested_display_precision=1,
@@ -629,7 +607,6 @@ PORT_RATE_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_tx_rate",
         translation_key="port_tx_rate",
-        name="Port {port_idx} TX Rate",
         native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
         suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
         suggested_display_precision=1,
@@ -643,7 +620,6 @@ PORT_RATE_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_rx_rate",
         translation_key="port_rx_rate",
-        name="Port {port_idx} RX Rate",
         native_unit_of_measurement=UnitOfDataRate.BITS_PER_SECOND,
         suggested_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
         suggested_display_precision=1,
@@ -661,7 +637,6 @@ SFP_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_sfp_module",
         translation_key="port_sfp_module",
-        name="Port {port_idx} SFP Module",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
@@ -672,7 +647,6 @@ SFP_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_sfp_vendor",
         translation_key="port_sfp_vendor",
-        name="Port {port_idx} SFP Vendor",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
@@ -683,7 +657,6 @@ SFP_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_sfp_compliance",
         translation_key="port_sfp_compliance",
-        name="Port {port_idx} SFP Type",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
@@ -694,7 +667,6 @@ SFP_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="port_sfp_serial",
         translation_key="port_sfp_serial",
-        name="Port {port_idx} SFP Serial",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
@@ -708,7 +680,7 @@ def _get_port_label(port: dict[str, Any], port_idx: int) -> str:
     """Return user-friendly port label based on port type."""
     name = port.get("name")
     if name and name != f"Port {port_idx}":
-        return name
+        return str(name)
     media = port.get("media", "")
     if media.startswith("SFP"):
         return f"{media} {port_idx}"
@@ -721,7 +693,6 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="wan_ip",
         translation_key="wan_ip",
-        name="WAN IP Address",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
         # Gold: Disable diagnostic entities by default
@@ -733,7 +704,6 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="wan_uptime",
         translation_key="wan_uptime",
-        name="WAN Uptime",
         device_class=None,
         entity_category=EntityCategory.DIAGNOSTIC,
         # Gold: Disable diagnostic entities by default
@@ -753,7 +723,6 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_total_clients",
         translation_key="site_total_clients",
-        name="Total Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:account-group",
         value_fn=len,
@@ -761,7 +730,6 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_wired_clients",
         translation_key="site_wired_clients",
-        name="Wired Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:ethernet",
         value_fn=lambda clients: len(
@@ -771,7 +739,6 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_wireless_clients",
         translation_key="site_wireless_clients",
-        name="Wireless Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wifi",
         value_fn=lambda clients: len(
@@ -822,7 +789,7 @@ def _migrate_sensor_units(
             continue
 
         # Check if stored suggested unit already matches
-        private_opts = entity_entry.options.get("sensor.private", {})
+        private_opts: dict[str, Any] = entity_entry.options.get("sensor.private", {})
         stored_suggested = private_opts.get("suggested_unit_of_measurement")
         if stored_suggested == expected_units[matched_key]:
             continue
@@ -856,7 +823,7 @@ async def async_setup_entry(
     _migrate_sensor_units(hass, config_entry)
 
     coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
-    entities = []
+    entities: list[SensorEntity] = []
 
     # Add sensors for each device in each site
     for site_id, devices in coordinator.data["devices"].items():
@@ -1301,15 +1268,15 @@ async def async_setup_entry(
                     nvr_name,
                 )
 
-            for description in NVR_SENSOR_TYPES:
-                if description.device_type == DEVICE_TYPE_NVR:
+            for nvr_desc in NVR_SENSOR_TYPES:
+                if nvr_desc.device_type == DEVICE_TYPE_NVR:
                     # Skip storage sensors if storage info is not available
-                    if description.key.startswith("storage_") and not has_storage:
+                    if nvr_desc.key.startswith("storage_") and not has_storage:
                         continue
                     entities.append(
                         UnifiProtectNVRSensor(
                             coordinator=coordinator,
-                            description=description,
+                            description=nvr_desc,
                             device_id=nvr_id,
                         )
                     )
@@ -1332,7 +1299,7 @@ async def async_setup_entry(
         ent_reg.async_remove(entry.entity_id)
 
 
-class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
+class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):
     """Representation of a UniFi Insights Sensor."""
 
     entity_description: UnifiInsightsSensorEntityDescription
@@ -1376,7 +1343,7 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[mi
                     self._site_id,
                 )
                 return None
-            value = self.entity_description.value_fn(device)
+            value = self.entity_description.value_fn(device)  # type: ignore[misc]
         else:
             # For all other sensors, use stats data
             if (
@@ -1393,7 +1360,7 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[mi
                 return None
 
             stats = self.coordinator.data["stats"][self._site_id][self._device_id]
-            value = self.entity_description.value_fn(stats)
+            value = self.entity_description.value_fn(stats)  # type: ignore[misc]
 
         _LOGGER.debug(
             "Sensor %s for device %s in site %s updated to %s %s",
@@ -1407,7 +1374,7 @@ class UnifiInsightsSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[mi
         return value
 
 
-class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
+class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):
     """Representation of a UniFi Port Sensor."""
 
     entity_description: UnifiInsightsSensorEntityDescription
@@ -1429,7 +1396,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
         label = port_label or f"Port {port_idx}"
         # Replace "Port {port_idx}" placeholder in the description name
         # with the actual port label
-        base = description.name
+        base = description.name if isinstance(description.name, str) else ""
         if "{port_idx}" in base:
             # e.g. "Port {port_idx} Speed" → "SFP+ 1 Speed"
             self._attr_name = base.replace("Port {port_idx}", label)
@@ -1600,7 +1567,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
             return None
 
         # Use value_fn to extract the value
-        value = self.entity_description.value_fn(port_data)
+        value = self.entity_description.value_fn(port_data)  # type: ignore[misc]
 
         _LOGGER.debug(
             "Port sensor %s for port %d on device %s updated to %s %s",
@@ -1764,7 +1731,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
         for port in ports:
             idx = port.get("idx") or port.get("port_idx")
             if idx == self._port_idx:
-                return port
+                return dict(port)
         return None
 
     @property
@@ -1793,7 +1760,7 @@ class UnifiPortSensor(UnifiInsightsEntity, SensorEntity):  # type: ignore[misc]
         return attrs or None
 
 
-class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc]
+class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):
     """Representation of a UniFi Protect Sensor."""
 
     entity_description: UnifiProtectSensorEntityDescription
@@ -1806,7 +1773,7 @@ class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
-            coordinator, description.device_type, device_id, description.key
+            coordinator, description.device_type or "", device_id, description.key
         )
         self.entity_description = description
 
@@ -1815,7 +1782,7 @@ class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc
             self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
         # Set name
-        self._attr_name = description.name
+        self._attr_name = description.name  # type: ignore[assignment]
 
         # Update initial state
         self._update_from_data()
@@ -1836,7 +1803,7 @@ class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc
         if not device_data:
             return None
 
-        value = self.entity_description.value_fn(device_data)
+        value = self.entity_description.value_fn(device_data)  # type: ignore[misc]
 
         _LOGGER.debug(
             "Sensor %s for %s device %s updated to %s %s",
@@ -1893,7 +1860,7 @@ class UnifiProtectSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc
             }
 
 
-class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[misc]
+class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):
     """Representation of a UniFi Protect NVR Sensor."""
 
     entity_description: UnifiProtectSensorEntityDescription
@@ -1906,12 +1873,12 @@ class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[m
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
-            coordinator, description.device_type, device_id, description.key
+            coordinator, description.device_type or "", device_id, description.key
         )
         self.entity_description = description
 
         # Set name
-        self._attr_name = description.name
+        self._attr_name = description.name  # type: ignore[assignment]
 
         # Update initial state
         self._update_from_data()
@@ -1960,7 +1927,7 @@ class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[m
         if not nvr_data:
             return None
 
-        value = self.entity_description.value_fn(nvr_data)
+        value = self.entity_description.value_fn(nvr_data)  # type: ignore[misc]
 
         _LOGGER.debug(
             "NVR sensor %s for device %s updated to %s %s",
@@ -1996,7 +1963,7 @@ class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[m
         }
 
 
-class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEntity):  # type: ignore[misc]
+class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEntity):
     """Representation of a site-level client count sensor."""
 
     _attr_has_entity_name = True
@@ -2014,8 +1981,8 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
         self._site_id = site_id
 
         self._attr_unique_id = f"{site_id}_{description.key}"
-        self._attr_name = description.name
-        self._attr_device_info = DeviceInfo(**self._build_device_info())
+        self._attr_name = description.name  # type: ignore[assignment]
+        self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
 
     def _find_gateway_device_id(self) -> str | None:
         """Find the gateway device ID for this site."""
@@ -2067,4 +2034,4 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
         clients = self.coordinator.data.get("clients", {}).get(self._site_id, {})
         if not isinstance(clients, dict):
             return 0
-        return self.entity_description.value_fn(clients)
+        return self.entity_description.value_fn(clients)  # type: ignore[misc]

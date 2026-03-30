@@ -52,7 +52,7 @@ async def async_setup_entry(
         _LOGGER.debug("Skipping number setup - Protect API not available")
         return
 
-    entities = []
+    entities: list[NumberEntity] = []
 
     # Add camera microphone volume numbers
     for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
@@ -107,7 +107,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
+class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
     """Representation of a UniFi Protect Camera Microphone Volume Number."""
 
     _attr_has_entity_name = True
@@ -162,7 +162,7 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):  # t
             self._device_id,
             int(value),
             fallback_factory=lambda: (
-                self.coordinator.protect_client.set_microphone_volume(
+                self.coordinator.protect_client.set_microphone_volume(  # type: ignore[union-attr]
                     camera_id=self._device_id,
                     volume=int(value),
                 )
@@ -172,7 +172,7 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):  # t
         self.async_write_ha_state()
 
 
-class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
+class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
     """Representation of a UniFi Protect Light Brightness Level Number."""
 
     _attr_has_entity_name = True
@@ -223,7 +223,7 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):  # type: i
             self._device_id,
             int(value),
             fallback_factory=lambda: (
-                self.coordinator.protect_client.set_light_brightness(
+                self.coordinator.protect_client.set_light_brightness(  # type: ignore[union-attr]
                     light_id=self._device_id,
                     level=int(value),
                 )
@@ -233,7 +233,7 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):  # type: i
         self.async_write_ha_state()
 
 
-class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
+class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):
     """Representation of a UniFi Protect Chime Volume Number."""
 
     _attr_has_entity_name = True
@@ -290,7 +290,7 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: 
             f"Unable to set volume for chime {self._device_id}",
             self._device_id,
             int(value),
-            fallback_factory=lambda: self.coordinator.protect_client.set_chime_volume(
+            fallback_factory=lambda: self.coordinator.protect_client.set_chime_volume(  # type: ignore[union-attr]
                 chime_id=self._device_id,
                 volume=int(value),
             ),
@@ -299,7 +299,7 @@ class UnifiProtectChimeVolumeNumber(UnifiProtectEntity, NumberEntity):  # type: 
         self.async_write_ha_state()
 
 
-class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):  # type: ignore[misc]
+class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):
     """Representation of a UniFi Protect Chime Repeat Times Number."""
 
     _attr_has_entity_name = True
@@ -358,7 +358,7 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):  # t
             f"Unable to set repeat count for chime {self._device_id}",
             self._device_id,
             int(value),
-            fallback_factory=lambda: self.coordinator.protect_client.set_chime_repeat(
+            fallback_factory=lambda: self.coordinator.protect_client.set_chime_repeat(  # type: ignore[union-attr]
                 chime_id=self._device_id,
                 repeat_times=int(value),
             ),

@@ -158,7 +158,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="device_status",
         translation_key="device_status",
-        name="Device Status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         value_fn=is_device_online,
         entity_type="device",
@@ -167,7 +166,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="wan_status",
         translation_key="wan_status",
-        name="WAN Status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
         icon="mdi:wan",
@@ -178,7 +176,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_motion",
         translation_key="camera_motion",
-        name="Motion Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: (
             device.get("isMotionDetected", False)
@@ -194,7 +191,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_person_detection",
         translation_key="camera_person_detection",
-        name="Person Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_PERSON),
         device_type=DEVICE_TYPE_CAMERA,
@@ -204,7 +200,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_vehicle_detection",
         translation_key="camera_vehicle_detection",
-        name="Vehicle Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_VEHICLE),
         device_type=DEVICE_TYPE_CAMERA,
@@ -214,7 +209,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_animal_detection",
         translation_key="camera_animal_detection",
-        name="Animal Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_ANIMAL),
         device_type=DEVICE_TYPE_CAMERA,
@@ -224,7 +218,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_package_detection",
         translation_key="camera_package_detection",
-        name="Package Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: _is_smart_detect_active(device, SMART_DETECT_PACKAGE),
         device_type=DEVICE_TYPE_CAMERA,
@@ -234,7 +227,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="camera_doorbell_ring",
         translation_key="camera_doorbell_ring",
-        name="Ring",
         device_class=BinarySensorDeviceClass.OCCUPANCY,
         value_fn=lambda device: (
             device.get("lastRingStart") is not None
@@ -247,7 +239,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="sensor_motion",
         translation_key="sensor_motion",
-        name="Motion Detection",
         device_class=BinarySensorDeviceClass.MOTION,
         value_fn=lambda device: get_field(
             device,
@@ -267,7 +258,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="sensor_door",
         translation_key="sensor_door",
-        name="Door/Window Status",
         device_class=BinarySensorDeviceClass.DOOR,
         value_fn=lambda device: get_field(
             device, "isOpened", "is_opened", "opened", default=False
@@ -283,7 +273,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="sensor_tamper",
         translation_key="sensor_tamper",
-        name="Tamper Detection",
         device_class=BinarySensorDeviceClass.TAMPER,
         value_fn=lambda device: get_field(
             device,
@@ -299,7 +288,6 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
     UnifiInsightsBinarySensorEntityDescription(
         key="sensor_leak",
         translation_key="sensor_leak",
-        name="Leak Detection",
         device_class=BinarySensorDeviceClass.MOISTURE,
         value_fn=lambda device: get_field(
             device,
@@ -326,7 +314,7 @@ async def async_setup_entry(
     """Set up binary sensors for UniFi Insights integration."""
     _ = hass
     coordinator: UnifiFacadeCoordinator = config_entry.runtime_data.coordinator
-    entities = []
+    entities: list[BinarySensorEntity] = []
 
     _LOGGER.debug("Setting up binary sensors for UniFi Insights")
 
@@ -460,7 +448,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):  # type: ignore[misc]
+class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):
     """Representation of a UniFi Insights Binary Sensor."""
 
     entity_description: UnifiInsightsBinarySensorEntityDescription
@@ -502,10 +490,12 @@ class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):  # typ
             return None
 
         device = self.coordinator.data["devices"][self._site_id][self._device_id]
-        return self.entity_description.value_fn(device)
+        if self.entity_description.value_fn is not None:
+            return self.entity_description.value_fn(device)
+        return None
 
 
-class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type: ignore[misc]
+class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):
     """Representation of a UniFi Protect Binary Sensor."""
 
     entity_description: UnifiInsightsBinarySensorEntityDescription
@@ -518,12 +508,9 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
     ) -> None:
         """Initialize the binary sensor."""
         super().__init__(
-            coordinator, description.device_type, device_id, description.key
+            coordinator, description.device_type or "", device_id, description.key
         )
         self.entity_description = description
-
-        # Set name
-        self._attr_name = description.name
 
         _LOGGER.debug(
             "Initializing %s binary sensor %s for device %s",
@@ -542,7 +529,9 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
         if not device_data:
             return None
 
-        return self.entity_description.value_fn(device_data)
+        if self.entity_description.value_fn is not None:
+            return self.entity_description.value_fn(device_data)
+        return None
 
     def _update_from_data(self) -> None:
         """Update entity from data."""
@@ -554,7 +543,7 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
         device_name = device_data.get(
             "name",
             (
-                f"UniFi {self.entity_description.device_type.capitalize()} "
+                f"UniFi {self.entity_description.device_type.capitalize()} "  # type: ignore[union-attr]
                 f"{self._device_id}"
             ),
         )
@@ -586,7 +575,7 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):  # type:
             }
 
 
-class UnifiPortBinarySensor(UnifiInsightsEntity, BinarySensorEntity):  # type: ignore[misc]
+class UnifiPortBinarySensor(UnifiInsightsEntity, BinarySensorEntity):
     """Binary sensor indicating whether an SFP module is inserted."""
 
     def __init__(
@@ -625,7 +614,7 @@ class UnifiPortBinarySensor(UnifiInsightsEntity, BinarySensorEntity):  # type: i
         for port in device_data.get("ports", []):
             idx = port.get("idx") or port.get("port_idx")
             if idx == self._port_idx:
-                return port
+                return dict(port)
         return None
 
     @property

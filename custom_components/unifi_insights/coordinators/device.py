@@ -295,7 +295,7 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
         legacy_site_name: str | None = None,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         """Process a single device and its stats."""
-        device_id = device_dict.get("id")
+        device_id: str = device_dict.get("id", "")
         device_name = device_dict.get("name", device_id)
 
         try:
@@ -375,7 +375,14 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
 
     async def _process_site(
         self, site_id: str, legacy_site_name: str | None = None
-    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]] | None:
+    ) -> (
+        tuple[
+            dict[str, dict[str, Any]],
+            dict[str, dict[str, Any]],
+            dict[str, dict[str, Any]],
+        ]
+        | None
+    ):
         """Process a single site's devices and clients."""
         try:
             # Get devices and clients in parallel using new API
@@ -459,8 +466,8 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                     devices_dict[device_id] = device
                     stats_dict[device_id] = stats
 
-            clients_dict = {
-                client.get("id"): client for client in clients if client.get("id")
+            clients_dict: dict[str, dict[str, Any]] = {
+                str(client.get("id")): client for client in clients if client.get("id")
             }
 
             return devices_dict, stats_dict, clients_dict

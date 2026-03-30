@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -203,7 +204,7 @@ async def async_setup_entry(
 
 class UnifiFirewallRuleSwitch(
     CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntity
-):  # type: ignore[misc]
+):
     """Switch to enable or disable a user-defined firewall rule."""
 
     _attr_has_entity_name = True
@@ -254,11 +255,13 @@ class UnifiFirewallRuleSwitch(
 
         return None
 
-    def _build_device_info(self) -> dict[str, Any]:
+    def _build_device_info(self) -> DeviceInfo:
         """Build device info for firewall rule grouping."""
         gateway_device_id = self._find_gateway_device_id()
         if gateway_device_id is not None:
-            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_device_id}")}}
+            return DeviceInfo(
+                identifiers={(DOMAIN, f"{self._site_id}_{gateway_device_id}")}
+            )
 
         site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
         meta = site_data.get("meta", {})
@@ -266,12 +269,12 @@ class UnifiFirewallRuleSwitch(
             meta.get("name") if isinstance(meta, dict) else None
         ) or site_data.get("name", self._site_id)
 
-        return {
-            "identifiers": {(DOMAIN, f"firewall_policies_{self._site_id}")},
-            "name": f"Firewall Policies ({site_name})",
-            "manufacturer": MANUFACTURER,
-            "model": "UniFi Firewall Policies",
-        }
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"firewall_policies_{self._site_id}")},
+            name=f"Firewall Policies ({site_name})",
+            manufacturer=MANUFACTURER,
+            model="UniFi Firewall Policies",
+        )
 
     def _update_local_state(self, *, enabled: bool) -> None:
         """Update the aggregated coordinator cache for immediate UI feedback."""
@@ -353,7 +356,7 @@ class UnifiFirewallRuleSwitch(
         await self._async_set_enabled(enabled=False)
 
 
-class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: ignore[misc]
+class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
     """Representation of a UniFi Protect Camera Microphone Switch."""
 
     _attr_has_entity_name = True
@@ -399,7 +402,7 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
             "async_update_camera",
             f"Unable to turn on microphone for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.update_camera(
+            fallback_factory=lambda: self.coordinator.protect_client.update_camera(  # type: ignore[union-attr]
                 camera_id=self._device_id,
                 data={"micEnabled": True},
             ),
@@ -418,7 +421,7 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
             "async_update_camera",
             f"Unable to turn off microphone for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.update_camera(
+            fallback_factory=lambda: self.coordinator.protect_client.update_camera(  # type: ignore[union-attr]
                 camera_id=self._device_id,
                 data={"micEnabled": False},
             ),
@@ -428,7 +431,7 @@ class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):  # type: i
         self.async_write_ha_state()
 
 
-class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: ignore[misc]
+class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):
     """Representation of a UniFi Protect Camera Privacy Mode Switch."""
 
     _attr_has_entity_name = True
@@ -483,7 +486,7 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to enable privacy mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
                 is_privacy_mode_enabled=True,
             ),
@@ -502,7 +505,7 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to disable privacy mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
                 is_privacy_mode_enabled=False,
             ),
@@ -512,7 +515,7 @@ class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
         self.async_write_ha_state()
 
 
-class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: ignore[misc]
+class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):
     """Representation of a UniFi Protect Camera Status Light Switch."""
 
     _attr_has_entity_name = True
@@ -561,7 +564,7 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
             "async_update_camera_settings",
             f"Unable to turn on status light for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
                 led_settings={"isEnabled": True},
             ),
@@ -580,7 +583,7 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
             "async_update_camera_settings",
             f"Unable to turn off status light for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
                 led_settings={"isEnabled": False},
             ),
@@ -590,7 +593,7 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):  # type: 
         self.async_write_ha_state()
 
 
-class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: ignore[misc]
+class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):
     """Representation of a UniFi Protect Camera High FPS Mode Switch."""
 
     _attr_has_entity_name = True
@@ -638,7 +641,7 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to enable high FPS mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
                 video_mode=VIDEO_MODE_HIGH_FPS,
             ),
@@ -657,7 +660,7 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
             "async_update_camera_settings",
             f"Unable to disable high FPS mode for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(
+            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
                 video_mode=VIDEO_MODE_DEFAULT,
             ),
@@ -667,7 +670,7 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):  # type: igno
         self.async_write_ha_state()
 
 
-class UnifiClientBlockSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntity):  # type: ignore[misc]
+class UnifiClientBlockSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntity):
     """
     Switch to allow/block a network client.
 
@@ -708,17 +711,17 @@ class UnifiClientBlockSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], Switch
         )
         if uplink_device_id:
             # Use the network device's identifiers to group under it
-            self._attr_device_info: dict[str, Any] = {
-                "identifiers": {(DOMAIN, f"{site_id}_{uplink_device_id}")},
-            }
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{site_id}_{uplink_device_id}")},
+            )
         else:
             # Fallback: create a standalone client device if no uplink found
-            self._attr_device_info = {
-                "identifiers": {(DOMAIN, f"client_{client_id}")},
-                "name": client_name,
-                "manufacturer": MANUFACTURER,
-                "model": "Network Client",
-            }
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"client_{client_id}")},
+                name=client_name,
+                manufacturer=MANUFACTURER,
+                model="Network Client",
+            )
 
     def _get_client_data(self) -> dict[str, Any]:
         """Get client data from coordinator."""
@@ -791,7 +794,7 @@ class UnifiClientBlockSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], Switch
         await self.coordinator.async_request_refresh()
 
 
-class UnifiWifiSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntity):  # type: ignore[misc]
+class UnifiWifiSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntity):
     """Switch to enable/disable a WiFi network."""
 
     _attr_has_entity_name = True
@@ -818,12 +821,12 @@ class UnifiWifiSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntity)
 
         # Create device info for WiFi network
         # Note: We don't use via_device since site_id is not a registered device
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"wifi_{wifi_id}")},
-            "name": f"WiFi: {wifi_name}",
-            "manufacturer": MANUFACTURER,
-            "model": "WiFi Network",
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"wifi_{wifi_id}")},
+            name=f"WiFi: {wifi_name}",
+            manufacturer=MANUFACTURER,
+            model="WiFi Network",
+        )
 
     def _get_wifi_data(self) -> dict[str, Any]:
         """Get WiFi data from coordinator."""

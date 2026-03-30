@@ -11,6 +11,7 @@ from homeassistant.components.button import (
     ButtonEntityDescription,
 )
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import (
     ATTR_CHIME_ID,
@@ -165,7 +166,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[misc]
+class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):
     """Representation of a UniFi Insights Button."""
 
     entity_description: UnifiInsightsButtonEntityDescription
@@ -204,7 +205,7 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[mi
             f"Unable to restart device {self._device_id}",
             self._site_id,
             self._device_id,
-            fallback_factory=lambda: self.coordinator.network_client.restart_device(
+            fallback_factory=lambda: self.coordinator.network_client.restart_device(  # type: ignore[attr-defined]
                 self._site_id,
                 self._device_id,
             ),
@@ -235,7 +236,7 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):  # type: ignore[mi
         return isinstance(state, str) and state == "ONLINE"
 
 
-class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ignore[misc]
+class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):
     """Button to play a ringtone on a UniFi Protect Chime."""
 
     _attr_has_entity_name = True
@@ -289,14 +290,14 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):  # type: ig
             f"Unable to play ringtone on chime {self._device_id}",
             self._device_id,
             ringtone_id,
-            fallback_factory=lambda: self.coordinator.protect_client.play_chime(
+            fallback_factory=lambda: self.coordinator.protect_client.play_chime(  # type: ignore[union-attr]
                 chime_id=self._device_id,
                 ringtone_id=ringtone_id,
             ),
         )
 
 
-class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
+class UnifiClientReconnectButton(ButtonEntity):
     """Button to force a client to reconnect."""
 
     _attr_has_entity_name = True
@@ -330,17 +331,17 @@ class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
         )
         if uplink_device_id:
             # Use the network device's identifiers to group under it
-            self._attr_device_info: dict[str, Any] = {
-                "identifiers": {(DOMAIN, f"{site_id}_{uplink_device_id}")},
-            }
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{site_id}_{uplink_device_id}")},
+            )
         else:
             # Fallback: create a standalone client device if no uplink found
-            self._attr_device_info = {
-                "identifiers": {(DOMAIN, f"client_{client_id}")},
-                "name": client_name,
-                "manufacturer": MANUFACTURER,
-                "model": "Network Client",
-            }
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"client_{client_id}")},
+                name=client_name,
+                manufacturer=MANUFACTURER,
+                model="Network Client",
+            )
 
     def _get_client_data(self) -> dict[str, Any]:
         """Get client data from coordinator."""
@@ -381,7 +382,7 @@ class UnifiClientReconnectButton(ButtonEntity):  # type: ignore[misc]
         )
 
 
-class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # type: ignore[misc]
+class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):
     """Button to start PTZ patrol on a UniFi Protect camera."""
 
     _attr_has_entity_name = True
@@ -406,7 +407,7 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
             f"Unable to start PTZ patrol for camera {self._device_id}",
             self._device_id,
             0,
-            fallback_factory=lambda: self.coordinator.protect_client.ptz_start_patrol(
+            fallback_factory=lambda: self.coordinator.protect_client.ptz_start_patrol(  # type: ignore[union-attr]
                 camera_id=self._device_id,
                 slot=0,
             ),
@@ -414,7 +415,7 @@ class UnifiProtectPTZPatrolStartButton(UnifiProtectEntity, ButtonEntity):  # typ
         _LOGGER.info("Successfully started PTZ patrol for camera %s", self._device_id)
 
 
-class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type: ignore[misc]
+class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):
     """Button to stop PTZ patrol on a UniFi Protect camera."""
 
     _attr_has_entity_name = True
@@ -438,7 +439,7 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):  # type
             "async_stop_ptz_patrol",
             f"Unable to stop PTZ patrol for camera {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.ptz_stop_patrol(
+            fallback_factory=lambda: self.coordinator.protect_client.ptz_stop_patrol(  # type: ignore[union-attr]
                 camera_id=self._device_id,
             ),
         )

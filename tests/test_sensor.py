@@ -1557,7 +1557,7 @@ class TestUnifiProtectNVRSensor:
         assert sensor._attr_unique_id == "unifi_insights_nvr_nvr1_storage_used"
 
     async def test_nvr_sensor_name(self, hass: HomeAssistant, mock_coordinator):
-        """Test NVR sensor name."""
+        """Test NVR sensor uses translation_key."""
         description = next(s for s in NVR_SENSOR_TYPES if s.key == "storage_used")
 
         sensor = UnifiProtectNVRSensor(
@@ -1566,7 +1566,7 @@ class TestUnifiProtectNVRSensor:
             device_id="nvr1",
         )
 
-        assert sensor._attr_name == "Storage Used"
+        assert sensor.entity_description.translation_key == "storage_used"
 
 
 class TestUnifiProtectNVRSensorAttributes:
@@ -2011,7 +2011,7 @@ class TestAsyncSetupEntryEdgeCases:
             None,
         )
         assert tx_sensor is not None
-        assert "Uplink" in tx_sensor.entity_description.name
+        assert tx_sensor.entity_description.translation_key == "tx_rate"
 
 
 class TestUnifiInsightsSensorEdgeCases:

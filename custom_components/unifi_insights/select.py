@@ -70,7 +70,7 @@ async def async_setup_entry(
         _LOGGER.debug("Skipping select setup - Protect API not available")
         return
 
-    entities = []
+    entities: list[SelectEntity] = []
 
     # Add camera HDR mode selects
     for camera_id, camera_data in coordinator.data["protect"]["cameras"].items():
@@ -136,12 +136,12 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):  # type: ignore[misc]
+class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):
     """Representation of a UniFi Protect Camera HDR Mode Select."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "hdr_mode"
-    _attr_options: ClassVar[list[str]] = [HDR_MODE_AUTO, HDR_MODE_ON, HDR_MODE_OFF]
+    _attr_options: ClassVar[list[str]] = [HDR_MODE_AUTO, HDR_MODE_ON, HDR_MODE_OFF]  # type: ignore[misc]
 
     def __init__(
         self,
@@ -183,7 +183,7 @@ class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):  # type: igno
             f"Unable to set HDR mode for camera {self._device_id}",
             self._device_id,
             option,
-            fallback_factory=lambda: self.coordinator.protect_client.set_hdr_mode(
+            fallback_factory=lambda: self.coordinator.protect_client.set_hdr_mode(  # type: ignore[union-attr]
                 camera_id=self._device_id,
                 mode=option,
             ),
@@ -192,12 +192,12 @@ class UnifiProtectHDRModeSelect(UnifiProtectEntity, SelectEntity):  # type: igno
         self.async_write_ha_state()
 
 
-class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):  # type: ignore[misc]
+class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):
     """Representation of a UniFi Protect Camera Video Mode Select."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "video_mode"
-    _attr_options: ClassVar[list[str]] = [
+    _attr_options: ClassVar[list[str]] = [  # type: ignore[misc]
         VIDEO_MODE_DEFAULT,
         VIDEO_MODE_HIGH_FPS,
         VIDEO_MODE_SPORT,
@@ -244,7 +244,7 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):  # type: ig
             f"Unable to set video mode for camera {self._device_id}",
             self._device_id,
             option,
-            fallback_factory=lambda: self.coordinator.protect_client.set_video_mode(
+            fallback_factory=lambda: self.coordinator.protect_client.set_video_mode(  # type: ignore[union-attr]
                 camera_id=self._device_id,
                 mode=option,
             ),
@@ -253,12 +253,12 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):  # type: ig
         self.async_write_ha_state()
 
 
-class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):  # type: ignore[misc]
+class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):
     """Representation of a UniFi Protect Chime Ringtone Select."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "ringtone"
-    _attr_options: ClassVar[list[str]] = [
+    _attr_options: ClassVar[list[str]] = [  # type: ignore[misc]
         CHIME_RINGTONE_DEFAULT,
         CHIME_RINGTONE_MECHANICAL,
         CHIME_RINGTONE_DIGITAL,
@@ -315,7 +315,7 @@ class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):  # type
             f"Unable to set ringtone for chime {self._device_id}",
             self._device_id,
             option,
-            fallback_factory=lambda: self.coordinator.protect_client.set_chime_ringtone(
+            fallback_factory=lambda: self.coordinator.protect_client.set_chime_ringtone(  # type: ignore[union-attr]
                 chime_id=self._device_id,
                 ringtone_id=option,
             ),
@@ -324,12 +324,12 @@ class UnifiProtectChimeRingtoneSelect(UnifiProtectEntity, SelectEntity):  # type
         self.async_write_ha_state()
 
 
-class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):  # type: ignore[misc]
+class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):
     """Representation of a UniFi Protect Camera PTZ Preset Select."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "ptz_preset"
-    _attr_options: ClassVar[list[str]] = ["0", "1", "2", "3", "4"]
+    _attr_options: ClassVar[list[str]] = ["0", "1", "2", "3", "4"]  # type: ignore[misc]
     _attr_icon = "mdi:camera-control"
 
     def __init__(
@@ -374,7 +374,7 @@ class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):  # type: ig
             f"Unable to move camera {self._device_id} to PTZ preset {slot}",
             self._device_id,
             slot,
-            fallback_factory=lambda: self.coordinator.protect_client.ptz_move_to_preset(
+            fallback_factory=lambda: self.coordinator.protect_client.ptz_move_to_preset(  # type: ignore[union-attr]
                 camera_id=self._device_id,
                 slot=slot,
             ),
@@ -383,7 +383,7 @@ class UnifiProtectPTZPresetSelect(UnifiProtectEntity, SelectEntity):  # type: ig
         self.async_write_ha_state()
 
 
-class UnifiProtectViewerLiveviewSelect(UnifiProtectEntity, SelectEntity):  # type: ignore[misc]
+class UnifiProtectViewerLiveviewSelect(UnifiProtectEntity, SelectEntity):
     """Representation of a UniFi Protect Viewer Liveview Select."""
 
     _attr_has_entity_name = True
@@ -448,7 +448,7 @@ class UnifiProtectViewerLiveviewSelect(UnifiProtectEntity, SelectEntity):  # typ
             "async_update_viewer",
             f"Unable to set liveview for viewer {self._device_id}",
             self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.update_viewer(
+            fallback_factory=lambda: self.coordinator.protect_client.update_viewer(  # type: ignore[union-attr]
                 viewer_id=self._device_id,
                 data={"liveview": liveview_id},
             ),

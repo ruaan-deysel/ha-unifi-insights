@@ -27,7 +27,7 @@ from custom_components.unifi_insights.const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ignore[misc]
+class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """
     Facade coordinator providing unified data view for backward compatibility.
 

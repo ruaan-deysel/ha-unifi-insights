@@ -23,6 +23,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_NVR_ID,
@@ -41,7 +42,10 @@ from .const import (
     ATTR_SENSOR_TEMPERATURE_VALUE,
     DEVICE_TYPE_NVR,
     DEVICE_TYPE_SENSOR,
+    DOMAIN,
+    MANUFACTURER,
 )
+from .coordinators import UnifiFacadeCoordinator
 from .entity import UnifiInsightsEntity, UnifiProtectEntity, get_field
 from .entity import get_client_type as _get_client_type
 
@@ -53,7 +57,8 @@ if TYPE_CHECKING:
     from homeassistant.helpers.typing import StateType
 
     from . import UnifiInsightsConfigEntry
-    from .coordinators import UnifiFacadeCoordinator
+
+from homeassistant.helpers.entity import DeviceInfo
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -723,6 +728,39 @@ WAN_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
 )
 
 
+# Site-level client count sensor descriptions
+SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
+    UnifiInsightsSensorEntityDescription(
+        key="site_total_clients",
+        translation_key="site_total_clients",
+        name="Total Clients",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:account-group",
+        value_fn=len,
+    ),
+    UnifiInsightsSensorEntityDescription(
+        key="site_wired_clients",
+        translation_key="site_wired_clients",
+        name="Wired Clients",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:ethernet",
+        value_fn=lambda clients: len(
+            [c for c in clients.values() if _get_client_type(c) == "WIRED"]
+        ),
+    ),
+    UnifiInsightsSensorEntityDescription(
+        key="site_wireless_clients",
+        translation_key="site_wireless_clients",
+        name="Wireless Clients",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:wifi",
+        value_fn=lambda clients: len(
+            [c for c in clients.values() if _get_client_type(c) == "WIRELESS"]
+        ),
+    ),
+)
+
+
 @callback
 def _migrate_sensor_units(
     hass: HomeAssistant,
@@ -1182,6 +1220,18 @@ async def async_setup_entry(
                     )
                     for description in WAN_SENSOR_TYPES
                 )
+
+    # Add site-level client count sensors
+    for site_id in coordinator.data.get("clients", {}):
+        _LOGGER.debug("Creating site-level client count sensors for site %s", site_id)
+        entities.extend(
+            UnifiSiteClientSensor(
+                coordinator=coordinator,
+                description=description,
+                site_id=site_id,
+            )
+            for description in SITE_CLIENT_SENSOR_TYPES
+        )
 
     # Add UniFi Protect sensors if API is available
     if coordinator.protect_client:
@@ -1920,3 +1970,77 @@ class UnifiProtectNVRSensor(UnifiProtectEntity, SensorEntity):  # type: ignore[m
             ATTR_NVR_STORAGE_AVAILABLE: _calculate_storage_available(nvr_data),
             ATTR_NVR_STORAGE_USED_PERCENT: _calculate_storage_percent(nvr_data),
         }
+
+
+class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEntity):  # type: ignore[misc]
+    """Representation of a site-level client count sensor."""
+
+    _attr_has_entity_name = True
+    entity_description: UnifiInsightsSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        description: UnifiInsightsSensorEntityDescription,
+        site_id: str,
+    ) -> None:
+        """Initialize the site-level client sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._site_id = site_id
+
+        self._attr_unique_id = f"{site_id}_{description.key}"
+        self._attr_name = description.name
+        self._attr_device_info = DeviceInfo(**self._build_device_info())
+
+    def _find_gateway_device_id(self) -> str | None:
+        """Find the gateway device ID for this site."""
+        site_devices = self.coordinator.data.get("devices", {}).get(self._site_id, {})
+        if not isinstance(site_devices, dict):
+            return None
+
+        for device_id, device_data in site_devices.items():
+            if not isinstance(device_data, dict):
+                continue
+            model = str(device_data.get("model", "")).upper()
+            features = device_data.get("features", [])
+            if not isinstance(features, list):
+                features = []
+            if "gateway" in features or "router" in features:
+                return str(device_id)
+            if model.startswith(("UDM", "USG", "UXG", "UCG")):
+                return str(device_id)
+
+        return None
+
+    def _build_device_info(self) -> dict[str, Any]:
+        """Build device info for site-level entity grouping."""
+        gateway_id = self._find_gateway_device_id()
+        if gateway_id is not None:
+            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_id}")}}
+
+        site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
+        meta = site_data.get("meta", {})
+        site_name = (
+            meta.get("name") if isinstance(meta, dict) else None
+        ) or site_data.get("name", self._site_id)
+
+        return {
+            "identifiers": {(DOMAIN, f"site_{self._site_id}")},
+            "name": f"UniFi Site ({site_name})",
+            "manufacturer": MANUFACTURER,
+            "model": "UniFi Site",
+        }
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the client count."""
+        clients = self.coordinator.data.get("clients", {}).get(self._site_id, {})
+        if not isinstance(clients, dict):
+            return 0
+        return self.entity_description.value_fn(clients)

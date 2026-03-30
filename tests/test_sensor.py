@@ -16,11 +16,13 @@ from custom_components.unifi_insights.sensor import (
     PROTECT_SENSOR_TYPES,
     SENSOR_TYPES,
     SFP_SENSOR_TYPES,
+    SITE_CLIENT_SENSOR_TYPES,
     UnifiInsightsSensor,
     UnifiPortSensor,
     UnifiProtectNVRSensor,
     UnifiProtectSensor,
     UnifiProtectSensorEntityDescription,
+    UnifiSiteClientSensor,
     _bytes_to_gb,
     _calculate_storage_available,
     _calculate_storage_percent,
@@ -2343,3 +2345,296 @@ class TestMigrateSensorUnits:
         mock_registry.async_update_entity_options.assert_called_once()
         call_args = mock_registry.async_update_entity_options.call_args
         assert call_args[0][2]["refresh_initial_entity_options"] is True
+
+
+class TestSiteClientSensorTypes:
+    """Tests for site-level client sensor descriptions."""
+
+    def test_site_client_sensor_types_defined(self):
+        """Test that site client sensor types are defined."""
+        assert len(SITE_CLIENT_SENSOR_TYPES) == 3
+
+    def test_sensor_keys(self):
+        """Test that sensor keys are correct."""
+        keys = {desc.key for desc in SITE_CLIENT_SENSOR_TYPES}
+        assert keys == {
+            "site_total_clients",
+            "site_wired_clients",
+            "site_wireless_clients",
+        }
+
+    def test_total_clients_value_fn(self):
+        """Test value_fn counts all clients."""
+        clients = {
+            "c1": {"type": "WIRED"},
+            "c2": {"type": "WIRELESS"},
+            "c3": {"type": "WIRED"},
+        }
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        assert desc.value_fn(clients) == 3
+
+    def test_wired_clients_value_fn(self):
+        """Test value_fn counts only wired clients."""
+        clients = {
+            "c1": {"type": "WIRED"},
+            "c2": {"type": "WIRELESS"},
+            "c3": {"type": "WIRED"},
+        }
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_wired_clients"
+        )
+        assert desc.value_fn(clients) == 2
+
+    def test_wireless_clients_value_fn(self):
+        """Test value_fn counts only wireless clients."""
+        clients = {
+            "c1": {"type": "WIRED"},
+            "c2": {"type": "WIRELESS"},
+            "c3": {"type": "WIRELESS"},
+        }
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_wireless_clients"
+        )
+        assert desc.value_fn(clients) == 2
+
+    def test_empty_clients(self):
+        """Test value_fn handles empty clients dict."""
+        clients: dict = {}
+        for desc in SITE_CLIENT_SENSOR_TYPES:
+            assert desc.value_fn(clients) == 0
+
+
+class TestUnifiSiteClientSensor:
+    """Tests for the UnifiSiteClientSensor entity class."""
+
+    @pytest.fixture
+    def mock_coordinator_with_clients(self, mock_coordinator):
+        """Create a coordinator with client data for site-level tests."""
+        mock_coordinator.data["clients"] = {
+            "site1": {
+                "c1": {"id": "c1", "type": "WIRED", "name": "PC"},
+                "c2": {"id": "c2", "type": "WIRELESS", "name": "Phone"},
+                "c3": {"id": "c3", "type": "WIRED", "name": "Printer"},
+            }
+        }
+        mock_coordinator.last_update_success = True
+        return mock_coordinator
+
+    async def test_total_clients_value(
+        self, hass: HomeAssistant, mock_coordinator_with_clients
+    ):
+        """Test total clients sensor returns correct count."""
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator_with_clients,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.native_value == 3
+
+    async def test_wired_clients_value(
+        self, hass: HomeAssistant, mock_coordinator_with_clients
+    ):
+        """Test wired clients sensor returns correct count."""
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_wired_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator_with_clients,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.native_value == 2
+
+    async def test_wireless_clients_value(
+        self, hass: HomeAssistant, mock_coordinator_with_clients
+    ):
+        """Test wireless clients sensor returns correct count."""
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_wireless_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator_with_clients,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.native_value == 1
+
+    async def test_unique_id(self, hass: HomeAssistant, mock_coordinator_with_clients):
+        """Test unique ID format."""
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator_with_clients,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.unique_id == "site1_site_total_clients"
+
+    async def test_available(self, hass: HomeAssistant, mock_coordinator_with_clients):
+        """Test availability follows coordinator update success."""
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator_with_clients,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.available is True
+
+        mock_coordinator_with_clients.last_update_success = False
+        assert sensor.available is False
+
+    async def test_device_info_attaches_to_gateway(
+        self, hass: HomeAssistant, mock_coordinator_with_clients
+    ):
+        """Test device info attaches to existing gateway device."""
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator_with_clients,
+            description=desc,
+            site_id="site1",
+        )
+        # device2 is a UDM-Pro gateway, so the sensor should attach to it
+        device_info = sensor.device_info
+        assert device_info is not None
+        idents = device_info.get("identifiers")
+        assert idents is not None
+        assert ("unifi_insights", "site1_device2") in idents
+
+    async def test_device_info_creates_virtual_site_device(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test virtual site device created when no gateway exists."""
+        # Remove the gateway device
+        mock_coordinator.data["devices"] = {
+            "site1": {
+                "device1": {
+                    "id": "device1",
+                    "name": "Test Switch",
+                    "model": "USW-24",
+                    "features": ["switching"],
+                }
+            }
+        }
+        mock_coordinator.data["clients"] = {
+            "site1": {"c1": {"id": "c1", "type": "WIRED"}}
+        }
+        mock_coordinator.last_update_success = True
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator,
+            description=desc,
+            site_id="site1",
+        )
+        device_info = sensor.device_info
+        assert device_info is not None
+        idents = device_info.get("identifiers")
+        assert ("unifi_insights", "site_site1") in idents
+
+    async def test_native_value_no_clients_data(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test returns 0 when no client data for the site."""
+        mock_coordinator.data["clients"] = {}
+        mock_coordinator.last_update_success = True
+        desc = next(
+            d for d in SITE_CLIENT_SENSOR_TYPES if d.key == "site_total_clients"
+        )
+        sensor = UnifiSiteClientSensor(
+            coordinator=mock_coordinator,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.native_value == 0
+
+
+class TestAsyncSetupEntrySiteClientSensors:
+    """Tests for site-level client sensor creation in async_setup_entry."""
+
+    async def test_setup_entry_creates_site_client_sensors(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test async_setup_entry creates site-level client sensors."""
+        mock_coordinator.data["clients"] = {
+            "site1": {
+                "c1": {"id": "c1", "type": "WIRED"},
+                "c2": {"id": "c2", "type": "WIRELESS"},
+            }
+        }
+
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+        config_entry.entry_id = "test_entry"
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=MagicMock(
+                    async_entries_for_config_entry=MagicMock(return_value=[])
+                ),
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[],
+            ),
+        ):
+            await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        site_sensors = [e for e in entities if isinstance(e, UnifiSiteClientSensor)]
+        assert len(site_sensors) == 3
+        keys = {s.entity_description.key for s in site_sensors}
+        assert keys == {
+            "site_total_clients",
+            "site_wired_clients",
+            "site_wireless_clients",
+        }
+
+    async def test_setup_entry_no_clients_no_site_sensors(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test no site sensors when clients data is empty."""
+        mock_coordinator.data["clients"] = {}
+
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+        config_entry.entry_id = "test_entry"
+
+        entities = []
+
+        def mock_add_entities(new_entities):
+            entities.extend(new_entities)
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=MagicMock(
+                    async_entries_for_config_entry=MagicMock(return_value=[])
+                ),
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[],
+            ),
+        ):
+            await async_setup_entry(hass, config_entry, mock_add_entities)
+
+        site_sensors = [e for e in entities if isinstance(e, UnifiSiteClientSensor)]
+        assert len(site_sensors) == 0

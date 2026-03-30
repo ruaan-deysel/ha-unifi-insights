@@ -161,6 +161,15 @@
       },
       "port_rx_rate": {
         "name": "{port_label} RX Rate"
+      },
+      "site_total_clients": {
+        "name": "Total Clients"
+      },
+      "site_wired_clients": {
+        "name": "Wired Clients"
+      },
+      "site_wireless_clients": {
+        "name": "Wireless Clients"
       }
     },
     "binary_sensor": {

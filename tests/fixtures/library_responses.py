@@ -64,6 +64,20 @@ SAMPLE_PROTECT_SENSOR = {
     "battery": 85,
 }
 
+SAMPLE_USL_ENTRY_SENSOR = {
+    "id": "test_sensor_usl",
+    "name": "Front Door Sensor",
+    "model": "USL-Entry",
+    "state": "CONNECTED",
+    "mountType": "door",
+    "isOpened": False,
+    "isTamperingDetected": False,
+    "batteryStatus": {"percentage": 92, "isLow": False},
+    "temperature": None,
+    "humidity": None,
+    "lightValue": None,
+}
+
 SAMPLE_PROTECT_CHIME = {
     "id": "test_chime_1",
     "name": "Doorbell Chime",

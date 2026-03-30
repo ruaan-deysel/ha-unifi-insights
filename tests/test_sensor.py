@@ -29,6 +29,7 @@ from custom_components.unifi_insights.sensor import (
     _get_client_type,
     _get_port_label,
     _get_storage_bytes,
+    _has_protect_stat,
     _has_storage_info,
     _migrate_sensor_units,
     async_setup_entry,
@@ -2638,3 +2639,160 @@ class TestAsyncSetupEntrySiteClientSensors:
 
         site_sensors = [e for e in entities if isinstance(e, UnifiSiteClientSensor)]
         assert len(site_sensors) == 0
+
+
+class TestHasProtectStat:
+    """Tests for _has_protect_stat capability check."""
+
+    def test_stat_present_in_stats(self):
+        """Test capability returns True when stat exists in stats dict."""
+        check = _has_protect_stat("temperature", "temperature")
+        data = {"stats": {"temperature": {"value": 22.5}}}
+        assert check(data) is True
+
+    def test_stat_missing_from_stats(self):
+        """Test capability returns False when stat is absent."""
+        check = _has_protect_stat("temperature", "temperature")
+        data = {"stats": {}, "temperature": None}
+        assert check(data) is False
+
+    def test_stat_none_in_stats(self):
+        """Test capability returns False when stat value is None."""
+        check = _has_protect_stat("temperature", "temperature")
+        data = {"stats": {"temperature": {"value": None}}}
+        assert check(data) is False
+
+    def test_flat_field_fallback(self):
+        """Test capability uses flat field when stats absent."""
+        check = _has_protect_stat("temperature", "temperature")
+        data = {"temperature": 22.5}
+        assert check(data) is True
+
+    def test_flat_field_none(self):
+        """Test capability returns False when flat field is None."""
+        check = _has_protect_stat("temperature", "temperature")
+        data = {"temperature": None}
+        assert check(data) is False
+
+    def test_no_stats_no_flat(self):
+        """Test capability returns False when no data at all."""
+        check = _has_protect_stat("temperature", "temperature")
+        assert check({}) is False
+
+    def test_light_value_flat_key(self):
+        """Test light capability with different flat key (lightValue)."""
+        check = _has_protect_stat("light", "lightValue")
+        data = {"lightValue": 500.0}
+        assert check(data) is True
+
+    def test_light_value_none(self):
+        """Test light capability when lightValue is None."""
+        check = _has_protect_stat("light", "lightValue")
+        data = {"lightValue": None}
+        assert check(data) is False
+
+
+class TestProtectSensorCapabilityFiltering:
+    """Tests for capability-based filtering of Protect sensor entities."""
+
+    @pytest.fixture
+    def mock_coordinator(self):
+        """Create a mock coordinator with UP-SENSE and USL-Entry sensors."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "name": "Default"}},
+            "devices": {"site1": {}},
+            "clients": {"site1": []},
+            "stats": {"site1": {}},
+            "network_info": {},
+            "vouchers": {},
+            "protect": {
+                "sensors": {
+                    "up_sense_1": {
+                        "id": "up_sense_1",
+                        "name": "Kitchen Sensor",
+                        "model": "UP-SENSE",
+                        "state": "CONNECTED",
+                        "stats": {
+                            "temperature": {"value": 22.5},
+                            "humidity": {"value": 45},
+                            "light": {"value": 500},
+                        },
+                        "batteryStatus": {"percentage": 85, "isLow": False},
+                    },
+                    "usl_entry_1": {
+                        "id": "usl_entry_1",
+                        "name": "Front Door Sensor",
+                        "model": "USL-Entry",
+                        "state": "CONNECTED",
+                        "mountType": "door",
+                        "isOpened": False,
+                        "isTamperingDetected": False,
+                        "temperature": None,
+                        "humidity": None,
+                        "lightValue": None,
+                        "batteryStatus": {"percentage": 92, "isLow": False},
+                    },
+                },
+                "cameras": {},
+                "lights": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+                "events": {},
+            },
+            "last_update": None,
+        }
+        coordinator.get_site = MagicMock(
+            return_value=coordinator.data["sites"]["site1"]
+        )
+        return coordinator
+
+    async def test_up_sense_gets_all_sensors(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test UP-SENSE gets all four sensor types."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        up_sense_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectSensor) and e._device_id == "up_sense_1"
+        ]
+        sensor_keys = {e.entity_description.key for e in up_sense_sensors}
+        assert sensor_keys == {"temperature", "humidity", "light", "battery"}
+
+    async def test_usl_entry_gets_only_battery_sensor(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Test USL-Entry gets only battery sensor."""
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        usl_entry_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectSensor) and e._device_id == "usl_entry_1"
+        ]
+        sensor_keys = {e.entity_description.key for e in usl_entry_sensors}
+        assert sensor_keys == {"battery"}
+        assert "temperature" not in sensor_keys
+        assert "humidity" not in sensor_keys
+        assert "light" not in sensor_keys

@@ -150,6 +150,7 @@ class UnifiInsightsBinarySensorEntityDescription(BinarySensorEntityDescription):
     value_fn: Callable[[dict[str, Any]], bool] | None = None
     device_type: str | None = None
     entity_type: str = "device"  # "device" or "protect"
+    capability_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
@@ -257,6 +258,10 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         ),
         device_type=DEVICE_TYPE_SENSOR,
         entity_type="protect",
+        capability_fn=lambda data: (
+            get_field(data, "mountType", "mount_type", default="") == "motion"
+            or get_field(data, "isMotionDetected", "is_motion_detected") is not None
+        ),
     ),
     # Sensor door/window status
     UnifiInsightsBinarySensorEntityDescription(
@@ -269,6 +274,10 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         ),
         device_type=DEVICE_TYPE_SENSOR,
         entity_type="protect",
+        capability_fn=lambda data: (
+            get_field(data, "mountType", "mount_type", default="") in ("door", "window")
+            or get_field(data, "isOpened", "is_opened") is not None
+        ),
     ),
     # Sensor tamper detection
     UnifiInsightsBinarySensorEntityDescription(
@@ -301,6 +310,10 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         ),
         device_type=DEVICE_TYPE_SENSOR,
         entity_type="protect",
+        capability_fn=lambda data: (
+            get_field(data, "mountType", "mount_type", default="") in ("leak", "water")
+            or get_field(data, "isLeakDetected", "is_leak_detected") is not None
+        ),
     ),
 )
 
@@ -437,6 +450,10 @@ async def async_setup_entry(
                 for description in BINARY_SENSOR_TYPES
                 if description.entity_type == "protect"
                 and description.device_type == DEVICE_TYPE_SENSOR
+                and (
+                    description.capability_fn is None
+                    or description.capability_fn(sensor_data)
+                )
             )
 
     _LOGGER.info("Adding %d UniFi Insights binary sensors", len(entities))

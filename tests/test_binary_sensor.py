@@ -1019,3 +1019,148 @@ class TestUnifiPortBinarySensor:
         ]
         # 2 SFP ports (25 and 26) → 2 binary sensors
         assert len(sfp_sensors) == 2
+
+
+class TestProtectBinarySensorCapabilityFiltering:
+    """Tests for capability-based filtering of Protect binary sensor entities."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create a coordinator with USL-Entry door sensor and water leak sensor."""
+        coordinator = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1", "name": "Default"}},
+            "devices": {"site1": {}},
+            "clients": {"site1": []},
+            "stats": {"site1": {}},
+            "network_info": {},
+            "vouchers": {},
+            "protect": {
+                "cameras": {},
+                "lights": {},
+                "sensors": {
+                    "door_sensor": {
+                        "id": "door_sensor",
+                        "name": "Front Door",
+                        "state": "CONNECTED",
+                        "mountType": "door",
+                        "isOpened": False,
+                        "isTamperingDetected": False,
+                    },
+                    "leak_sensor": {
+                        "id": "leak_sensor",
+                        "name": "Basement Leak",
+                        "state": "CONNECTED",
+                        "mountType": "leak",
+                        "isLeakDetected": False,
+                        "isTamperingDetected": False,
+                    },
+                },
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "liveviews": {},
+                "events": {},
+            },
+            "last_update": None,
+        }
+        return coordinator
+
+    async def test_door_sensor_gets_door_and_tamper(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test door sensor gets door and tamper binary sensors."""
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        door_sensor_entities = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor) and e._device_id == "door_sensor"
+        ]
+        entity_keys = {e.entity_description.key for e in door_sensor_entities}
+        assert "sensor_door" in entity_keys
+        assert "sensor_tamper" in entity_keys
+
+    async def test_door_sensor_no_leak_or_motion(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test door sensor does NOT get leak or motion binary sensors."""
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        door_sensor_entities = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor) and e._device_id == "door_sensor"
+        ]
+        entity_keys = {e.entity_description.key for e in door_sensor_entities}
+        assert "sensor_leak" not in entity_keys
+        assert "sensor_motion" not in entity_keys
+
+    async def test_leak_sensor_gets_leak_and_tamper(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test leak sensor gets leak and tamper binary sensors."""
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        leak_sensor_entities = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor) and e._device_id == "leak_sensor"
+        ]
+        entity_keys = {e.entity_description.key for e in leak_sensor_entities}
+        assert "sensor_leak" in entity_keys
+        assert "sensor_tamper" in entity_keys
+
+    async def test_leak_sensor_no_door_or_motion(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test leak sensor does NOT get door or motion binary sensors."""
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        leak_sensor_entities = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor) and e._device_id == "leak_sensor"
+        ]
+        entity_keys = {e.entity_description.key for e in leak_sensor_entities}
+        assert "sensor_door" not in entity_keys
+        assert "sensor_motion" not in entity_keys

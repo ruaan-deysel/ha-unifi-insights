@@ -83,6 +83,7 @@ class UnifiProtectSensorEntityDescription(SensorEntityDescription):  # type: ign
 
     value_fn: Callable[[dict[str, Any]], StateType] | None = None
     device_type: str | None = None
+    capability_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 def format_uptime(seconds: int | None) -> str | None:
@@ -177,6 +178,22 @@ def get_network_device_temperature(device: dict[str, Any]) -> float | int | None
 
 
 # Sensor descriptions for UniFi Protect sensors
+def _has_protect_stat(
+    stat_key: str, flat_key: str | None = None
+) -> Callable[[dict[str, Any]], bool]:
+    """Return a capability check for a Protect sensor measurement."""
+
+    def check(data: dict[str, Any]) -> bool:
+        stats = data.get("stats")
+        if isinstance(stats, dict):
+            entry = stats.get(stat_key)
+            if isinstance(entry, dict) and entry.get("value") is not None:
+                return True
+        return bool(flat_key and data.get(flat_key) is not None)
+
+    return check
+
+
 PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
     # Temperature sensor
     UnifiProtectSensorEntityDescription(
@@ -190,6 +207,7 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
             sensor.get("stats", {}).get("temperature", {}).get("value")
         ),
         device_type=DEVICE_TYPE_SENSOR,
+        capability_fn=_has_protect_stat("temperature", "temperature"),
     ),
     # Humidity sensor
     UnifiProtectSensorEntityDescription(
@@ -203,6 +221,7 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
             sensor.get("stats", {}).get("humidity", {}).get("value")
         ),
         device_type=DEVICE_TYPE_SENSOR,
+        capability_fn=_has_protect_stat("humidity", "humidity"),
     ),
     # Light sensor
     UnifiProtectSensorEntityDescription(
@@ -214,6 +233,7 @@ PROTECT_SENSOR_TYPES: tuple[UnifiProtectSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda sensor: sensor.get("stats", {}).get("light", {}).get("value"),
         device_type=DEVICE_TYPE_SENSOR,
+        capability_fn=_has_protect_stat("light", "lightValue"),
     ),
     # Battery sensor
     UnifiProtectSensorEntityDescription(
@@ -1253,6 +1273,10 @@ async def async_setup_entry(
                 )
                 for description in PROTECT_SENSOR_TYPES
                 if description.device_type == DEVICE_TYPE_SENSOR
+                and (
+                    description.capability_fn is None
+                    or description.capability_fn(sensor_data)
+                )
             )
 
         # Add sensors for UniFi Protect NVRs

@@ -196,12 +196,17 @@ async def async_setup_entry(
             _LOGGER.debug("Validating Protect API connection")
             try:
                 cameras = await protect_client.cameras.get_all()
-                if not cameras:
+                if cameras is None or not isinstance(cameras, list):
                     _LOGGER.warning(
-                        "Protect API returned no cameras or invalid data, "
+                        "Protect API returned invalid data, "
                         "disabling Protect support"
                     )
                     protect_client = None
+                elif len(cameras) == 0:
+                    _LOGGER.info(
+                        "Protect API validated successfully, "
+                        "no cameras found"
+                    )
                 else:
                     _LOGGER.info(
                         "UniFi Protect API validated successfully, found %d cameras",

@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.0] - 2026-04-09
+
+### Added
+
+- Added `.github/dependabot.yml` configuration for `devcontainers`, `github-actions`, and `pip` updates with daily checks, grouped updates, labels, and commit message prefixes
+
+### Changed
+
+- Updated Home Assistant minimum/runtime version to `2026.4.1` across `requirements.txt`, `hacs.json`, `script/setup/bootstrap`, and `script/test`
+- Updated dependency automation to allow future Home Assistant version updates (removed Dependabot ignore rule for `homeassistant`)
+
+### Fixed
+
+- Fixed Protect API validation to probe the NVR endpoint when camera discovery returns an empty list, preventing valid "no cameras" setups from being misclassified as Protect API failures (PR #22)
+
 ## [2026.3.2] - 2026-03-31
 
 ### Added

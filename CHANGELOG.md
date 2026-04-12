@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.4.1] - 2026-04-12
+
+### Security
+
+- Fixed pip tar extraction symlink vulnerability (CVE-2025-8869) by raising minimum `pip` to `>=25.3` in `requirements.txt`
+- Redacted sensitive field values (API keys, passwords, tokens, credentials, PSKs, passphrases, vouchers) from debug log messages and API error bodies in the vendored API base client
+- `UniFiResponseError.__str__()` now returns only the exception type and status code (`ExceptionType(status=<code>)`), preventing `message` or raw response body from leaking into logs or error messages
+- Expanded `diagnostics.py` redaction set to cover tokens, credentials, network identifiers (IP, hostname, WAN/LAN IPs), device identifiers (MAC, serial), config entry fields, and location data (latitude, longitude)
+- Pinned GitHub Actions `actions/checkout` and `actions/stale` to full SHA digests to mitigate supply chain attacks
+
+### Added
+
+- Added `"homeassistant": "2026.4.1"` minimum version requirement to `manifest.json`
+- Added Aikido security scan instructions (`.github/instructions/aikido_rules.instructions.md`) to enforce pre-commit and PR security scanning
+
+### Fixed
+
+- Fixed `script/setup/bootstrap` pre-commit hook installation failing when a global `core.hooksPath` is configured (e.g. by the Aikido devcontainer scanner); the local repo value is now overridden to the default `.git/hooks` path before installing
+- Fixed incorrect `unique_id` values in test fixtures — both remote and local config entries now use the API key as `unique_id`, matching the actual config flow behavior (`async_set_unique_id(api_key)`)
+
+### Changed
+
+- Replaced `softprops/action-gh-release` in the release workflow with the native `gh release create` CLI command, removing a third-party action dependency
+- Log-line string concatenations in `__init__.py` consolidated to single-line strings (cosmetic)
+
 ## [2026.4.0] - 2026-04-09
 
 ### Added

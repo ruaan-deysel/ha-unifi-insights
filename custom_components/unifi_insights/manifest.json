@@ -7,6 +7,7 @@
   "dependencies": ["ffmpeg", "stream"],
   "dhcp": [],
   "documentation": "https://github.com/ruaan-deysel/ha-unifi-insights",
+  "homeassistant": "2026.4.1",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/ruaan-deysel/ha-unifi-insights/issues",

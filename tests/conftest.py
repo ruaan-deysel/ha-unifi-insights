@@ -291,7 +291,7 @@ def mock_config_entry() -> MockConfigEntry:
         },
         options={},
         source="user",
-        unique_id="test_api_key",
+        unique_id="https://192.168.1.1",
         entry_id="test_entry_id",
     )
 

@@ -51,6 +51,10 @@ class UniFiResponseError(UniFiError):
         self.status_code = status_code
         self.response_body = response_body
 
+    def __str__(self) -> str:
+        """Return safe string representation without exposing response body."""
+        return f"{self.__class__.__name__}(status={self.status_code}): {self.message}"
+
 
 class UniFiNotFoundError(UniFiResponseError):
     """Raised when a resource is not found (404)."""

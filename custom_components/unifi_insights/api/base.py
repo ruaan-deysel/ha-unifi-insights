@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from abc import ABC, abstractmethod
 from http import HTTPStatus
 from types import TracebackType
@@ -32,6 +33,20 @@ from .exceptions import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+_SENSITIVE_KEYS_RE = re.compile(
+    r'"(?:password|psk|passphrase|token|apiKey|api_key|secret|credential|'
+    r'x-api-key|authorization|code|voucher|fingerprint)"\s*:\s*"[^"]*"',
+    re.IGNORECASE,
+)
+
+
+def _redact(text: str) -> str:
+    """Replace sensitive JSON field values with a redaction placeholder."""
+    return _SENSITIVE_KEYS_RE.sub(
+        lambda m: m.group(0).rsplit(":", 1)[0] + ': "**REDACTED**"',
+        text,
+    )
 
 
 class BaseUniFiClient(ABC):
@@ -228,7 +243,7 @@ class BaseUniFiClient(ABC):
         _LOGGER.debug(
             "Response status: %s, body: %s",
             status,
-            response_text[:500] if response_text else "empty",
+            _redact(response_text[:500]) if response_text else "empty",
         )
 
         if status == HTTPStatus.UNAUTHORIZED:
@@ -259,7 +274,7 @@ class BaseUniFiClient(ABC):
 
         if status >= HTTPStatus.BAD_REQUEST:
             raise UniFiResponseError(
-                f"API error: {response_text}",
+                f"API error (status {status})",
                 status_code=status,
                 response_body=response_text,
             )
@@ -271,7 +286,7 @@ class BaseUniFiClient(ABC):
             data: dict[str, Any] | list[Any] = await response.json()
             return data
         except (ValueError, aiohttp.ContentTypeError):
-            _LOGGER.warning("Response is not JSON: %s", response_text[:200])
+            _LOGGER.warning("Response is not JSON: %s", _redact(response_text[:200]) if response_text else "empty")
             return None
 
     async def _get(

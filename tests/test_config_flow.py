@@ -645,7 +645,7 @@ async def test_reauth_flow_remote_success(hass: HomeAssistant) -> None:
             CONF_CONSOLE_ID: "console123",
             CONF_API_KEY: "old_api_key",
         },
-        unique_id="console123",
+        unique_id="old_api_key",
     )
     remote_entry.add_to_hass(hass)
 
@@ -808,7 +808,7 @@ async def test_reauth_flow_remote_no_sites_found(
             CONF_CONSOLE_ID: "test_console",
             CONF_API_KEY: "test_api_key",
         },
-        unique_id="test_console",
+        unique_id="test_api_key",
     )
     remote_entry.add_to_hass(hass)
 
@@ -885,7 +885,7 @@ async def test_reconfigure_remote_success(hass: HomeAssistant) -> None:
             CONF_CONSOLE_ID: "console123",
             CONF_API_KEY: "old_api_key",
         },
-        unique_id="console123",
+        unique_id="old_api_key",
     )
     remote_entry.add_to_hass(hass)
 
@@ -1102,7 +1102,7 @@ async def test_reconfigure_remote_no_sites_found(
             CONF_CONSOLE_ID: "test_console",
             CONF_API_KEY: "test_api_key",
         },
-        unique_id="test_console",
+        unique_id="test_api_key",
     )
     remote_entry.add_to_hass(hass)
 
@@ -1188,7 +1188,7 @@ async def test_options_flow_migrates_old_track_clients(
             CONF_VERIFY_SSL: False,
         },
         options={"track_clients": True},  # Old option
-        unique_id="https://192.168.1.1",
+        unique_id="test_api_key",
     )
     config_entry.add_to_hass(hass)
 

@@ -52,8 +52,8 @@ class UniFiResponseError(UniFiError):
         self.response_body = response_body
 
     def __str__(self) -> str:
-        """Return safe string representation without exposing response body."""
-        return f"{self.__class__.__name__}(status={self.status_code}): {self.message}"
+        """Return safe string representation with status only."""
+        return f"{self.__class__.__name__}(status={self.status_code})"
 
 
 class UniFiNotFoundError(UniFiResponseError):

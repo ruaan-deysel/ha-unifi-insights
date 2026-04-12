@@ -243,7 +243,7 @@ class BaseUniFiClient(ABC):
         _LOGGER.debug(
             "Response status: %s, body: %s",
             status,
-            _redact(response_text[:500]) if response_text else "empty",
+            _redact(response_text)[:500] if response_text else "empty",
         )
 
         if status == HTTPStatus.UNAUTHORIZED:
@@ -286,7 +286,10 @@ class BaseUniFiClient(ABC):
             data: dict[str, Any] | list[Any] = await response.json()
             return data
         except (ValueError, aiohttp.ContentTypeError):
-            _LOGGER.warning("Response is not JSON: %s", _redact(response_text[:200]) if response_text else "empty")
+            redacted_response = (
+                _redact(response_text)[:200] if response_text else "empty"
+            )
+            _LOGGER.warning("Response is not JSON: %s", redacted_response)
             return None
 
     async def _get(

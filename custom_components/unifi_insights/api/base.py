@@ -211,11 +211,14 @@ class BaseUniFiClient(ABC):
                 return await self._handle_response(response)
 
         except aiohttp.ClientConnectorError as err:
-            raise UniFiConnectionError(f"Failed to connect to {url}: {err}") from err
+            msg = f"Failed to connect to {url}: {err}"
+            raise UniFiConnectionError(msg) from err
         except TimeoutError as err:
-            raise UniFiTimeoutError(f"Request to {url} timed out") from err
+            msg = f"Request to {url} timed out"
+            raise UniFiTimeoutError(msg) from err
         except aiohttp.ClientError as err:
-            raise UniFiConnectionError(f"Request to {url} failed: {err}") from err
+            msg = f"Request to {url} failed: {err}"
+            raise UniFiConnectionError(msg) from err
 
     async def _handle_response(
         self,
@@ -273,8 +276,9 @@ class BaseUniFiClient(ABC):
             )
 
         if status >= HTTPStatus.BAD_REQUEST:
+            message = f"API error (status {status})"
             raise UniFiResponseError(
-                f"API error (status {status})",
+                message,
                 status_code=status,
                 response_body=response_text,
             )

@@ -243,11 +243,13 @@ class BaseUniFiClient(ABC):
         status = response.status
         response_text = await response.text()
 
-        _LOGGER.debug(
-            "Response status: %s, body: %s",
-            status,
-            _redact(response_text)[:500] if response_text else "empty",
-        )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            redacted_body = _redact(response_text)[:500] if response_text else "empty"
+            _LOGGER.debug(
+                "Response status: %s, body: %s",
+                status,
+                redacted_body,
+            )
 
         if status == HTTPStatus.UNAUTHORIZED:
             raise UniFiAuthenticationError("Authentication failed. Check your API key.")

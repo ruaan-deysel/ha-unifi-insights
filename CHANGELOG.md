@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.5.0] - 2026-05-05
+
+### Fixed
+
+- Fixed port sensor display names showing generic labels like "Data size" and "Power" by restoring missing sensor translation keys in `translations/en.json`
+- Fixed per-port sensor naming to use `{port_label}` translation placeholders so each metric has a distinct name (for example, "Port 1 TX", "Port 1 RX", and "Port 1 PoE Power")
+- Fixed local/remote config flow handling for UniFi Network Integration API 404 responses by surfacing a clear `api_unsupported` user-facing error instead of an unexpected exception
+
 ## [2026.4.1] - 2026-04-12
 
 ### Security

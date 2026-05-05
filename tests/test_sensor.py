@@ -486,7 +486,7 @@ class TestUnifiPortSensor:
         )
 
         assert sensor.native_value == 15.5
-        assert "Port 1" in sensor.name
+        assert sensor.translation_placeholders == {"port_label": "Port 1"}
 
     async def test_port_speed(self, hass: HomeAssistant, mock_coordinator):
         """Test port speed sensor."""
@@ -697,7 +697,7 @@ class TestSFPPortSensors:
             port_idx=25,
             port_label="SFP+ 1",
         )
-        assert "SFP+ 1" in sensor.name
+        assert sensor.translation_placeholders == {"port_label": "SFP+ 1"}
 
     async def test_sfp_sensor_name_uses_port_label(
         self, hass: HomeAssistant, mock_coordinator
@@ -712,7 +712,7 @@ class TestSFPPortSensors:
             port_idx=25,
             port_label="SFP+ 1",
         )
-        assert "SFP+ 1" in sensor.name
+        assert sensor.translation_placeholders == {"port_label": "SFP+ 1"}
 
     async def test_port_extra_state_attributes(
         self, hass: HomeAssistant, mock_coordinator

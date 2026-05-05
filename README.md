@@ -25,6 +25,7 @@ If you are deciding which one to use, this summary helps:
 | Packaging | Single custom integration that includes both Network and Protect features in one config entry flow | Two separate core integrations (`unifi` and `unifiprotect`) maintained in Home Assistant Core |
 | Setup model | API key based setup flow with local and remote (cloud console) options for UniFi Network, plus local Protect support | UniFi Network: local host + local username/password. UniFi Protect: local user credentials + API key |
 | Remote management | Supports UniFi cloud console discovery/selection for Network mode | Primarily local controller/NVR connectivity |
+| Feature breadth (documented) | Focuses on unified Network + Protect monitoring and control with API-key-first workflows | Broader documented surface across both domains, including additional Network rule controls and image/light features, plus Protect media source/views, media player, lock/viewer support, and extended event/action coverage |
 | Service surface | Adds integration-specific services for Network and Protect actions (for example voucher management, PTZ/chime/light controls) | Uses Home Assistant core entities/actions for each official integration |
 | Data handling style | Coordinator-driven data model with a unified device/client/site/protect view inside one integration | Independent implementations tuned for each domain (Network and Protect) |
 | Project lifecycle | Community custom component released independently via GitHub/HACS | Included in Home Assistant Core release cycle and quality process |
@@ -32,7 +33,10 @@ If you are deciding which one to use, this summary helps:
 Notes:
 
 - If you prefer official, core-maintained integrations, use `unifi` and `unifiprotect`.
+- If you need the widest currently documented feature coverage, the official integrations are generally broader.
 - If you prefer a single custom integration with combined UniFi features and API-key-first setup options, UniFi Insights may be a better fit.
+- UniFi Insights is intentionally built around the public UniFi APIs documented at [developer.ui.com](https://developer.ui.com). If a capability is not exposed there, this integration cannot reliably implement it yet.
+- Feature parity depends on Ubiquiti expanding their official API surface. As new endpoints and controls become available, this integration can adopt them.
 - Running both side-by-side can create overlapping entities and controls. If you test both, review and disable duplicates to avoid automation conflicts.
 
 ## Features

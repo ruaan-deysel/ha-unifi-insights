@@ -11,6 +11,30 @@
 
 A comprehensive Home Assistant custom integration for monitoring and controlling your UniFi Network and UniFi Protect infrastructure using the official UniFi APIs.
 
+## How this differs from the official integrations
+
+This project overlaps with and complements Home Assistant's official integrations:
+
+- [UniFi Network (official)](https://www.home-assistant.io/integrations/unifi/)
+- [UniFi Protect (official)](https://www.home-assistant.io/integrations/unifiprotect/)
+
+If you are deciding which one to use, this summary helps:
+
+| Area | UniFi Insights (this project) | Official integrations |
+| --- | --- | --- |
+| Packaging | Single custom integration that includes both Network and Protect features in one config entry flow | Two separate core integrations (`unifi` and `unifiprotect`) maintained in Home Assistant Core |
+| Setup model | API key based setup flow with local and remote (cloud console) options for UniFi Network, plus local Protect support | UniFi Network: local host + local username/password. UniFi Protect: local user credentials + API key |
+| Remote management | Supports UniFi cloud console discovery/selection for Network mode | Primarily local controller/NVR connectivity |
+| Service surface | Adds integration-specific services for Network and Protect actions (for example voucher management, PTZ/chime/light controls) | Uses Home Assistant core entities/actions for each official integration |
+| Data handling style | Coordinator-driven data model with a unified device/client/site/protect view inside one integration | Independent implementations tuned for each domain (Network and Protect) |
+| Project lifecycle | Community custom component released independently via GitHub/HACS | Included in Home Assistant Core release cycle and quality process |
+
+Notes:
+
+- If you prefer official, core-maintained integrations, use `unifi` and `unifiprotect`.
+- If you prefer a single custom integration with combined UniFi features and API-key-first setup options, UniFi Insights may be a better fit.
+- Running both side-by-side can create overlapping entities and controls. If you test both, review and disable duplicates to avoid automation conflicts.
+
 ## Features
 
 ### UniFi Network

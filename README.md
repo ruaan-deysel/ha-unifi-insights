@@ -335,9 +335,3 @@ This integration is not officially affiliated with or endorsed by Ubiquiti Inc. 
 ## Acknowledgments
 
 - [Home Assistant](https://www.home-assistant.io/) - The open source home automation platform
-
-## Support
-
-- 🐛 [Report a Bug](https://github.com/ruaan-deysel/ha-unifi-insights/issues/new?template=bug_report.md)
-- 💡 [Request a Feature](https://github.com/ruaan-deysel/ha-unifi-insights/issues/new?template=feature_request.md)
-- 💬 [Discussions](https://github.com/ruaan-deysel/ha-unifi-insights/discussions)

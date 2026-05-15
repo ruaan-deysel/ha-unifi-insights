@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Added missing `TELEPORT` support to the vendored UniFi API `ClientType` enum (alongside `VPN`) to prevent client model validation failures when controllers return these client types
+
 ## [2026.5.0] - 2026-05-05
 
 ### Fixed

@@ -20,7 +20,6 @@ cd "$SCRIPT_DIR/../.."
 source "$SCRIPT_DIR/../.lib/output.sh"
 
 PYTHON_VERSION="3.14.2"
-HOME_ASSISTANT_VERSION="2026.4.1"
 
 log_header "Checking for uv"
 if ! command -v uv >/dev/null 2>&1; then
@@ -128,16 +127,16 @@ if [[ "$VENV_IS_EXTERNAL" == "true" ]]; then
     set -e
 fi
 
-log_header "Installing all dependencies"
+log_header "Installing all dependencies (latest Home Assistant)"
 log_info "Using pyproject.toml extras: dev"
 # Home Assistant's custom component loader expects real filesystem entries in
 # the custom_components namespace package. A setuptools editable install adds a
 # __editable__ path hook that breaks discovery, so install a regular local wheel.
-uv pip install ".[dev]"
-
-# Keep the dev environment aligned to the intended Home Assistant release.
-log_header "Installing Home Assistant ${HOME_ASSISTANT_VERSION}"
-uv pip install --upgrade "homeassistant==${HOME_ASSISTANT_VERSION}"
+#
+# --upgrade resolves the dev extras together with the newest Home Assistant
+# release (and matching pytest-homeassistant-custom-component), so the dev
+# environment always tracks the latest version instead of falling behind.
+uv pip install --upgrade ".[dev]" homeassistant
 
 # Only install pre-commit hooks in local development, not in CI
 # GITHUB_ACTIONS is always set to "true" in GitHub Actions environments

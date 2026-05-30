@@ -710,16 +710,30 @@ class TestNetworkServices:
     """Tests for network service handlers."""
 
     async def test_authorize_guest_success(self, hass: HomeAssistant):
-        """Test authorize_guest raises not supported error."""
+        """Test authorize_guest authorizes the client via the coordinator."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_authorize_guest = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
         await async_setup_services(hass)
 
-        with pytest.raises(HomeAssistantError, match="not supported"):
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "authorize_guest",
                 {"site_id": "site1", "client_id": "client1"},
                 blocking=True,
             )
+
+        mock_coordinator.async_authorize_guest.assert_called_once_with(
+            "site1", "client1"
+        )
 
         await async_unload_services(hass)
 
@@ -1677,10 +1691,17 @@ class TestServiceErrorHandling:
         await async_unload_services(hass)
 
     async def test_authorize_guest_no_coordinator(self, hass: HomeAssistant):
-        """Test authorize_guest raises not supported error."""
+        """Test authorize_guest raises when no coordinator is found."""
         await async_setup_services(hass)
 
-        with pytest.raises(HomeAssistantError, match="not supported"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[],
+            ),
+            pytest.raises(HomeAssistantError, match="No UniFi Insights"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "authorize_guest",
@@ -1691,10 +1712,25 @@ class TestServiceErrorHandling:
         await async_unload_services(hass)
 
     async def test_authorize_guest_error(self, hass: HomeAssistant):
-        """Test authorize_guest raises not supported error."""
+        """Test authorize_guest propagates coordinator errors."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_authorize_guest = AsyncMock(
+            side_effect=HomeAssistantError("Unable to authorize guest client client1")
+        )
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
         await async_setup_services(hass)
 
-        with pytest.raises(HomeAssistantError, match="not supported"):
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(HomeAssistantError, match="Unable to authorize guest"),
+        ):
             await hass.services.async_call(
                 DOMAIN,
                 "authorize_guest",

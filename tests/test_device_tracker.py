@@ -171,7 +171,7 @@ class TestAsyncSetupEntry:
         entities = async_add_entities.call_args[0][0]
         # Only WiFi client should be tracked
         assert len(entities) == 1
-        assert entities[0]._client_id == "client2"
+        assert entities[0]._mac == "11:22:33:44:55:66"
 
     @pytest.mark.asyncio
     async def test_setup_entry_wired_only_skips_wifi(
@@ -213,7 +213,7 @@ class TestAsyncSetupEntry:
         entities = async_add_entities.call_args[0][0]
         # Only wired client should be tracked
         assert len(entities) == 1
-        assert entities[0]._client_id == "client1"
+        assert entities[0]._mac == "aa:bb:cc:dd:ee:ff"
 
     @pytest.mark.asyncio
     async def test_setup_entry_both_client_types(self, hass, mock_coordinator) -> None:
@@ -381,7 +381,7 @@ class TestAsyncSetupEntry:
         entities = async_add_entities.call_args[0][0]
         # Only client2 should be added (client1 was already tracked)
         assert len(entities) == 1
-        assert entities[0]._client_id == "client2"
+        assert entities[0]._mac == "11:22:33:44:55:66"
 
 
 class TestUnifiClientTracker:
@@ -427,18 +427,18 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker._site_id == "site1"
-        assert tracker._client_id == "client1"
+        assert tracker._mac == "aa:bb:cc:dd:ee:ff"
 
     def test_unique_id(self, mock_coordinator) -> None:
         """Test unique ID is set correctly."""
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Unique ID uses MAC address format
@@ -450,7 +450,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.source_type == SourceType.ROUTER
@@ -462,7 +462,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.source_type == SourceType.ROUTER
@@ -475,7 +475,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.is_connected is True
@@ -487,7 +487,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.is_connected is False
@@ -497,7 +497,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Remove client data
@@ -510,7 +510,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Default: coordinator last_update_success is True
@@ -525,7 +525,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.ip_address == "192.168.1.100"
@@ -535,7 +535,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.mac_address == "AA:BB:CC:DD:EE:FF"
@@ -545,7 +545,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         assert tracker.hostname == "test-client"
@@ -565,7 +565,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         attrs = tracker.extra_state_attributes
@@ -577,7 +577,7 @@ class TestUnifiClientTracker:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         device_info = tracker.device_info
@@ -662,7 +662,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Remove client data
@@ -675,7 +675,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Remove client data
@@ -688,7 +688,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Remove client data
@@ -701,7 +701,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Remove client data
@@ -714,7 +714,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
 
         # Remove client data
@@ -722,22 +722,32 @@ class TestUnifiClientTrackerEdgeCases:
 
         assert tracker.extra_state_attributes == {}
 
-    def test_unique_id_without_mac(self, mock_coordinator) -> None:
-        """Test unique_id uses client_id when mac is not available."""
-        # Create client without mac
-        mock_coordinator.data["clients"]["site1"]["client_no_mac"] = {
-            "id": "client_no_mac",
-            "name": "Client Without MAC",
-            "connected": True,
+    async def test_setup_skips_clients_without_mac(
+        self, hass, mock_coordinator
+    ) -> None:
+        """Clients without a MAC cannot be identified and are not tracked."""
+        mock_coordinator.data["clients"]["site1"] = {
+            "client_no_mac": {
+                "id": "client_no_mac",
+                "name": "Client Without MAC",
+                "connected": True,
+                "type": "WIRED",
+            }
         }
 
-        tracker = UnifiClientTracker(
-            coordinator=mock_coordinator,
-            site_id="site1",
-            client_id="client_no_mac",
-        )
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+        mock_entry.async_on_unload = MagicMock()
+        mock_entry.options = {"track_wired_clients": True}
 
-        assert tracker._attr_unique_id == "unifi_insights_client_no_mac"
+        hass.data = {}
+        async_add_entities = MagicMock()
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        # No MAC means no stable identity, so no tracker is created.
+        async_add_entities.assert_not_called()
 
     async def test_async_added_to_hass(self, mock_coordinator, hass) -> None:
         """Test async_added_to_hass registers listener."""
@@ -746,7 +756,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
         tracker.hass = hass
 
@@ -764,7 +774,7 @@ class TestUnifiClientTrackerEdgeCases:
         tracker = UnifiClientTracker(
             coordinator=mock_coordinator,
             site_id="site1",
-            client_id="client1",
+            mac="AA:BB:CC:DD:EE:FF",
         )
         tracker.hass = hass
 

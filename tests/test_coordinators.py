@@ -2203,32 +2203,91 @@ class TestUnifiFacadeCoordinator:
     async def test_async_unblock_client(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):
-        """Test async_unblock_client delegates correctly."""
+        """Test async_unblock_client resolves the MAC and classic site name."""
+        facade_coordinator.data["clients"] = {
+            "site1": {"client1": {"id": "client1", "macAddress": "AA:BB:CC:DD:EE:FF"}}
+        }
         facade_coordinator.network_client.clients.unblock = AsyncMock()
         await facade_coordinator.async_unblock_client("site1", "client1")
         facade_coordinator.network_client.clients.unblock.assert_called_once_with(
-            "site1", "client1"
+            "default", "AA:BB:CC:DD:EE:FF"
         )
 
     @pytest.mark.asyncio
     async def test_async_block_client(self, facade_coordinator: UnifiFacadeCoordinator):
-        """Test async_block_client delegates correctly."""
+        """Test async_block_client resolves the MAC and classic site name."""
+        facade_coordinator.data["clients"] = {
+            "site1": {"client1": {"id": "client1", "macAddress": "AA:BB:CC:DD:EE:FF"}}
+        }
         facade_coordinator.network_client.clients.block = AsyncMock()
         await facade_coordinator.async_block_client("site1", "client1")
         facade_coordinator.network_client.clients.block.assert_called_once_with(
-            "site1", "client1"
+            "default", "AA:BB:CC:DD:EE:FF"
         )
 
     @pytest.mark.asyncio
     async def test_async_reconnect_client(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):
-        """Test async_reconnect_client delegates correctly."""
+        """Test async_reconnect_client resolves the MAC and classic site name."""
+        facade_coordinator.data["clients"] = {
+            "site1": {"client1": {"id": "client1", "macAddress": "AA:BB:CC:DD:EE:FF"}}
+        }
         facade_coordinator.network_client.clients.reconnect = AsyncMock()
         await facade_coordinator.async_reconnect_client("site1", "client1")
         facade_coordinator.network_client.clients.reconnect.assert_called_once_with(
+            "default", "AA:BB:CC:DD:EE:FF"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_forget_client(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_forget_client resolves the MAC and classic site name."""
+        facade_coordinator.data["clients"] = {
+            "site1": {"client1": {"id": "client1", "macAddress": "AA:BB:CC:DD:EE:FF"}}
+        }
+        facade_coordinator.network_client.clients.forget = AsyncMock()
+        await facade_coordinator.async_forget_client("site1", "client1")
+        facade_coordinator.network_client.clients.forget.assert_called_once_with(
+            "default", "AA:BB:CC:DD:EE:FF"
+        )
+
+    @pytest.mark.asyncio
+    async def test_client_action_uses_mapped_site_name(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """A non-default classic site name from the device coordinator is used."""
+        facade_coordinator.data["clients"] = {
+            "site1": {"client1": {"id": "client1", "macAddress": "AA:BB:CC:DD:EE:FF"}}
+        }
+        facade_coordinator._device_coordinator._legacy_site_names = {"site1": "branch"}
+        facade_coordinator.network_client.clients.block = AsyncMock()
+        await facade_coordinator.async_block_client("site1", "client1")
+        facade_coordinator.network_client.clients.block.assert_called_once_with(
+            "branch", "AA:BB:CC:DD:EE:FF"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_authorize_guest(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_authorize_guest delegates to the official actions endpoint."""
+        facade_coordinator.network_client.clients.authorize_guest = AsyncMock()
+        await facade_coordinator.async_authorize_guest("site1", "client1")
+        facade_coordinator.network_client.clients.authorize_guest.assert_called_once_with(
             "site1", "client1"
         )
+
+    @pytest.mark.asyncio
+    async def test_async_unauthorize_guest(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_unauthorize_guest delegates to the official actions endpoint."""
+        facade_coordinator.network_client.clients.unauthorize_guest = AsyncMock()
+        await facade_coordinator.async_unauthorize_guest("site1", "client1")
+        mock = facade_coordinator.network_client.clients.unauthorize_guest
+        mock.assert_called_once_with("site1", "client1")
 
     @pytest.mark.asyncio
     async def test_async_update_wifi_network(

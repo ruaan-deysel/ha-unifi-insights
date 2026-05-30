@@ -7,9 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.6.0] - 2026-05-30
+
+### Added
+
+- Added per-WiFi-network connected client count sensors (`sensor.<ssid>_connected_clients`) — shows how many clients are currently on each SSID, updated every polling cycle (closes #49)
+- Added WiFi QR code image entities (`image.<ssid>_wifi_qr_code`) — phone cameras can scan these directly to join the network; credentials sourced from the classic API (closes #49)
+- Added `authorize_guest` and `unauthorize_guest` coordinator methods wired to the official Network Integration API `POST /clients/{id}/actions` endpoint with `AUTHORIZE_GUEST_ACCESS` / `UNAUTHORIZE_GUEST_ACCESS`; the previously stubbed `authorize_guest` service now works
+
 ### Fixed
 
-- Added missing `TELEPORT` support to the vendored UniFi API `ClientType` enum (alongside `VPN`) to prevent client model validation failures when controllers return these client types
+- Fixed client block, unblock, reconnect, and forget actions returning HTTP 404 — the official Network Integration API does not expose these operations; they are now routed through the classic `POST /api/s/{site}/cmd/stamgr` endpoint (`block-sta`, `unblock-sta`, `kick-sta`, `forget-sta`) which is accessible with the same local API key (closes #44)
+- Fixed classic API error envelopes (`{"meta":{"rc":"error",...}}` returned with HTTP 200) now raising `UniFiResponseError` instead of silently succeeding in client station-manager commands
+- Fixed UniFi Protect cameras returning HTTP 500 (`AJV_PARSE_ERROR`) when HA requested a snapshot — the Protect Integration API rejects `w`/`h` query parameters; removed them from `get_snapshot`; HA scales the returned JPEG internally
+- Fixed Protect model parsing silently dropping all cameras/sensors/lights/chimes/viewers when any single device in the response contains an unrecognised field value (e.g. a new enum from Protect 7.1) — each endpoint's `get_all()` now skips and logs the individual malformed item instead of failing the whole list (closes #52)
+- Fixed `CameraState` and `ViewerState` (and `CameraType`) enums mapping unknown values to `UNKNOWN` instead of raising a `ValidationError`; Protect 7.1.x new states no longer break camera entities
+- Fixed toggling "Track WiFi clients" / "Track wired clients" in the integration options having no effect — the dedup set previously survived config-entry reloads (stored in `hass.data`), so re-enabling tracking added nothing; the set is now local to each setup call, and the entity registry is reconciled on every reload to remove trackers that are no longer wanted and add those that are
+- Fixed stale/historical client trackers polluting the integration when tracking was enabled — only currently-connected clients (from the official `/clients` endpoint) become tracker entities; known-but-disconnected devices from the controller history are not imported
+- Fixed transient controller connectivity failures (`UniFiConnectionError`, `UniFiTimeoutError`) during device coordinator site processing logging a full ERROR traceback; they are now a concise WARNING
+
+### Changed
+
+- Bumped minimum Home Assistant version to `2026.5.4` in `manifest.json` and `requirements.txt`
+- `script/setup/bootstrap` now installs the **latest available** Home Assistant release on every run (`uv pip install --upgrade ".[dev]" homeassistant`) instead of a hard-pinned version, so the dev environment stays current automatically
+- WiFi data is now enriched at config-coordinator level: secrets (SSID, passphrase, security) are pulled from the classic `/rest/wlanconf` endpoint (the official API redacts them), and per-SSID client counts are computed from the classic `/stat/sta` endpoint
+- `CameraType`, `CameraState`, and `ViewerState` Protect enums now extend a shared `_TolerantStrEnum` base that maps any unrecognised value to `UNKNOWN` instead of raising
+- Added `segno==1.6.6` to `manifest.json` requirements for QR code image generation
+
+- Fixed missing `TELEPORT` value in the vendored `ClientType` enum (alongside `VPN`) to prevent client model validation failures when controllers return this connection type
 
 ## [2026.5.0] - 2026-05-05
 
@@ -204,5 +229,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Number entities for camera/light settings
 - Select entities for recording modes and video modes
 
-[2.0.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v1.0.0...v2.0.0
-[1.0.0]: https://github.com/ruaan-deysel/ha-unifi-insights/releases/tag/v1.0.0
+[2026.6.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.5.0...v2026.6.0
+[2026.5.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.4.1...v2026.5.0
+[2026.4.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.4.0...v2026.4.1
+[2026.4.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.3.2...v2026.4.0
+[2026.3.2]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.3.1...v2026.3.2
+[2026.3.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.3.0...v2026.3.1
+[2026.3.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.2.0...v2026.3.0
+[2026.2.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2025.06.05...v2026.2.0
+[2025.06.05]: https://github.com/ruaan-deysel/ha-unifi-insights/releases/tag/v2025.06.05

@@ -367,6 +367,8 @@ class TestUnifiClientBlockSwitch:
         coordinator.network_client.clients = MagicMock()
         coordinator.network_client.clients.block = AsyncMock()
         coordinator.network_client.clients.unblock = AsyncMock()
+        coordinator.async_block_client = AsyncMock()
+        coordinator.async_unblock_client = AsyncMock()
         coordinator.async_request_refresh = AsyncMock()
         coordinator.data = {
             "sites": {"site1": {"id": "site1"}},
@@ -483,7 +485,7 @@ class TestUnifiClientBlockSwitch:
 
         await switch.async_turn_on()
 
-        mock_coordinator.network_client.clients.unblock.assert_called_once_with(
+        mock_coordinator.async_unblock_client.assert_called_once_with(
             "site1", "client1"
         )
         mock_coordinator.async_request_refresh.assert_called_once()
@@ -499,9 +501,7 @@ class TestUnifiClientBlockSwitch:
 
         await switch.async_turn_off()
 
-        mock_coordinator.network_client.clients.block.assert_called_once_with(
-            "site1", "client1"
-        )
+        mock_coordinator.async_block_client.assert_called_once_with("site1", "client1")
         mock_coordinator.async_request_refresh.assert_called_once()
 
 
@@ -1906,6 +1906,8 @@ class TestUnifiClientBlockSwitchEdgeCases:
         coordinator.network_client.clients = MagicMock()
         coordinator.network_client.clients.block = AsyncMock()
         coordinator.network_client.clients.unblock = AsyncMock()
+        coordinator.async_block_client = AsyncMock()
+        coordinator.async_unblock_client = AsyncMock()
         coordinator.async_request_refresh = AsyncMock()
         coordinator.data = {
             "sites": {"site1": {"id": "site1"}},
@@ -1937,7 +1939,7 @@ class TestUnifiClientBlockSwitchEdgeCases:
     @pytest.mark.asyncio
     async def test_turn_on_handles_error(self, mock_coordinator) -> None:
         """Test async_turn_on handles errors gracefully (lines 863-864)."""
-        mock_coordinator.network_client.clients.unblock = AsyncMock(
+        mock_coordinator.async_unblock_client = AsyncMock(
             side_effect=Exception("API Error")
         )
 
@@ -1950,12 +1952,12 @@ class TestUnifiClientBlockSwitchEdgeCases:
         with pytest.raises(HomeAssistantError, match="Unable to allow client"):
             await switch.async_turn_on()
 
-        mock_coordinator.network_client.clients.unblock.assert_called_once()
+        mock_coordinator.async_unblock_client.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_turn_off_handles_error(self, mock_coordinator) -> None:
         """Test async_turn_off handles errors gracefully (lines 884-885)."""
-        mock_coordinator.network_client.clients.block = AsyncMock(
+        mock_coordinator.async_block_client = AsyncMock(
             side_effect=Exception("API Error")
         )
 
@@ -1968,7 +1970,7 @@ class TestUnifiClientBlockSwitchEdgeCases:
         with pytest.raises(HomeAssistantError, match="Unable to block client"):
             await switch.async_turn_off()
 
-        mock_coordinator.network_client.clients.block.assert_called_once()
+        mock_coordinator.async_block_client.assert_called_once()
 
 
 class TestUnifiWifiSwitchEdgeCases:

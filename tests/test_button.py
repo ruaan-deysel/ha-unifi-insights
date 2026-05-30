@@ -189,6 +189,7 @@ class TestUnifiClientReconnectButton:
         coordinator.network_client.base_url = "https://192.168.1.1"
         coordinator.network_client.clients = MagicMock()
         coordinator.network_client.clients.reconnect = AsyncMock()
+        coordinator.async_reconnect_client = AsyncMock()
         coordinator.protect_client = None
         coordinator.data = {
             "sites": {"site1": {"id": "site1"}},
@@ -278,7 +279,7 @@ class TestUnifiClientReconnectButton:
 
         await button.async_press()
 
-        mock_coordinator.network_client.clients.reconnect.assert_called_once_with(
+        mock_coordinator.async_reconnect_client.assert_called_once_with(
             "site1", "client1"
         )
 
@@ -286,7 +287,7 @@ class TestUnifiClientReconnectButton:
         self, hass: HomeAssistant, mock_coordinator
     ):
         """Test reconnect button handles exception."""
-        mock_coordinator.network_client.clients.reconnect = AsyncMock(
+        mock_coordinator.async_reconnect_client = AsyncMock(
             side_effect=Exception("API Error")
         )
 
@@ -689,6 +690,7 @@ class TestClientReconnectButtonEdgeCases:
         coordinator.network_client.base_url = "https://192.168.1.1"
         coordinator.network_client.clients = MagicMock()
         coordinator.network_client.clients.reconnect = AsyncMock()
+        coordinator.async_reconnect_client = AsyncMock()
         coordinator.protect_client = None
         coordinator.data = {
             "sites": {"site1": {"id": "site1"}},

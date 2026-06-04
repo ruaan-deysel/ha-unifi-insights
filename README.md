@@ -9,7 +9,7 @@
 [![License](https://img.shields.io/github/license/ruaan-deysel/ha-unifi-insights)](./LICENSE)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ruaan-deysel/ha-unifi-insights)
 
-A comprehensive Home Assistant custom integration for monitoring and controlling your UniFi Network and UniFi Protect infrastructure using the official UniFi APIs.
+A Home Assistant custom integration for monitoring and controlling your UniFi Network and UniFi Protect infrastructure using the official UniFi APIs.
 
 ## How this differs from the official integrations
 
@@ -18,200 +18,191 @@ This project overlaps with and complements Home Assistant's official integration
 - [UniFi Network (official)](https://www.home-assistant.io/integrations/unifi/)
 - [UniFi Protect (official)](https://www.home-assistant.io/integrations/unifiprotect/)
 
-If you are deciding which one to use, this summary helps:
-
 | Area | UniFi Insights (this project) | Official integrations |
-| --- | --- | --- |
-| Packaging | Single custom integration that includes both Network and Protect features in one config entry flow | Two separate core integrations (`unifi` and `unifiprotect`) maintained in Home Assistant Core |
-| Setup model | API key based setup flow with local and remote (cloud console) options for UniFi Network, plus local Protect support | UniFi Network: local host + local username/password. UniFi Protect: local user credentials + API key |
-| Remote management | Supports UniFi cloud console discovery/selection for Network mode | Primarily local controller/NVR connectivity |
-| Feature breadth (documented) | Focuses on unified Network + Protect monitoring and control with API-key-first workflows | Broader documented surface across both domains, including additional Network rule controls and image/light features, plus Protect media source/views, media player, lock/viewer support, and extended event/action coverage |
-| Service surface | Adds integration-specific services for Network and Protect actions (for example voucher management, PTZ/chime/light controls) | Uses Home Assistant core entities/actions for each official integration |
-| Data handling style | Coordinator-driven data model with a unified device/client/site/protect view inside one integration | Independent implementations tuned for each domain (Network and Protect) |
-| Project lifecycle | Community custom component released independently via GitHub/HACS | Included in Home Assistant Core release cycle and quality process |
+|---|---|---|
+| Packaging | Single integration covering both Network and Protect in one setup flow | Two separate core integrations (`unifi` and `unifiprotect`) |
+| Authentication | API key — local and cloud (remote console) connection modes | UniFi Network: local credentials. UniFi Protect: local credentials + API key |
+| Remote management | Supports UniFi cloud console discovery and selection | Primarily local controller connectivity |
+| Service surface | Adds integration-specific services for Network and Protect actions (vouchers, PTZ, chime, light) | Uses Home Assistant core entities and actions per integration |
+| Project lifecycle | Community custom component released via GitHub and HACS | Included in Home Assistant Core release cycle |
 
-Notes:
+**Which to choose:**
 
-- If you prefer official, core-maintained integrations, use `unifi` and `unifiprotect`.
-- If you need the widest currently documented feature coverage, the official integrations are generally broader.
-- If you prefer a single custom integration with combined UniFi features and API-key-first setup options, UniFi Insights may be a better fit.
-- UniFi Insights is intentionally built around the public UniFi APIs documented at [developer.ui.com](https://developer.ui.com). If a capability is not exposed there, this integration cannot reliably implement it yet.
-- Feature parity depends on Ubiquiti expanding their official API surface. As new endpoints and controls become available, this integration can adopt them.
-- Running both side-by-side can create overlapping entities and controls. If you test both, review and disable duplicates to avoid automation conflicts.
+- Use the official integrations if you prefer core-maintained components with the widest documented feature surface.
+- Use UniFi Insights if you want a single integration with API-key-first setup and combined Network and Protect support in one place.
+- Running both side-by-side can create overlapping entities. Review and disable duplicates to avoid automation conflicts.
 
 ## Features
 
 ### UniFi Network
 
-- **Device Monitoring**: CPU, memory, uptime, and throughput sensors for all network devices
-- **Port Sensors**: PoE power consumption, port speed, TX/RX bytes for switch ports
-- **Client Tracking**: Device tracker for wireless and wired clients
-- **WiFi Control**: Enable/disable WiFi networks
-- **Client Management**: Block/allow network clients
-- **Port Control**: Enable/disable switch ports, PoE control
-- **Firmware Updates**: Update entities for device firmware management
-- **Device Actions**: Restart devices, power cycle ports
+- Device monitoring: CPU, memory, uptime, and throughput for all adopted devices
+- Per-port sensors: PoE power, port speed, TX/RX traffic counters
+- Client tracking: device tracker entities for wireless and wired clients
+- WiFi control: enable and disable WiFi networks
+- Firewall policy control: enable and disable user-defined firewall rules
+- Client management: block and allow network clients
+- Firmware update management
+- Device and port actions: restart devices, power cycle PoE ports
 
 ### UniFi Protect
 
-- **Camera Support**: Live streaming, snapshots, RTSPS streams
-- **Motion Detection**: Binary sensors for motion and smart detection (person, vehicle, animal, package)
-- **Doorbell Support**: Ring detection for doorbell cameras
-- **Camera Controls**: Microphone, privacy mode, status light, high FPS mode switches
-- **Light Control**: Brightness and mode control for Protect lights
-- **PTZ Cameras**: Move to preset and patrol control via services
-- **Chime Control**: Volume, ringtone, and repeat settings
-- **Sensor Support**: Temperature, humidity, light, battery sensors for Protect sensors
-- **NVR Monitoring**: Storage usage sensors (when available)
-- **Events**: Motion, ring, and smart detection events
+- Camera streaming: live view, snapshots, RTSPS streams
+- Motion and smart detection: person, vehicle, animal, and package binary sensors
+- Doorbell ring detection
+- Camera controls: microphone, privacy mode, status light, high FPS mode
+- Protect light control: brightness and mode (always on, motion, off)
+- PTZ cameras: move to preset position and run patrol via services
+- Chime control: volume, ringtone selection, and repeat settings
+- Protect sensor readings: temperature, humidity, light level, battery
+- NVR storage monitoring (when available)
+- Motion, ring, and smart detection events
+
+## Requirements
+
+- Home Assistant 2026.5.4 or newer
+- UniFi Network Application 8.0 or newer
+- UniFi Protect 3.0 or newer (required only for Protect features)
 
 ## Installation
 
-### HACS (Recommended)
+### HACS (recommended)
 
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ruaan-deysel&repository=ha-unifi-insights&category=integration)
 
-1. Open HACS in Home Assistant
-2. Click "Integrations"
-3. Click the three dots in the top right and select "Custom repositories"
-4. Add `https://github.com/ruaan-deysel/ha-unifi-insights` as a custom repository (Category: Integration)
-5. Click "Add"
-6. Search for "UniFi Insights" and install it
-7. Restart Home Assistant
+1. Open HACS in Home Assistant.
+2. Click **Integrations**.
+3. Click the three-dot menu in the top right and select **Custom repositories**.
+4. Add `https://github.com/ruaan-deysel/ha-unifi-insights` as a custom repository with the category set to **Integration**.
+5. Search for "UniFi Insights" and install it.
+6. Restart Home Assistant.
 
-### Manual Installation
+### Manual installation
 
-1. Download the latest release from GitHub
-2. Copy the `custom_components/unifi_insights` folder to your Home Assistant's `custom_components` directory
-3. Restart Home Assistant
+1. Download the latest release from the [Releases page](https://github.com/ruaan-deysel/ha-unifi-insights/releases).
+2. Copy the `custom_components/unifi_insights` folder into your Home Assistant `custom_components` directory.
+3. Restart Home Assistant.
 
 ## Configuration
 
-### Prerequisites
+### Getting an API key
 
-1. A UniFi Network controller (UDM, UDM Pro, UDM SE, Cloud Key, or self-hosted)
-2. UniFi Protect (for camera/sensor features) - optional
-3. An API key from the UniFi Site Manager
+1. Go to [UniFi Site Manager](https://unifi.ui.com).
+2. Navigate to **Control Plane** → **Admins & Users**.
+3. Select your admin account.
+4. Click **Create API Key**, give it a name (for example "Home Assistant"), and copy the generated key.
+5. Click **Done** to save.
 
-### Getting an API Key
+### Adding the integration
 
-1. Go to [UniFi Site Manager](https://unifi.ui.com)
-2. Navigate to **Control Plane** → **Admins & Users**
-3. Select your Admin account
-4. Click **Create API Key**
-5. Provide a name (e.g., "Home Assistant") and copy the key
-6. Click **Done** to save
-
-### Setting up the Integration
-
-1. In Home Assistant, go to **Settings** → **Devices & Services**
-2. Click **+ Add Integration**
-3. Search for "UniFi Insights"
-4. Choose your connection type:
-   - **Local**: Direct connection to your UniFi console
-   - **Remote**: Connection via UniFi Cloud
-5. Enter your credentials:
-   - **Local**: Host URL (e.g., `https://192.168.1.1`) and API Key
-
-- **Remote**: API Key first, then select one of the discovered UniFi Cloud consoles
-
-6. Click **Submit** and complete the prompted console selection for remote connections
+1. In Home Assistant, go to **Settings** → **Devices & Services**.
+2. Click **+ Add Integration** and search for "UniFi Insights".
+3. Choose your connection type:
+   - **Local** — direct connection to your UniFi console on the local network.
+   - **Remote** — connect via UniFi Cloud. Enter your API key and then select the console from the list of discovered devices.
+4. For a local connection, enter the host URL (for example `https://192.168.1.1`) and your API key.
+5. Click **Submit**.
 
 ### Options
 
-After setup, you can configure tracking options:
+After setup, open the integration's options flow (**Settings** → **Devices & Services** → **UniFi Insights** → **Configure**) to adjust these settings:
 
-- **Track WiFi Clients**: Enable device tracker for wireless clients
-- **Track Wired Clients**: Enable device tracker for wired clients
+| Option | Default | Description |
+|---|---|---|
+| Track WiFi Clients | Off | Creates device tracker entities for connected wireless clients. May add a large number of entities on busy networks. |
+| Track Wired Clients | Off | Creates device tracker entities for connected wired clients. |
+| Enable Client Control | On | Creates allow/block switch and reconnect button entities for each connected client. Disable this if you only need read-only monitoring — it prevents orphaned unavailable entities from accumulating when clients leave the network. |
 
 ## Entities
 
 ### Sensors
 
-| Entity                       | Description                            |
-| ---------------------------- | -------------------------------------- |
-| CPU Usage                    | Device CPU utilization percentage      |
-| Memory Usage                 | Device memory utilization percentage   |
-| Uptime                       | Device uptime in human-readable format |
-| TX Rate                      | Uplink transmit rate (Mbit/s)          |
-| RX Rate                      | Uplink receive rate (Mbit/s)           |
-| Firmware Version             | Current firmware version               |
-| Wired Clients                | Count of wired clients (switches only) |
-| Wireless Clients             | Count of wireless clients (APs only)   |
-| Port PoE Power               | PoE power consumption per port (W)     |
-| Port Speed                   | Link speed per port (Mbps)             |
-| Port TX/RX Bytes             | Traffic counters per port              |
-| Temperature                  | Protect sensor temperature (°C)        |
-| Humidity                     | Protect sensor humidity (%)            |
-| Light                        | Protect sensor light level (lux)       |
-| Battery                      | Protect sensor battery level (%)       |
-| Storage Used/Total/Available | NVR storage metrics (GB)               |
+| Entity | Description |
+|---|---|
+| CPU Usage | Device CPU utilization (%) |
+| Memory Usage | Device memory utilization (%) |
+| Uptime | Device uptime |
+| TX Rate | Uplink transmit rate (Mbit/s) |
+| RX Rate | Uplink receive rate (Mbit/s) |
+| Firmware Version | Installed firmware version |
+| Wired Clients | Count of wired clients (switches) |
+| Wireless Clients | Count of wireless clients (access points) |
+| Total Clients | Total client count (site-level) |
+| Port PoE Power | PoE power consumption per switch port (W) |
+| Port Speed | Link speed per port (Mbps) |
+| Port TX / RX | Traffic counters per port (bytes) |
+| Temperature | Protect sensor temperature (°C) |
+| Humidity | Protect sensor humidity (%) |
+| Light Level | Protect sensor ambient light (lux) |
+| Battery | Protect sensor battery level (%) |
+| Storage Used / Total / Available | NVR storage metrics (GB, when available) |
 
-### Binary Sensors
+### Binary sensors
 
-| Entity            | Description                         |
-| ----------------- | ----------------------------------- |
-| Device Status     | Network device connectivity         |
-| WAN Status        | Gateway WAN connectivity            |
-| Motion Detection  | Camera/sensor motion detection      |
-| Person Detection  | AI person detection                 |
-| Vehicle Detection | AI vehicle detection                |
-| Animal Detection  | AI animal detection                 |
-| Package Detection | AI package detection                |
-| Doorbell Ring     | Doorbell ring detection             |
-| Door/Window       | Protect sensor open/close status    |
-| Tamper            | Protect sensor tamper detection     |
-| Leak              | Protect sensor water leak detection |
+| Entity | Description |
+|---|---|
+| Device Status | Network device online/offline state |
+| WAN Status | Gateway WAN connectivity |
+| Motion Detection | Camera or sensor motion activity |
+| Person Detection | AI person detection |
+| Vehicle Detection | AI vehicle detection |
+| Animal Detection | AI animal detection |
+| Package Detection | AI package detection |
+| Doorbell Ring | Doorbell ring activity |
+| Door / Window | Protect sensor open/close state |
+| Tamper | Protect sensor tamper detection |
+| Leak | Protect sensor water leak detection |
+| Recording | Camera actively recording |
 
 ### Switches
 
-| Entity              | Description                         |
-| ------------------- | ----------------------------------- |
-| Port Enable         | Enable/disable switch ports         |
-| Port PoE            | Enable/disable PoE on ports         |
-| WiFi Network        | Enable/disable WiFi networks        |
-| Client Allow        | Block/allow network clients         |
-| Camera Microphone   | Enable/disable camera microphone    |
-| Camera Privacy Mode | Enable/disable privacy mode         |
-| Camera Status Light | Enable/disable status LED           |
-| Camera High FPS     | Enable/disable high frame rate mode |
+| Entity | Description |
+|---|---|
+| WiFi Network | Enable or disable a WiFi broadcast |
+| Firewall Rule | Enable or disable a user-defined firewall policy |
+| Client Allow | Block or allow a connected network client |
+| Camera Microphone | Enable or disable the camera microphone |
+| Camera Privacy Mode | Enable or disable privacy mode |
+| Camera Status Light | Enable or disable the status LED |
+| Camera High FPS | Enable or disable high frame rate mode |
 
-### Other Entities
+### Other entities
 
-| Platform       | Description                                      |
-| -------------- | ------------------------------------------------ |
-| Button         | Restart device, power cycle port                 |
-| Camera         | Live view, snapshots, RTSPS streaming            |
-| Device Tracker | Client presence detection                        |
-| Event          | Motion, ring, and smart detection events         |
-| Light          | Protect light brightness control                 |
-| Number         | Mic volume, chime volume, light level            |
-| Select         | Recording mode, HDR mode, video mode, light mode |
-| Update         | Firmware update management                       |
+| Platform | Description |
+|---|---|
+| Button | Restart device, reconnect client, play chime, PTZ patrol start/stop |
+| Camera | Live view, snapshots, RTSPS streaming |
+| Device Tracker | Client presence detection |
+| Event | Motion, doorbell ring, and smart detection events |
+| Image | WiFi QR codes for each broadcast network |
+| Light | Protect floodlight brightness control |
+| Number | Microphone volume, chime volume, light brightness level |
+| Select | Recording mode, HDR mode, video mode, ringtone, PTZ preset, live view |
+| Update | Firmware update management |
 
 ## Services
 
-### Core Services
+### Core
 
 ```yaml
-# Refresh all data
+# Force an immediate data refresh
 service: unifi_insights.refresh_data
 
-# Restart a device
+# Restart a network device
 service: unifi_insights.restart_device
 data:
   site_id: "your-site-id"
-  device_id: "device-mac-address"
+  device_id: "device-id"
 ```
 
-### Camera Services
+### Camera
 
 ```yaml
 # Set recording mode
 service: unifi_insights.set_recording_mode
 data:
   camera_id: "camera-id"
-  mode: "always"  # always, motion, never
+  mode: "motion"  # always, motion, smart, never
 
 # Set HDR mode
 service: unifi_insights.set_hdr_mode
@@ -219,63 +210,63 @@ data:
   camera_id: "camera-id"
   mode: "auto"  # auto, on, off
 
-# PTZ move to preset
+# Move PTZ camera to a preset position
 service: unifi_insights.ptz_move
 data:
   camera_id: "camera-id"
-  preset: 0  # 0-15
+  preset: 0  # 0–15
 
-# PTZ patrol
+# Start or stop PTZ patrol
 service: unifi_insights.ptz_patrol
 data:
   camera_id: "camera-id"
   action: "start"  # start, stop
-  slot: 0  # 0-15
+  slot: 0  # 0–15
 ```
 
-### Light Services
+### Light
 
 ```yaml
-# Set light mode
+# Set Protect light mode
 service: unifi_insights.set_light_mode
 data:
   light_id: "light-id"
   mode: "motion"  # always, motion, off
 
-# Set light level
+# Set Protect light brightness
 service: unifi_insights.set_light_level
 data:
   light_id: "light-id"
-  level: 50  # 0-100
+  level: 50  # 0–100
 ```
 
-### Chime Services
+### Chime
 
 ```yaml
-# Play chime
+# Play a ringtone on a chime
 service: unifi_insights.play_chime_ringtone
 data:
   chime_id: "chime-id"
-  ringtone_id: "default"
+  ringtone_id: "default"  # default, mechanical, digital, christmas, traditional
 
 # Set chime volume
 service: unifi_insights.set_chime_volume
 data:
   chime_id: "chime-id"
-  volume: 50  # 0-100
+  volume: 50  # 0–100
 ```
 
-### Guest/Voucher Services
+### Guest network and hotspot
 
 ```yaml
-# Authorize guest
+# Authorize a guest client
 service: unifi_insights.authorize_guest
 data:
   site_id: "your-site-id"
-  client_id: "client-mac"
+  client_id: "client-id"
   duration_minutes: 480
 
-# Generate voucher
+# Generate a hotspot voucher
 service: unifi_insights.generate_voucher
 data:
   site_id: "your-site-id"
@@ -285,9 +276,9 @@ data:
 
 ## Troubleshooting
 
-### Debug Logging
+### Enable debug logging
 
-Add to `configuration.yaml`:
+Add the following to your `configuration.yaml` and restart Home Assistant:
 
 ```yaml
 logger:
@@ -296,46 +287,33 @@ logger:
     custom_components.unifi_insights: debug
 ```
 
-### Common Issues
+### Common problems
 
-| Issue                       | Solution                                                |
-| --------------------------- | ------------------------------------------------------- |
-| Cannot Connect              | Verify host URL is accessible, check SSL settings       |
-| Authentication Failed       | Verify API key is valid and has appropriate permissions |
-| No Protect Data             | Ensure you have UniFi Protect on your console           |
-| Missing Entities            | Check that devices are adopted in UniFi controller      |
-| Storage Sensors Unavailable | The public API doesn't expose NVR storage data          |
+| Problem | Solution |
+|---|---|
+| Cannot connect | Verify the host URL is reachable from Home Assistant. For self-signed certificates, disable SSL verification in the integration options. |
+| Authentication failed | Confirm the API key is valid and was not revoked in the UniFi Site Manager. |
+| No Protect entities | UniFi Protect must be running on the same console. Verify your API key has access to it. |
+| Entities missing | Confirm the devices are adopted and online in the UniFi controller. |
+| Storage sensors unavailable | The public Protect API does not expose NVR storage data on all firmware versions. |
+| Many orphaned client entities | Disable the **Enable Client Control** option in the integration's settings. |
 
 ### Diagnostics
 
-This integration supports Home Assistant's built-in diagnostics feature. Go to **Settings** → **Devices & Services** → **UniFi Insights** → **3 dots menu** → **Download diagnostics** to get a sanitized report for troubleshooting.
+To download a sanitized diagnostic report for troubleshooting:
 
-## Requirements
-
-- Home Assistant 2026.3.1 or newer
-- Python 3.14.2 or newer
-- UniFi Network Application 8.0 or newer (recommended)
-- UniFi Protect 3.0 or newer (for Protect features)
+1. Go to **Settings** → **Devices & Services**.
+2. Select **UniFi Insights**.
+3. Click the three-dot menu and choose **Download diagnostics**.
 
 ## Contributing
 
-Contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests: `./script/test`
-5. Run linter: `./script/lint`
-6. Submit a pull request
+Contributions are welcome. Please open an issue before submitting significant changes. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
 
 ## Disclaimer
 
-This integration is not officially affiliated with or endorsed by Ubiquiti Inc. Use at your own risk.
-
-## Acknowledgments
-
-- [Home Assistant](https://www.home-assistant.io/) - The open source home automation platform
+This integration is not affiliated with or endorsed by Ubiquiti Inc. Use at your own risk.

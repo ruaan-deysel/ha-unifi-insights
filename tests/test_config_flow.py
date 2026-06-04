@@ -1163,6 +1163,7 @@ async def test_options_flow_submit(
         user_input={
             "track_wifi_clients": True,
             "track_wired_clients": False,
+            "client_control": True,
         },
     )
 
@@ -1170,6 +1171,7 @@ async def test_options_flow_submit(
     assert result["data"] == {
         "track_wifi_clients": True,
         "track_wired_clients": False,
+        "client_control": True,
     }
 
 

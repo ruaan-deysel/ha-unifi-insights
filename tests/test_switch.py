@@ -100,7 +100,7 @@ class TestAsyncSetupEntry:
                 "id": "camera1",
                 "name": "Test Camera",
                 "state": "CONNECTED",
-                "micEnabled": True,
+                "isMicEnabled": True,
             }
         }
 
@@ -158,7 +158,8 @@ class TestUnifiProtectMicrophoneSwitch:
         coordinator = MagicMock()
         coordinator.protect_client = MagicMock()
         coordinator.protect_client.base_url = "https://192.168.1.1"
-        coordinator.protect_client.update_camera = AsyncMock()
+        coordinator.protect_client.cameras = MagicMock()
+        coordinator.protect_client.cameras.update = AsyncMock()
         coordinator.network_client = MagicMock()
         coordinator.network_client.base_url = "https://192.168.1.1"
         coordinator.data = {
@@ -173,7 +174,7 @@ class TestUnifiProtectMicrophoneSwitch:
                         "mac": "AA:BB:CC:DD:EE:FF",
                         "type": "UVC-G4-Pro",
                         "firmwareVersion": "1.0.0",
-                        "micEnabled": True,
+                        "isMicEnabled": True,
                     }
                 },
                 "lights": {},
@@ -210,7 +211,7 @@ class TestUnifiProtectMicrophoneSwitch:
 
     def test_update_from_data_mic_disabled(self, mock_coordinator) -> None:
         """Test _update_from_data with microphone disabled."""
-        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = False
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = False
 
         switch = UnifiProtectMicrophoneSwitch(
             coordinator=mock_coordinator,
@@ -242,9 +243,9 @@ class TestUnifiProtectMicrophoneSwitch:
 
         await switch.async_turn_on()
 
-        mock_coordinator.protect_client.update_camera.assert_called_once_with(
-            camera_id="camera1",
-            data={"micEnabled": True},
+        mock_coordinator.protect_client.cameras.update.assert_called_once_with(
+            "camera1",
+            isMicEnabled=True,
         )
         assert switch._attr_is_on is True
         switch.async_write_ha_state.assert_called_once()
@@ -252,7 +253,7 @@ class TestUnifiProtectMicrophoneSwitch:
     @pytest.mark.asyncio
     async def test_async_turn_on_error(self, mock_coordinator) -> None:
         """Test turning microphone on with error."""
-        mock_coordinator.protect_client.update_camera.side_effect = Exception(
+        mock_coordinator.protect_client.cameras.update.side_effect = Exception(
             "API error"
         )
 
@@ -279,9 +280,9 @@ class TestUnifiProtectMicrophoneSwitch:
 
         await switch.async_turn_off()
 
-        mock_coordinator.protect_client.update_camera.assert_called_once_with(
-            camera_id="camera1",
-            data={"micEnabled": False},
+        mock_coordinator.protect_client.cameras.update.assert_called_once_with(
+            "camera1",
+            isMicEnabled=False,
         )
         assert switch._attr_is_on is False
         switch.async_write_ha_state.assert_called_once()
@@ -289,7 +290,7 @@ class TestUnifiProtectMicrophoneSwitch:
     @pytest.mark.asyncio
     async def test_async_turn_off_error(self, mock_coordinator) -> None:
         """Test turning microphone off with error."""
-        mock_coordinator.protect_client.update_camera.side_effect = Exception(
+        mock_coordinator.protect_client.cameras.update.side_effect = Exception(
             "API error"
         )
 
@@ -316,7 +317,7 @@ class TestUnifiProtectMicrophoneSwitch:
 
         await switch.async_turn_on(some_extra_kwarg="value")
 
-        mock_coordinator.protect_client.update_camera.assert_called_once()
+        mock_coordinator.protect_client.cameras.update.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_async_turn_off_ignores_kwargs(self, mock_coordinator) -> None:
@@ -329,7 +330,7 @@ class TestUnifiProtectMicrophoneSwitch:
 
         await switch.async_turn_off(some_extra_kwarg="value")
 
-        mock_coordinator.protect_client.update_camera.assert_called_once()
+        mock_coordinator.protect_client.cameras.update.assert_called_once()
 
     def test_missing_camera_data(self, mock_coordinator) -> None:
         """Test handling missing camera data."""
@@ -344,16 +345,28 @@ class TestUnifiProtectMicrophoneSwitch:
         assert switch._attr_is_on is False
 
     def test_missing_mic_enabled(self, mock_coordinator) -> None:
-        """Test handling missing micEnabled field."""
-        del mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"]
+        """Test handling missing isMicEnabled/micEnabled fields defaults to False."""
+        del mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"]
 
         switch = UnifiProtectMicrophoneSwitch(
             coordinator=mock_coordinator,
             camera_id="camera1",
         )
 
-        # Should default to False
         assert switch._attr_is_on is False
+
+    def test_legacy_mic_enabled_field(self, mock_coordinator) -> None:
+        """Test backward compat: old micEnabled field (pre-Protect v7.1) is read."""
+        camera = mock_coordinator.data["protect"]["cameras"]["camera1"]
+        del camera["isMicEnabled"]
+        camera["micEnabled"] = True
+
+        switch = UnifiProtectMicrophoneSwitch(
+            coordinator=mock_coordinator,
+            camera_id="camera1",
+        )
+
+        assert switch._attr_is_on is True
 
 
 class TestUnifiClientBlockSwitch:

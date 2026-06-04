@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.6.1] - 2026-06-04
+
+### Added
+
+- Added **Client Control** option (enabled by default) to the integration's options flow — disabling it prevents creation of client allow/block switch entities and client reconnect button entities, eliminating orphaned unavailable entities when clients leave the network (closes #57)
+
+### Fixed
+
+- Fixed deprecation warning "The deprecated alias ScannerEntity was used from unifi_insights" by updating the import to `homeassistant.components.device_tracker.ScannerEntity`; the old path in `config_entry` is removed in HA Core 2027.6 (closes #58)
+- Fixed microphone switch always showing as OFF on Protect v7.1.x — the API renamed the field from `micEnabled` to `isMicEnabled`; both names are now read with `isMicEnabled` taking priority, and the PATCH call now correctly sends `isMicEnabled`
+- Fixed High FPS mode switch never being created on Protect v7.1.x cameras that support it — the API removed the `hasHighFpsCapability` feature flag in favour of listing `highFps` in `featureFlags.videoModes`; both detection methods are now checked
+
 ## [2026.6.0] - 2026-05-30
 
 ### Added

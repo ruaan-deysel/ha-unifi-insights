@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.6.2] - 2026-06-06
+
+### Fixed
+
+- Fixed missing `@callback` decorator on `UnifiFacadeCoordinator._handle_coordinator_update` — the method is registered as an event-loop listener via `async_add_listener()` on all three sub-coordinators and must be decorated with `@callback` per HA coding standards (closes #59)
+- Fixed missing `@callback` decorators on `UnifiProtectCoordinator._handle_device_update` and `_handle_event_update` — these WebSocket callback handlers call `async_update_listeners()` (itself a `@callback`), so they must also be marked as event-loop callbacks
+- Fixed misleading "WebSocket callbacks registered" debug log in the Protect coordinator — the message previously fired even when neither WebSocket callback was actually registered (both are guarded by `hasattr` checks that currently return `False`)
+
+### Notes
+
+- The HA warning "Updating state for switch.firewall_policies_default_crowdsec_bouncer_ban_2 took 0.548 seconds" reported in #59 is **not a code bug**. HA's threshold is 0.4 s and the warning fires only once per entity lifetime (`_slow_reported = True`). The entity's properties are all O(1) dict lookups; the 0.548 s was caused by the UDM-SE host running at 100% CPU, starving HA's event loop. The `@callback` changes above are correctness improvements aligned with HA standards that reduce the chance of async-violation warnings from HA's debug checker.
+
 ## [2026.6.1] - 2026-06-04
 
 ### Added
@@ -241,6 +253,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Number entities for camera/light settings
 - Select entities for recording modes and video modes
 
+[2026.6.2]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.1...v2026.6.2
+[2026.6.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.0...v2026.6.1
 [2026.6.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.5.0...v2026.6.0
 [2026.5.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.4.1...v2026.5.0
 [2026.4.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.4.0...v2026.4.1

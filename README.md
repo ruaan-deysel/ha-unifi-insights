@@ -88,10 +88,9 @@ This project overlaps with and complements Home Assistant's official integration
 ### Getting an API key
 
 1. Go to [UniFi Site Manager](https://unifi.ui.com).
-2. Navigate to **Control Plane** → **Admins & Users**.
-3. Select your admin account.
-4. Click **Create API Key**, give it a name (for example "Home Assistant"), and copy the generated key.
-5. Click **Done** to save.
+2. Navigate to **Integrations**.
+3. Click **Create API Key**, give it a name (for example "Home Assistant"), and copy the generated key.
+4. The API key is shown on screen for you to **Copy** for the next step.
 
 ### Adding the integration
 

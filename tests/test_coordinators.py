@@ -35,6 +35,8 @@ from custom_components.unifi_insights.coordinators.protect import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from homeassistant.core import HomeAssistant
 
 
@@ -1863,18 +1865,18 @@ class TestUnifiFacadeCoordinator:
         return coord
 
     @pytest.fixture
-    def facade_coordinator(
+    async def facade_coordinator(
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
         config_coordinator: UnifiConfigCoordinator,
         device_coordinator: UnifiDeviceCoordinator,
         protect_coordinator: UnifiProtectCoordinator,
-    ) -> UnifiFacadeCoordinator:
+    ) -> AsyncGenerator[UnifiFacadeCoordinator]:
         """Create a facade coordinator."""
         network_client = _create_mock_network_client()
         protect_client = _create_mock_protect_client()
-        return UnifiFacadeCoordinator(
+        coordinator = UnifiFacadeCoordinator(
             hass=hass,
             network_client=network_client,
             protect_client=protect_client,
@@ -1883,18 +1885,25 @@ class TestUnifiFacadeCoordinator:
             device_coordinator=device_coordinator,
             protect_coordinator=protect_coordinator,
         )
+        yield coordinator
+        # Shut down so refresh timers scheduled by the facade's listeners on
+        # the sub-coordinators don't linger past the test.
+        await coordinator.async_shutdown()
+        await config_coordinator.async_shutdown()
+        await device_coordinator.async_shutdown()
+        await protect_coordinator.async_shutdown()
 
     @pytest.fixture
-    def facade_coordinator_no_protect(
+    async def facade_coordinator_no_protect(
         self,
         hass: HomeAssistant,
         mock_config_entry: MockConfigEntry,
         config_coordinator: UnifiConfigCoordinator,
         device_coordinator: UnifiDeviceCoordinator,
-    ) -> UnifiFacadeCoordinator:
+    ) -> AsyncGenerator[UnifiFacadeCoordinator]:
         """Create a facade coordinator without protect."""
         network_client = _create_mock_network_client()
-        return UnifiFacadeCoordinator(
+        coordinator = UnifiFacadeCoordinator(
             hass=hass,
             network_client=network_client,
             protect_client=None,
@@ -1903,6 +1912,10 @@ class TestUnifiFacadeCoordinator:
             device_coordinator=device_coordinator,
             protect_coordinator=None,
         )
+        yield coordinator
+        await coordinator.async_shutdown()
+        await config_coordinator.async_shutdown()
+        await device_coordinator.async_shutdown()
 
     def test_initialization(self, facade_coordinator: UnifiFacadeCoordinator):
         """Test facade coordinator initialization."""
@@ -2596,6 +2609,12 @@ class TestCoordinatorDataFlow:
         assert "default" in facade_coord.data["sites"]
         assert "default" in facade_coord.data["devices"]
         assert "camera1" in facade_coord.data["protect"]["cameras"]
+
+        # Shut down so scheduled refresh timers don't linger past the test
+        await facade_coord.async_shutdown()
+        await config_coord.async_shutdown()
+        await device_coord.async_shutdown()
+        await protect_coord.async_shutdown()
 
 
 class TestProtectCoordinatorEdgeCases:

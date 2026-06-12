@@ -343,19 +343,19 @@ class TestAsyncSetupEntry:
     async def test_setup_entry_skips_already_tracked_clients(
         self, hass, mock_coordinator
     ) -> None:
-        """Test setup skips clients that are already tracked."""
+        """Test the per-setup dedup set prevents duplicate tracker entities."""
         mock_coordinator.data["clients"]["site1"] = {
             "client1": {
                 "id": "client1",
                 "mac": "AA:BB:CC:DD:EE:FF",
-                "name": "Already Tracked Client",
+                "name": "First Client",
                 "connected": True,
                 "type": "WIRED",
             },
             "client2": {
                 "id": "client2",
                 "mac": "11:22:33:44:55:66",
-                "name": "New Client",
+                "name": "Second Client",
                 "connected": True,
                 "type": "WIRED",
             },
@@ -368,20 +368,21 @@ class TestAsyncSetupEntry:
         # Enable wired tracking
         mock_entry.options = {"track_wifi_clients": False, "track_wired_clients": True}
 
-        # Pre-populate tracked clients set with client1 as already tracked
-        # The code uses coordinator.hass.data, so we need to set it there
-        mock_coordinator.hass = hass
-        hass.data = {"unifi_insights_tracked_clients": {"site1_client1"}}
-
         async_add_entities = MagicMock()
 
         await async_setup_entry(hass, mock_entry, async_add_entities)
 
+        # Fresh setup adds trackers for every connected client (the dedup set
+        # is local to the setup call, so a reload re-adds entities).
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
-        # Only client2 should be added (client1 was already tracked)
-        assert len(entities) == 1
-        assert entities[0]._mac == "11:22:33:44:55:66"
+        assert len(entities) == 2
+
+        # Re-running the registered coordinator listener must not create
+        # duplicates for clients that are already tracked in this setup.
+        listener = mock_coordinator.async_add_listener.call_args[0][0]
+        listener()
+        assert async_add_entities.call_count == 1
 
 
 class TestUnifiClientTracker:
@@ -441,9 +442,9 @@ class TestUnifiClientTracker:
             mac="AA:BB:CC:DD:EE:FF",
         )
 
-        # Unique ID uses MAC address format
+        # Unique ID uses the normalized (lowercase) MAC address
         assert tracker._attr_unique_id is not None
-        assert "AA:BB:CC:DD:EE:FF" in tracker._attr_unique_id
+        assert "aa:bb:cc:dd:ee:ff" in tracker._attr_unique_id
 
     def test_source_type_wired(self, mock_coordinator) -> None:
         """Test source type for wired client."""

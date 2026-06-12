@@ -795,7 +795,10 @@ class TestSFPPortSensors:
             and e._port_idx == 25
         ]
         assert len(sfp_speed) == 1
-        assert "SFP+ 1" in sfp_speed[0].name
+        # The label is exposed via the translation placeholder; resolving
+        # entity.name requires a live entity platform, which this unit test
+        # does not attach.
+        assert sfp_speed[0].translation_placeholders["port_label"] == "SFP+ 1"
 
 
 class TestUnifiProtectSensor:

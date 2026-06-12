@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.6.3] - 2026-06-12
+
+### Fixed
+
+- Fixed UniFi Protect devices removed from the controller never being cleaned up — the Protect coordinator only ever added/merged devices into its data, so the stale-device registry cleanup could never detect a removal; each poll now rebuilds the camera/light/sensor/NVR/chime/viewer/liveview collections from the API response, making the Gold-tier stale-device cleanup actually work
+- Fixed missing `@callback` decorator on the WiFi QR code image entity's `_handle_coordinator_update` override (same bug class as the 2026.6.2 coordinator fixes)
+- Fixed all coordinators relying on Home Assistant's `current_entry` ContextVar fallback instead of passing `config_entry` explicitly to `DataUpdateCoordinator` — HA flags this pattern for removal (core breaks in 2026.8) and the explicit entry also auto-registers coordinator shutdown on entry unload
+- Fixed the facade coordinator's `data` being `None` until an external (private) `_aggregate_data()` call from `__init__.py`; the facade now aggregates sub-coordinator data during its own initialization
+- Fixed config entry unloading closing the API clients *before* unloading the platforms — a failed platform unload previously left loaded entities behind with closed clients; clients are now only closed after all platforms unloaded successfully
+- Fixed `script/test` being broken: it pinned `homeassistant==2026.4.1` against `pytest-homeassistant-custom-component==0.13.317` (which requires HA 2026.3.1, an unsolvable conflict) and did not install the `segno` manifest requirement; it now installs HA 2026.6.2 with plugin 0.13.338 and `segno`
+
+### Changed
+
+- Service actions are now registered in `async_setup` instead of the first config entry setup, per the Quality Scale `action-setup` rule — actions are validatable even when no entry is loaded, and handlers raise `ServiceValidationError` when no coordinator is available
+- Replaced the deprecated `OptionsFlowWithConfigEntry` base class with `OptionsFlow` (the config entry is provided automatically since HA 2024.11)
+- Bumped the minimum Home Assistant version to `2026.6.0` in `hacs.json` and the README (HA is now on Python 3.14)
+- Added `data_description` helper texts to the reauthentication and reconfigure config flow steps (Quality Scale `config-flow` rule)
+
+### Tests
+
+- Test suite now runs (and passes: 1043 tests, 90.5% coverage) against Home Assistant 2026.6.2 / Python 3.14
+- Added a test module for the WiFi QR code image platform (`tests/test_image.py`)
+- Updated stale tests that still asserted pre-2026.6.0 behavior (camera snapshot width/height parameters, uppercase tracker unique IDs, the removed global tracked-clients set) and fixed coordinator/config-flow test fixtures that leaked refresh timers and sockets
+
 ## [2026.6.2] - 2026-06-06
 
 ### Fixed

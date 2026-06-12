@@ -60,7 +60,7 @@ This project overlaps with and complements Home Assistant's official integration
 
 ## Requirements
 
-- Home Assistant 2026.5.4 or newer
+- Home Assistant 2026.6.0 or newer
 - UniFi Network Application 8.0 or newer
 - UniFi Protect 3.0 or newer (required only for Protect features)
 

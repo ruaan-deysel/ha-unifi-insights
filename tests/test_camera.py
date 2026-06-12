@@ -246,10 +246,10 @@ class TestUnifiProtectCamera:
         result = await camera.async_camera_image()
 
         assert result == b"image_data"
+        # The Protect snapshot endpoint rejects width/height query params
+        # (HTTP 500), so the call must not include them.
         mock_coordinator.protect_client.cameras.get_snapshot.assert_called_once_with(
             "camera1",
-            width=1920,
-            height=1080,
         )
 
     @pytest.mark.asyncio
@@ -263,10 +263,9 @@ class TestUnifiProtectCamera:
         result = await camera.async_camera_image(width=640, height=480)
 
         assert result == b"image_data"
+        # Requested dimensions are ignored; HA scales the returned JPEG.
         mock_coordinator.protect_client.cameras.get_snapshot.assert_called_once_with(
             "camera1",
-            width=640,
-            height=480,
         )
 
     @pytest.mark.asyncio

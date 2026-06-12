@@ -107,6 +107,12 @@ async def test_local_flow_success(hass: HomeAssistant) -> None:
             return_value=async_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.LocalAuth"),
+        # Prevent the real integration setup (which opens sockets) when the
+        # entry is created/reloaded by the flow.
+        patch(
+            "custom_components.unifi_insights.async_setup_entry",
+            return_value=True,
+        ),
     ):
         # Start the flow
         result = await hass.config_entries.flow.async_init(
@@ -362,6 +368,12 @@ async def test_reauth_flow_success(
             return_value=async_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.LocalAuth"),
+        # Prevent the real integration setup (which opens sockets) when the
+        # entry is created/reloaded by the flow.
+        patch(
+            "custom_components.unifi_insights.async_setup_entry",
+            return_value=True,
+        ),
     ):
         result = await mock_config_entry.start_reauth_flow(hass)
         assert result["type"] == FlowResultType.FORM
@@ -857,6 +869,12 @@ async def test_reconfigure_local_success(
             return_value=async_cm,
         ),
         patch("custom_components.unifi_insights.config_flow.LocalAuth"),
+        # Prevent the real integration setup (which opens sockets) when the
+        # entry is created/reloaded by the flow.
+        patch(
+            "custom_components.unifi_insights.async_setup_entry",
+            return_value=True,
+        ),
     ):
         result = await mock_config_entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM

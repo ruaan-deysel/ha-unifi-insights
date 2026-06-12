@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.6.4] - 2026-06-13
+
+### Fixed
+
+- Fixed UniFi Protect cameras showing "does not support play stream service" — `UnifiProtectCamera` overrode `async_stream_source()` but HA's `Camera.async_create_stream()` internally calls `stream_source()`; renamed the method to `stream_source()` so the stream pipeline is correctly wired
+
 ## [2026.6.3] - 2026-06-12
 
 ### Fixed

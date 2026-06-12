@@ -299,7 +299,7 @@ class TestUnifiProtectCamera:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_async_stream_source_success(self, mock_coordinator) -> None:
+    async def test_stream_source_success(self, mock_coordinator) -> None:
         """Test getting stream source successfully using the API.
 
         The vendored API package returns a dynamic stream URL from
@@ -317,7 +317,7 @@ class TestUnifiProtectCamera:
             camera_id="camera1",
         )
 
-        result = await camera.async_stream_source()
+        result = await camera.stream_source()
 
         # URL comes from the API's create_rtsps_stream response
         assert result == "rtsps://192.168.1.1:7441/camera1_abc123?enableSrtp"
@@ -326,9 +326,7 @@ class TestUnifiProtectCamera:
         )
 
     @pytest.mark.asyncio
-    async def test_async_stream_source_api_failure_fallback(
-        self, mock_coordinator
-    ) -> None:
+    async def test_stream_source_api_failure_fallback(self, mock_coordinator) -> None:
         """Test fallback to static URL when API fails."""
         # Mock the API to fail
         mock_coordinator.protect_client.cameras.create_rtsps_stream = AsyncMock(
@@ -340,13 +338,13 @@ class TestUnifiProtectCamera:
             camera_id="camera1",
         )
 
-        result = await camera.async_stream_source()
+        result = await camera.stream_source()
 
         # Falls back to static URL construction
         assert result == "rtsps://192.168.1.1:7441/camera1?enableSrtp"
 
     @pytest.mark.asyncio
-    async def test_async_stream_source_no_host(self, mock_coordinator) -> None:
+    async def test_stream_source_no_host(self, mock_coordinator) -> None:
         """Test getting stream source when NVR host cannot be determined."""
         # Mock the API to fail
         mock_coordinator.protect_client.cameras.create_rtsps_stream = AsyncMock(
@@ -361,12 +359,12 @@ class TestUnifiProtectCamera:
             camera_id="camera1",
         )
 
-        result = await camera.async_stream_source()
+        result = await camera.stream_source()
 
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_async_stream_source_from_nvr_data(self, mock_coordinator) -> None:
+    async def test_stream_source_from_nvr_data(self, mock_coordinator) -> None:
         """Test getting stream source from NVR data when API fails."""
         # Mock the API to fail so it falls back to static URL
         mock_coordinator.protect_client.cameras.create_rtsps_stream = AsyncMock(
@@ -382,7 +380,7 @@ class TestUnifiProtectCamera:
             camera_id="camera1",
         )
 
-        result = await camera.async_stream_source()
+        result = await camera.stream_source()
 
         # URL should use the NVR host
         assert result == "rtsps://10.0.0.1:7441/camera1?enableSrtp"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -376,6 +377,46 @@ class TestUnifiBaseCoordinator:
         with pytest.raises(UpdateFailed, match="API error"):
             coordinator._handle_response_error(err)
         assert coordinator._available is False
+
+    def test_handle_response_error_server_error_logs_warning(
+        self, coordinator: UnifiBaseCoordinator, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test 5xx API response errors are logged as warnings."""
+        err = UniFiResponseError("Bad gateway", status_code=502)
+        caplog.set_level(
+            logging.WARNING, logger="custom_components.unifi_insights.coordinators.base"
+        )
+
+        with pytest.raises(UpdateFailed, match="API error"):
+            coordinator._handle_response_error(err)
+
+        assert coordinator._available is False
+        assert any(
+            record.levelno == logging.WARNING
+            and "Server error during update" in record.message
+            for record in caplog.records
+        )
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+
+    def test_handle_response_error_client_error_logs_exception(
+        self, coordinator: UnifiBaseCoordinator, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test 4xx API response errors retain exception logging."""
+        err = UniFiResponseError("Bad response", status_code=400)
+        caplog.set_level(
+            logging.ERROR, logger="custom_components.unifi_insights.coordinators.base"
+        )
+
+        with pytest.raises(UpdateFailed, match="API error"):
+            coordinator._handle_response_error(err)
+
+        assert coordinator._available is False
+        assert any(
+            record.levelno == logging.ERROR
+            and "API error during update" in record.message
+            and record.exc_info is not None
+            for record in caplog.records
+        )
 
     def test_handle_generic_error(self, coordinator: UnifiBaseCoordinator):
         """Test handling generic error."""

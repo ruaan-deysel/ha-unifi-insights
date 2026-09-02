@@ -609,7 +609,8 @@ class UnifiInsightsVpnClientSwitch(
 
         vpn_client_data = self._get_vpn_client_data()
         vpn_client_name = vpn_client_data.get("name") or "VPN Client"
-        self._attr_name = vpn_client_name
+        self._attr_translation_key = "vpn_client"
+        self._attr_translation_placeholders = {"vpn_client_name": vpn_client_name}
 
         self._attr_device_info = self._build_device_info()
 

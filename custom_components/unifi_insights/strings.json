@@ -338,6 +338,9 @@
       },
       "high_fps_mode": {
         "name": "High FPS Mode"
+      },
+      "vpn_client": {
+        "name": "{vpn_client_name}"
       }
     },
     "select": {

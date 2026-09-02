@@ -1398,7 +1398,10 @@ class TestUnifiVpnClientSwitch:
         )
 
         assert switch._attr_unique_id == "site1_vpn1_vpn_client"
-        assert switch._attr_name == "Privado VPN"
+        assert switch._attr_translation_key == "vpn_client"
+        assert switch._attr_translation_placeholders == {
+            "vpn_client_name": "Privado VPN"
+        }
         assert switch._attr_entity_category == EntityCategory.CONFIG
         assert switch._attr_device_info["identifiers"] == {(DOMAIN, "site1_gateway1")}
 

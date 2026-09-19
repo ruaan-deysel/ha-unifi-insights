@@ -37,6 +37,7 @@ from .const import (
     CAMERA_TYPE_DOORBELL_WITH_PACKAGE_DETECTION,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_SENSOR,
+    GATEWAY_MODEL_PREFIXES,
     SMART_DETECT_ANIMAL,
     SMART_DETECT_PACKAGE,
     SMART_DETECT_PERSON,
@@ -362,9 +363,12 @@ async def async_setup_entry(
                         if description.entity_type == "device":
                             # Skip WAN status sensor for non-gateway devices
                             model = device_data.get("model")
-                            if description.key == "wan_status" and not (
-                                isinstance(model, str) and model.startswith("UDM")
-                            ):
+                            model_str = model.upper() if isinstance(model, str) else ""
+                            is_gateway = (
+                                model_str.startswith(GATEWAY_MODEL_PREFIXES)
+                                or "GATEWAY" in model_str
+                            )
+                            if description.key == "wan_status" and not is_gateway:
                                 _LOGGER.debug(
                                     "Skipping WAN status sensor for non-gateway device "
                                     "%s (%s)",

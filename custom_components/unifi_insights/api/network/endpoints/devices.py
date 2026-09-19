@@ -453,10 +453,29 @@ class DevicesEndpoint:
         if poe_total_w is None and poe_ports:
             poe_total_w = float(sum(poe_ports.values()))
 
+        # Extract system stats if present (e.g. for devices without v1 UUID stats)
+        sys_stats = legacy.get("sys_stats") or legacy.get("system-stats") or {}
+        cpu = sys_stats.get("cpu") if isinstance(sys_stats, dict) else None
+        if cpu is None:
+            cpu = legacy.get("cpu")
+        mem = sys_stats.get("mem") if isinstance(sys_stats, dict) else None
+        if mem is None:
+            mem = legacy.get("mem")
+        uptime = sys_stats.get("uptime") if isinstance(sys_stats, dict) else None
+        if uptime is None:
+            uptime = legacy.get("uptime")
+
+        cpu_utilization_pct = _to_float(cpu)
+        memory_utilization_pct = _to_float(mem)
+        uptime_sec = _to_int(uptime)
+
         return LegacyPortMetrics(
             poe_total_w=poe_total_w,
             poe_ports=poe_ports,
             port_bytes=port_bytes,
+            cpu_utilization_pct=cpu_utilization_pct,
+            memory_utilization_pct=memory_utilization_pct,
+            uptime_sec=uptime_sec,
         )
 
     async def execute_action(

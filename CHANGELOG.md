@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fall back to classic `system-stats` (`sys_stats`) CPU, memory, and uptime metrics for gateway and console devices (such as the UCG-Max) when the v1 statistics endpoint omits them or when devices are keyed by MAC address, preventing CPU and memory usage sensors from showing "Unknown". [#151](https://github.com/ruaan-deysel/ha-unifi-insights/issues/151)
+- Recognize `UCG`, `UXG`, `UDR`, and `UDW` gateway models alongside `UDM` and `USG` for WAN sensors and gateway entity discovery.
+
 ## [2026.9.4] - 2026-09-19
 
 ### Added

@@ -46,6 +46,7 @@ from .const import (
     DEVICE_TYPE_NVR,
     DEVICE_TYPE_SENSOR,
     DOMAIN,
+    GATEWAY_MODEL_PREFIXES,
     MANUFACTURER,
 )
 from .coordinators import UnifiFacadeCoordinator
@@ -1034,10 +1035,14 @@ def _discover_device_sensors(
         )
 
     # Add WAN sensors for gateway devices
-    features = get_field(device_data, "features", default={})
     model = get_field(device_data, "model", default="")
-    if ("switching" in features or "gateway" in features or "router" in features) and (
-        model.startswith(("UDM", "USG")) or "gateway" in model.lower()
+    model_str = model.upper() if isinstance(model, str) else ""
+    # A gateway is identified by model prefix (covers UCG/UXG/UDR/UDW consoles
+    # that issue #151 reported as missing WAN sensors) or by an advertised
+    # gateway/router feature. "switching" alone is deliberately not enough --
+    # plain switches are not gateways.
+    if model_str.startswith(GATEWAY_MODEL_PREFIXES) or device_has_feature(
+        device_data, "gateway", "router"
     ):
         for wan_desc in WAN_SENSOR_TYPES:
             wan_key = (site_id, device_id, wan_desc.key)
@@ -2265,7 +2270,7 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
                 features = []
             if "gateway" in features or "router" in features:
                 return str(device_id)
-            if model.startswith(("UDM", "USG", "UXG", "UCG")):
+            if model.startswith(GATEWAY_MODEL_PREFIXES) or "GATEWAY" in model:
                 return str(device_id)
 
         return None

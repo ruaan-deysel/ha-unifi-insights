@@ -211,6 +211,9 @@ class LegacyPortMetrics(BaseModel):
     poe_total_w: float | None = None
     poe_ports: dict[int, float] = Field(default_factory=dict)
     port_bytes: dict[int, PortBytesMetrics] = Field(default_factory=dict)
+    cpu_utilization_pct: float | None = None
+    memory_utilization_pct: float | None = None
+    uptime_sec: int | None = None
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 

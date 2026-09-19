@@ -30,6 +30,17 @@ CONSOLE_DEVICE_TOKENS: Final = (
     "dream wall",
     "gateway",
 )
+
+# Model prefixes that identify gateway/router devices
+GATEWAY_MODEL_PREFIXES: Final = (
+    "UDM",
+    "USG",
+    "UXG",
+    "UCG",
+    "UDR",
+    "UDW",
+    "GATEWAY",
+)
 CONNECTION_TYPE_LOCAL: Final = "local"
 CONNECTION_TYPE_REMOTE: Final = "remote"
 

@@ -363,6 +363,7 @@ async def async_setup_entry(
         network_client=network_client,
         protect_client=protect_client,
         entry=entry,
+        network_available=network_available,
     )
 
     # 2. Device coordinator - fast updates (30 seconds) for devices, stats

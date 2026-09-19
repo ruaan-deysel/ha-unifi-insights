@@ -49,6 +49,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         network_client: UniFiNetworkClient,
         protect_client: UniFiProtectClient | None,
         entry: ConfigEntry,
+        *,
+        network_available: bool = True,
     ) -> None:
         """Initialize the config coordinator."""
         super().__init__(
@@ -59,6 +61,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             name="config",
             update_interval=SCAN_INTERVAL_CONFIG,
         )
+        self._network_available = network_available
         self.data: dict[str, Any] = {
             "sites": {},
             "wifi": {},
@@ -276,36 +279,39 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             # Get all sites
             _LOGGER.debug("Config coordinator: Fetching sites")
             sites_models = []
-            try:
-                sites_models = await self.network_client.sites.get_all()
-            except (UniFiNotFoundError, UniFiAuthenticationError) as err:
-                if self.protect_client is not None:
+            if self._network_available:
+                try:
+                    sites_models = await self.network_client.sites.get_all()
+                except (UniFiNotFoundError, UniFiAuthenticationError) as err:
+                    if self.protect_client is not None:
+                        self._network_available = False
+                        _LOGGER.debug(
+                            "Config coordinator: Network API not available on Protect "
+                            "console: %s",
+                            err,
+                        )
+                    else:
+                        raise
+                except UniFiResponseError as err:
+                    # A console with no Network application answers this endpoint
+                    # with 200 and an HTML body. api/base.py raises for a 2xx
+                    # non-JSON response rather than returning None, which is right
+                    # in general, but here it is a permanent property of the
+                    # hardware rather than a transient fault, and setup validation
+                    # in __init__.py already tolerates it. Left unhandled, the
+                    # first refresh raises UpdateFailed, then ConfigEntryNotReady,
+                    # and the entry never loads. Only a 200 is tolerated, so a
+                    # redirect or any other sub-400 status still fails.
+                    # UniFiNotFoundError subclasses UniFiResponseError, so this
+                    # clause has to stay below the tuple above.
+                    if self.protect_client is None or err.status_code != HTTPStatus.OK:
+                        raise
+                    self._network_available = False
                     _LOGGER.debug(
-                        "Config coordinator: Network API not available on Protect "
-                        "console: %s",
-                        err,
+                        "Config coordinator: sites endpoint returned a non-JSON "
+                        "body (status %s) - console has no Network application",
+                        err.status_code,
                     )
-                else:
-                    raise
-            except UniFiResponseError as err:
-                # A console with no Network application answers this endpoint
-                # with 200 and an HTML body. api/base.py raises for a 2xx
-                # non-JSON response rather than returning None, which is right
-                # in general, but here it is a permanent property of the
-                # hardware rather than a transient fault, and setup validation
-                # in __init__.py already tolerates it. Left unhandled, the
-                # first refresh raises UpdateFailed, then ConfigEntryNotReady,
-                # and the entry never loads. Only a 200 is tolerated, so a
-                # redirect or any other sub-400 status still fails.
-                # UniFiNotFoundError subclasses UniFiResponseError, so this
-                # clause has to stay below the tuple above.
-                if self.protect_client is None or err.status_code != HTTPStatus.OK:
-                    raise
-                _LOGGER.debug(
-                    "Config coordinator: sites endpoint returned a non-JSON "
-                    "body (status %s) - console has no Network application",
-                    err.status_code,
-                )
 
             site_list = [self._model_to_dict(s) for s in sites_models]
             all_sites: dict[str, dict[str, Any]] = {

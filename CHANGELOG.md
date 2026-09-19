@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A Protect-only console with no UniFi Network application (such as a standalone UNVR) no longer logs a `Response is not JSON` warning every five minutes. Such a console answers the Network sites endpoint with HTTP 200 and an HTML body, which the config coordinator retried on every five-minute poll. The coordinator now skips that poll entirely when the setup probe reports the Network application as unavailable, and stops polling it for the rest of the session the first time the console answers with a non-JSON body or a 404. The probe runs again on every integration start and reload, so installing the Network application later restores site polling.
+
 ## [2026.9.4] - 2026-09-19
 
 ### Added

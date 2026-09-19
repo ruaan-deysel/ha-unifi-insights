@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
+from homeassistant.helpers import device_registry as dr
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -341,3 +342,49 @@ async def init_integration(
     await hass.async_block_till_done()
 
     return mock_config_entry
+
+
+def set_mock_device_lookup(registry: MagicMock, device: MagicMock | None) -> None:
+    """Make every DeviceRegistry lookup path on ``registry`` resolve to ``device``.
+
+    ``async_get_device_entry`` picks its lookup method from what the installed
+    Home Assistant exposes: ``async_get_device_by_identifier`` (2026.8+),
+    ``async_get_devices``, or the deprecated ``async_get_device``. A test that
+    stubs only one of them silently stops simulating anything on the other
+    versions, because an unstubbed ``MagicMock`` attribute returns a truthy
+    mock rather than the intended miss.
+    """
+    registry.async_get_device.return_value = device
+    registry.async_get_device_by_identifier.return_value = device
+    registry.async_get_devices.return_value = [device] if device is not None else []
+
+
+def mock_device_lookup_method(
+    registry: MagicMock, config_entry_id: str | None = None
+) -> MagicMock:
+    """Return the registry attribute ``async_get_device_entry`` will actually call.
+
+    Mirrors the branch selection in the helper under test so assertions follow
+    the production code across the 2026.8 API addition.
+    """
+    if (
+        hasattr(dr.DeviceRegistry, "async_get_device_by_identifier")
+        and config_entry_id is not None
+    ):
+        return registry.async_get_device_by_identifier
+    if hasattr(dr.DeviceRegistry, "async_get_devices"):
+        return registry.async_get_devices
+    return registry.async_get_device
+
+
+def assert_mock_device_lookup(
+    registry: MagicMock,
+    identifier: tuple[str, str],
+    config_entry_id: str | None = None,
+) -> None:
+    """Assert ``identifier`` was looked up through whichever API this HA exposes."""
+    lookup = mock_device_lookup_method(registry, config_entry_id)
+    if lookup is registry.async_get_device_by_identifier:
+        lookup.assert_any_call(identifier, config_entry_id)
+    else:
+        lookup.assert_any_call(identifiers={identifier})

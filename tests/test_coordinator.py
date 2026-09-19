@@ -21,6 +21,7 @@ from custom_components.unifi_insights.api import (
 from custom_components.unifi_insights.coordinator import (
     UnifiInsightsDataUpdateCoordinator,
 )
+from tests.conftest import assert_mock_device_lookup, set_mock_device_lookup
 
 
 def _create_mock_model(**kwargs):
@@ -1355,15 +1356,17 @@ async def test_coordinator_cleanup_stale_network_device_removal(
         ) as mock_async_get,
     ):
         mock_registry = MagicMock()
-        mock_registry.async_get_device.return_value = mock_device
+        set_mock_device_lookup(mock_registry, mock_device)
         mock_async_get.return_value = mock_registry
 
         # Call cleanup
         coordinator._cleanup_stale_devices()
 
         # Verify device was looked up
-        mock_registry.async_get_device.assert_called_with(
-            identifiers={("unifi_insights", "site1_device2")}
+        assert_mock_device_lookup(
+            mock_registry,
+            ("unifi_insights", "site1_device2"),
+            mock_config_entry_for_coordinator.entry_id,
         )
 
         # Verify device was removed from registry

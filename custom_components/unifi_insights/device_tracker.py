@@ -22,6 +22,7 @@ from .const import (
 )
 from .coordinators import UnifiFacadeCoordinator
 from .entity import get_client_type as _get_client_type, get_field
+from .helpers import async_get_device_entry
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -166,8 +167,10 @@ def _restored_name(
         return reg_entry.original_name
     # Resolved lazily: the device registry is only consulted for the minority of
     # entries that have no entity name of their own.
-    device = dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, f"client_{mac}")}
+    device = async_get_device_entry(
+        dr.async_get(hass),
+        (DOMAIN, f"client_{mac}"),
+        reg_entry.config_entry_id,
     )
     if device is None:
         return None

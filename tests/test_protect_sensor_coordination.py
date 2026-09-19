@@ -44,6 +44,7 @@ from custom_components.unifi_insights.coordinators.protect import (
     UnifiProtectCoordinator,
     _normalize_epoch_seconds,
 )
+from tests.conftest import set_mock_device_lookup
 
 
 def _create_mock_model(data: dict[str, Any]) -> MagicMock:
@@ -1586,9 +1587,7 @@ class TestSensorTrackerCleanup:
         ) as mock_registry:
             mock_device = MagicMock()
             mock_device.id = "device_entry_id"
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=mock_device
-            )
+            set_mock_device_lookup(mock_registry.return_value, mock_device)
 
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
                 coordinator._cleanup_stale_devices()

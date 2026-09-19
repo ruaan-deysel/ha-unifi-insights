@@ -35,6 +35,7 @@ from custom_components.unifi_insights.const import (
     DOMAIN,
     SCAN_INTERVAL_PROTECT,
 )
+from custom_components.unifi_insights.helpers import async_get_device_entry
 
 from .base import UnifiBaseCoordinator
 
@@ -2307,8 +2308,10 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     f"protect_{device_type[:-1]}_{device_id}",  # protect_camera_xyz
                     device_id,  # Just the device ID
                 ]:
-                    device = device_registry.async_get_device(
-                        identifiers={(DOMAIN, identifier)}
+                    device = async_get_device_entry(
+                        device_registry,
+                        (DOMAIN, identifier),
+                        self.config_entry.entry_id,
                     )
                     if device:
                         _LOGGER.info(

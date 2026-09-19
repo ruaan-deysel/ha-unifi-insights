@@ -50,6 +50,7 @@ from custom_components.unifi_insights.coordinators.protect import (
     UnifiProtectCoordinator,
 )
 from custom_components.unifi_insights.entity import is_device_online
+from tests.conftest import mock_device_lookup_method, set_mock_device_lookup
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -2012,9 +2013,7 @@ class TestUnifiDeviceCoordinator:
         ) as mock_registry:
             mock_device = MagicMock()
             mock_device.id = "device_entry_id"
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=mock_device
-            )
+            set_mock_device_lookup(mock_registry.return_value, mock_device)
 
             coordinator._cleanup_stale_devices()
 
@@ -2050,7 +2049,7 @@ class TestUnifiDeviceCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.device.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(return_value=None)
+            set_mock_device_lookup(mock_registry.return_value, None)
 
             # Should not raise even when device not in registry
             coordinator._cleanup_stale_devices()
@@ -2950,9 +2949,7 @@ class TestUnifiProtectCoordinator:
         ) as mock_registry:
             mock_device = MagicMock()
             mock_device.id = "device_entry_id"
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=mock_device
-            )
+            set_mock_device_lookup(mock_registry.return_value, mock_device)
 
             # Removal waits out the MAX_CONSECUTIVE_MISSING_POLLS grace window.
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
@@ -3614,7 +3611,7 @@ class TestUnifiProtectCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(return_value=None)
+            set_mock_device_lookup(mock_registry.return_value, None)
 
             # Poll past the grace window so eviction is actually attempted,
             # then fall through both identifier patterns without a match.
@@ -3623,7 +3620,9 @@ class TestUnifiProtectCoordinator:
 
             # No device updates should happen (nothing found)
             mock_registry.return_value.async_update_device.assert_not_called()
-            assert mock_registry.return_value.async_get_device.called
+            assert mock_device_lookup_method(
+                mock_registry.return_value, coordinator.config_entry.entry_id
+            ).called
 
     @pytest.mark.asyncio
     async def test_fetch_sensors_error(self, coordinator: UnifiProtectCoordinator):
@@ -3798,9 +3797,7 @@ class TestUnifiProtectCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=MagicMock()
-            )
+            set_mock_device_lookup(mock_registry.return_value, MagicMock())
             coordinator._cleanup_stale_devices()
             mock_registry.return_value.async_update_device.assert_not_called()
 
@@ -4064,9 +4061,7 @@ class TestUnifiProtectCoordinator:
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
             mock_device = MagicMock()
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=mock_device
-            )
+            set_mock_device_lookup(mock_registry.return_value, mock_device)
             coordinator._cleanup_stale_devices()
             mock_registry.return_value.async_update_device.assert_not_called()
 
@@ -4097,9 +4092,7 @@ class TestUnifiProtectCoordinator:
         ) as mock_registry:
             mock_device = MagicMock()
             mock_device.id = "sensor1_entry_id"
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=mock_device
-            )
+            set_mock_device_lookup(mock_registry.return_value, mock_device)
             # Removal waits out the MAX_CONSECUTIVE_MISSING_POLLS grace window.
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
                 coordinator._cleanup_stale_devices()
@@ -4136,9 +4129,7 @@ class TestUnifiProtectCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=MagicMock()
-            )
+            set_mock_device_lookup(mock_registry.return_value, MagicMock())
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 2):
                 await coordinator._fetch_cameras()
                 coordinator._cleanup_stale_devices()
@@ -4239,9 +4230,7 @@ class TestUnifiProtectCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=MagicMock()
-            )
+            set_mock_device_lookup(mock_registry.return_value, MagicMock())
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS):
                 coordinator._cleanup_stale_devices()
 
@@ -4265,9 +4254,7 @@ class TestUnifiProtectCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=mock_device
-            )
+            set_mock_device_lookup(mock_registry.return_value, mock_device)
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
                 coordinator._cleanup_stale_devices()
 
@@ -4290,9 +4277,7 @@ class TestUnifiProtectCoordinator:
         with patch(
             "custom_components.unifi_insights.coordinators.protect.dr.async_get"
         ) as mock_registry:
-            mock_registry.return_value.async_get_device = MagicMock(
-                return_value=MagicMock()
-            )
+            set_mock_device_lookup(mock_registry.return_value, MagicMock())
             # Absent for one poll short of the threshold.
             coordinator.data["cameras"] = {"cam1": {"id": "cam1"}}
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS):

@@ -256,10 +256,10 @@ async def test_innerspace_placement_sensor_discovery_and_device_correlation(
     assert inv_sensor.device_info["identifiers"] == {(DOMAIN, "protect_camera_cam-1")}
     updated_entry = ent_reg.async_get(reg_entry.entity_id)
     assert updated_entry is not None
-    protect_dev = dev_reg.async_get_device(
-        identifiers={(DOMAIN, "protect_camera_cam-1")}
+    protect_dev = dev_reg.async_get_or_create(
+        config_entry_id=real_entry.entry_id,
+        identifiers={(DOMAIN, "protect_camera_cam-1")},
     )
-    assert protect_dev is not None
     assert updated_entry.device_id == protect_dev.id
 
     # When record disappears from snapshot, fallback to innerspace_<id>

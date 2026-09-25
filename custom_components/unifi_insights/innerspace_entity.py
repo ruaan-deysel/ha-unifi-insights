@@ -135,24 +135,22 @@ class UnifiInnerSpaceEntity(CoordinatorEntity[UnifiFacadeCoordinator]):
             or not new_identifiers
             or self.hass is None
             or not self.entity_id
+            or self.coordinator.config_entry is None
         ):
             return
         ent_reg = er.async_get(self.hass)
         if ent_reg.async_get(self.entity_id) is None:
             return
         dev_reg = dr.async_get(self.hass)
-        device = dev_reg.async_get_device(identifiers=new_identifiers)
-        if device is None and self.coordinator.config_entry is not None:
-            device = dev_reg.async_get_or_create(
-                config_entry_id=self.coordinator.config_entry.entry_id,
-                identifiers=new_identifiers,
-                name=new_device_info.get("name"),
-                manufacturer=new_device_info.get("manufacturer"),
-                model=new_device_info.get("model"),
-                serial_number=new_device_info.get("serial_number"),
-            )
-        if device is not None:
-            ent_reg.async_update_entity(self.entity_id, device_id=device.id)
+        device = dev_reg.async_get_or_create(
+            config_entry_id=self.coordinator.config_entry.entry_id,
+            identifiers=new_identifiers,
+            name=new_device_info.get("name"),
+            manufacturer=new_device_info.get("manufacturer"),
+            model=new_device_info.get("model"),
+            serial_number=new_device_info.get("serial_number"),
+        )
+        ent_reg.async_update_entity(self.entity_id, device_id=device.id)
 
     @property
     def available(self) -> bool:

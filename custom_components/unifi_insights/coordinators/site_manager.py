@@ -218,7 +218,9 @@ async def async_acquire_site_manager(
     hass: HomeAssistant, api_key: str, entry_id: str, session: ClientSession
 ) -> tuple[str, UnifiInsightsSiteManagerAccount]:
     """Share account polling among remote entries with the same API key."""
-    fingerprint = hmac.new(b"unifi_insights_account_registry", api_key.encode(), sha256).hexdigest()
+    fingerprint = hmac.new(
+        b"unifi_insights_account_registry", api_key.encode(), sha256
+    ).hexdigest()
     registry: dict[str, UnifiInsightsSiteManagerAccount] = hass.data.setdefault(
         DOMAIN, {}
     ).setdefault(_ACCOUNT_REGISTRY, {})

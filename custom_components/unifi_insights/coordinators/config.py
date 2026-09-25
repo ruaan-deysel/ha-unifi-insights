@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from datetime import UTC, datetime
 from functools import partial
@@ -15,13 +16,14 @@ from custom_components.unifi_insights.api import (
     UniFiResponseError,
     UniFiTimeoutError,
 )
+from custom_components.unifi_insights.api.network.models.report import SiteReportBucket
 from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_CONFIG
 from custom_components.unifi_insights.topology_contract import normalize_mac
 
 from .base import UnifiBaseCoordinator
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
@@ -30,6 +32,77 @@ if TYPE_CHECKING:
     from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
 _LOGGER = logging.getLogger(__name__)
+
+WINDOW_1H_MS = 3_600_000
+WINDOW_1D_MS = 86_400_000
+WINDOW_1W_MS = 7 * 86_400_000
+WINDOW_1M_MS = 30 * 86_400_000
+
+
+def _sum_report_window(
+    buckets: Sequence[SiteReportBucket | dict[str, Any] | object],
+    cutoff_ms: int,
+) -> dict[str, int] | None:
+    """Sum download (RX) and upload (TX) bytes for buckets at or after ``cutoff_ms``."""
+    rx_values: list[int] = []
+    tx_values: list[int] = []
+
+    for item in buckets:
+        if isinstance(item, SiteReportBucket):
+            bucket = item
+        elif isinstance(item, dict):
+            try:
+                bucket = SiteReportBucket.model_validate(item)
+            except Exception as err:
+                _LOGGER.debug("Skipping invalid site report bucket: %s", err)
+                continue
+        else:
+            continue
+
+        if bucket.time < cutoff_ms:
+            continue
+        if bucket.rx_bytes is not None:
+            rx_values.append(bucket.rx_bytes)
+        if bucket.tx_bytes is not None:
+            tx_values.append(bucket.tx_bytes)
+
+    if not rx_values and not tx_values:
+        return None
+
+    window_totals: dict[str, int] = {}
+    if rx_values:
+        window_totals["rx_bytes"] = sum(rx_values)
+    if tx_values:
+        window_totals["tx_bytes"] = sum(tx_values)
+    return window_totals
+
+
+def aggregate_internet_activity_windows(
+    five_minute_buckets: Sequence[SiteReportBucket | dict[str, Any]],
+    hourly_buckets: Sequence[SiteReportBucket | dict[str, Any]],
+    daily_buckets: Sequence[SiteReportBucket | dict[str, Any]],
+    *,
+    now_ms: int,
+) -> dict[str, dict[str, int]]:
+    """
+    Aggregate site report buckets into ``1h``, ``1d``, ``1w``, and ``1m`` totals.
+
+    - ``1h`` uses ``5minutes`` buckets with ``time >= now_ms - 1h``.
+    - ``1d`` and ``1w`` reuse ``hourly`` buckets with ``1d`` and ``7d`` cutoffs.
+    - ``1m`` uses ``daily`` buckets with ``time >= now_ms - 30d``.
+    Windows without usable buckets are omitted rather than publishing zero.
+    """
+    windows: dict[str, dict[str, int]] = {}
+    for window_key, source_buckets, duration_ms in (
+        ("1h", five_minute_buckets, WINDOW_1H_MS),
+        ("1d", hourly_buckets, WINDOW_1D_MS),
+        ("1w", hourly_buckets, WINDOW_1W_MS),
+        ("1m", daily_buckets, WINDOW_1M_MS),
+    ):
+        totals = _sum_report_window(source_buckets, now_ms - duration_ms)
+        if totals:
+            windows[window_key] = totals
+    return windows
 
 
 class UnifiConfigCoordinator(UnifiBaseCoordinator):
@@ -41,6 +114,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     - WiFi networks configuration
     - Firewall policy configuration
     - Policy-based routes (traffic routes) configuration
+    - Internet activity rolling-window traffic statistics
     - Network info
     """
 
@@ -74,14 +148,16 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             "site_vpns": {},
             "network_info": {},
             "client_links": {},
+            "internet_activity": {},
+            "internet_activity_unavailable": set(),
         }
         # Every site the console reports (id -> display name), before the
         # site filter is applied, so the options flow can offer all of them.
         self.available_sites: dict[str, str] = {}
         self._warned_no_selected_sites = False
-        # (section, site_id) pairs for optional sections (WiFi, firewall)
-        # whose last fetch failed. They keep their previous data but report
-        # unavailable, without failing the whole refresh.
+        # (section, site_id) pairs for optional sections (WiFi, firewall,
+        # internet_activity) whose last fetch failed. They keep their previous
+        # data but report unavailable, without failing the whole refresh.
         self._failed_sections: set[tuple[str, str]] = set()
 
     def wifi_available(self, site_id: str) -> bool:
@@ -93,6 +169,12 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     def firewall_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched firewall rules for a site."""
         return self.last_update_success and ("firewall_rules", site_id) not in (
+            self._failed_sections
+        )
+
+    def internet_activity_available(self, site_id: str) -> bool:
+        """Return True if the last refresh fetched internet activity for a site."""
+        return self.last_update_success and ("internet_activity", site_id) not in (
             self._failed_sections
         )
 
@@ -143,6 +225,117 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             unsupported,
         )
         return []
+
+    async def _call_site_report(
+        self,
+        site_name: str,
+        interval: str,
+        *,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[Any]:
+        """Invoke the Network client site report method for one interval."""
+        reports_obj = getattr(self.network_client, "reports", None)
+        reports_fn = getattr(reports_obj, "get_site_report", None)
+        client_fn = getattr(self.network_client, "get_site_report", None)
+
+        target_fn: Callable[..., Any] | None = None
+        if reports_fn is not None and (
+            inspect.iscoroutinefunction(reports_fn)
+            or getattr(reports_fn, "side_effect", None) is not None
+            or "return_value" in getattr(reports_fn, "__dict__", {})
+        ):
+            target_fn = reports_fn
+        elif client_fn is not None and (
+            inspect.iscoroutinefunction(client_fn)
+            or getattr(client_fn, "side_effect", None) is not None
+            or "return_value" in getattr(client_fn, "__dict__", {})
+        ):
+            target_fn = client_fn
+        elif callable(reports_fn):
+            target_fn = reports_fn
+        elif callable(client_fn):
+            target_fn = client_fn
+
+        if target_fn is None:
+            return []
+
+        result = target_fn(
+            site_name,
+            interval,
+            start_ms=start_ms,
+            end_ms=end_ms,
+        )
+        if inspect.isawaitable(result):
+            awaited = await result
+            return list(awaited) if isinstance(awaited, (list, tuple)) else []
+        if isinstance(result, (list, tuple)):
+            return list(result)
+        return []
+
+    async def _fetch_site_internet_activity(
+        self,
+        *,
+        site_id: str,
+        site_name: str,
+        now_ms: int,
+    ) -> dict[str, dict[str, int]] | None:
+        """
+        Fetch ``5minutes``, ``hourly``, and ``daily`` site reports and aggregate.
+
+        Returns:
+            Window totals dict when supported (possibly empty if no buckets),
+            or ``None`` when a transient fetch failure occurred.
+
+        """
+        five_min_buckets = await self._fetch_optional_section(
+            "internet_activity",
+            site_id,
+            partial(
+                self._call_site_report,
+                site_name,
+                "5minutes",
+                start_ms=now_ms - WINDOW_1H_MS,
+                end_ms=now_ms,
+            ),
+        )
+        if five_min_buckets is None:
+            return None
+
+        hourly_buckets = await self._fetch_optional_section(
+            "internet_activity",
+            site_id,
+            partial(
+                self._call_site_report,
+                site_name,
+                "hourly",
+                start_ms=now_ms - WINDOW_1W_MS,
+                end_ms=now_ms,
+            ),
+        )
+        if hourly_buckets is None:
+            return None
+
+        daily_buckets = await self._fetch_optional_section(
+            "internet_activity",
+            site_id,
+            partial(
+                self._call_site_report,
+                site_name,
+                "daily",
+                start_ms=now_ms - WINDOW_1M_MS,
+                end_ms=now_ms,
+            ),
+        )
+        if daily_buckets is None:
+            return None
+
+        return aggregate_internet_activity_windows(
+            five_min_buckets,
+            hourly_buckets,
+            daily_buckets,
+            now_ms=now_ms,
+        )
 
     @staticmethod
     def _map_legacy_site_names(
@@ -414,11 +607,13 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             # previous snapshot intact rather than a half-updated one.
             wifi_by_site: dict[str, dict[str, Any]] = {}
             firewall_by_site: dict[str, dict[str, Any]] = {}
+            internet_activity_by_site: dict[str, dict[str, dict[str, int]]] = {}
             failed_sections: set[tuple[str, str]] = set()
             routes_by_site: dict[str, dict[str, Any]] = {}
             vpn_clients_by_site: dict[str, dict[str, Any]] = {}
             site_vpns_by_site: dict[str, dict[str, Any]] = {}
             client_links_by_site: dict[str, dict[str, Any]] = {}
+            now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
 
             for site_id in sites:
                 _LOGGER.debug(
@@ -520,6 +715,35 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                         len(firewall_rules_dict),
                         site_id,
                     )
+
+                # Fetch historical internet activity reports (5minutes, hourly, daily)
+                site_data = sites.get(site_id, {})
+                report_site_name = (
+                    legacy_name
+                    or (
+                        site_data.get("internal_reference")
+                        if isinstance(site_data, dict)
+                        else None
+                    )
+                    or (
+                        site_data.get("internalReference")
+                        if isinstance(site_data, dict)
+                        else None
+                    )
+                    or site_id
+                )
+                site_activity = await self._fetch_site_internet_activity(
+                    site_id=site_id,
+                    site_name=str(report_site_name),
+                    now_ms=now_ms,
+                )
+                if site_activity is None:
+                    failed_sections.add(("internet_activity", site_id))
+                    prior_activity = self.data.get("internet_activity", {}).get(site_id)
+                    if isinstance(prior_activity, dict) and prior_activity:
+                        internet_activity_by_site[site_id] = prior_activity
+                elif site_activity:
+                    internet_activity_by_site[site_id] = site_activity
 
                 # Fetch policy-based routes (traffic routes) via legacy v2 endpoint
                 legacy_name = legacy_site_names.get(site_id)
@@ -635,6 +859,12 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             self.data["sites"] = sites
             self.data["wifi"] = wifi_by_site
             self.data["firewall_rules"] = firewall_by_site
+            self.data["internet_activity"] = internet_activity_by_site
+            self.data["internet_activity_unavailable"] = {
+                site_id
+                for section, site_id in failed_sections
+                if section == "internet_activity"
+            }
             self.data["policy_based_routes"] = routes_by_site
             self.data["vpn_clients"] = vpn_clients_by_site
             self.data["site_vpns"] = site_vpns_by_site

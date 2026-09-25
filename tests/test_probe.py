@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 from pydantic import BaseModel, ValidationError
 
 from custom_components.unifi_insights.api import (
+    ApiKeyAuth,
+    ConnectionType,
     UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiNotFoundError,
@@ -15,6 +19,7 @@ from custom_components.unifi_insights.api import (
     UniFiResponseError,
     UniFiTimeoutError,
 )
+from custom_components.unifi_insights.api.innerspace import UniFiInnerSpaceClient
 from custom_components.unifi_insights.probe import (
     ProbeStatus,
     async_probe_innerspace,
@@ -239,3 +244,49 @@ async def test_probe_innerspace_statuses(
     result = await async_probe_innerspace(client)
 
     assert result.status is ProbeStatus(expected)
+    client.get_project.assert_awaited_once_with(expected_unsupported=True)
+
+
+async def test_probe_innerspace_html_response_logs_no_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """InnerSpace probe classifies HTML as UNSUPPORTED without logging WARNING."""
+    client = UniFiInnerSpaceClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    response = MagicMock()
+    response.status = 200
+    response.text = AsyncMock(
+        return_value="<!doctype html><html lang='en'><title>UniFi OS</title></html>"
+    )
+    response.headers = {}
+    response.method = "GET"
+    response.history = ()
+    response.url = MagicMock()
+    response.url.path = "/proxy/innerspace/integration/v1/project"
+    response.json = AsyncMock(
+        side_effect=aiohttp.ContentTypeError(MagicMock(), MagicMock())
+    )
+
+    request_ctx = MagicMock()
+    request_ctx.__aenter__ = AsyncMock(return_value=response)
+    request_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    mock_session = MagicMock()
+    mock_session.request = MagicMock(return_value=request_ctx)
+    client._ensure_session = AsyncMock(return_value=mock_session)
+    client._throttle = AsyncMock()
+
+    with caplog.at_level(logging.DEBUG):
+        result = await async_probe_innerspace(client)
+
+    assert result.status is ProbeStatus.UNSUPPORTED
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any(
+        "InnerSpace API probe (project): unsupported" in r.getMessage()
+        and "200" in r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.DEBUG
+    )

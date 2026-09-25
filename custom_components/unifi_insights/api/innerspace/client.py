@@ -126,12 +126,19 @@ class UniFiInnerSpaceClient(BaseUniFiClient):
             self._raise_malformed(endpoint)
         return items
 
-    async def get_project(self, *, mode: str | None = None) -> InnerSpaceProject:
+    async def get_project(
+        self,
+        *,
+        mode: str | None = None,
+        expected_unsupported: bool = False,
+    ) -> InnerSpaceProject:
         """
         Get project data for integration (`GET /v1/project`).
 
         Args:
             mode: Optional representation mode ("3D" or "2D").
+            expected_unsupported: Whether a non-JSON 2xx response is an
+                expected unsupported-endpoint signal.
 
         Returns:
             Parsed `InnerSpaceProject` model.
@@ -139,7 +146,11 @@ class UniFiInnerSpaceClient(BaseUniFiClient):
         """
         params: dict[str, Any] | None = {"mode": mode} if mode else None
         path = self._build_api_path("project")
-        response = await self._get(path, params=params)
+        response = await self._get(
+            path,
+            params=params,
+            expected_unsupported=expected_unsupported,
+        )
         if not isinstance(response, dict):
             self._raise_malformed("/v1/project")
 

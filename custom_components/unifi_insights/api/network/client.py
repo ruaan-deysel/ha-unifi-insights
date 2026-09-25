@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
@@ -26,6 +26,7 @@ from .endpoints import (
     FirewallEndpoint,
     LagsEndpoint,
     NetworksEndpoint,
+    ReportsEndpoint,
     ResourcesEndpoint,
     RoutesEndpoint,
     SitesEndpoint,
@@ -35,7 +36,10 @@ from .endpoints import (
     VpnClientsEndpoint,
     WifiEndpoint,
 )
-from .models import ApplicationInfo
+from .models import ApplicationInfo, SiteReportBucket
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 class UniFiNetworkClient(BaseUniFiClient):
@@ -144,6 +148,7 @@ class UniFiNetworkClient(BaseUniFiClient):
         self._stacks = StacksEndpoint(self)
         self._routes = RoutesEndpoint(self)
         self._vpn_clients = VpnClientsEndpoint(self)
+        self._reports = ReportsEndpoint(self)
 
     @property
     def connection_type(self) -> ConnectionType:
@@ -349,6 +354,33 @@ class UniFiNetworkClient(BaseUniFiClient):
     def vpn_clients(self) -> VpnClientsEndpoint:
         """Access VPN client configuration endpoints."""
         return self._vpn_clients
+
+    @property
+    def reports(self) -> ReportsEndpoint:
+        """Access historical site traffic report endpoints."""
+        return self._reports
+
+    async def get_site_report(
+        self,
+        site_name: str,
+        interval: str,
+        *,
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+        start: int | None = None,
+        end: int | None = None,
+        attrs: Sequence[str] | None = None,
+    ) -> list[SiteReportBucket]:
+        """Fetch historical site traffic report buckets via ``reports`` endpoint."""
+        return await self._reports.get_site_report(
+            site_name,
+            interval,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            start=start,
+            end=end,
+            attrs=attrs,
+        )
 
     async def validate_connection(self) -> bool:
         """

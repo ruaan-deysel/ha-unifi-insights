@@ -159,6 +159,32 @@ SAMPLE_NVR = {
     "version": "3.0.22",
 }
 
+SAMPLE_SITE_REPORT_RESPONSE = {
+    "meta": {"rc": "ok"},
+    "data": [
+        {
+            "time": 1790373600000,
+            "wan-rx_bytes": 1.2628779867391305e8,
+            "wan-tx_bytes": 5991446.652173913,
+            "wan2-rx_bytes": 0.0,
+            "wan2-tx_bytes": 0.0,
+            "site": "600ee7a7c6aeaa055108e337",
+            "o": "site",
+            "oid": "600ee7a7c6aeaa055108e337",
+        },
+        {
+            "time": 1790373900000,
+            "wan-rx_bytes": 9.552575601358695e7,
+            "wan-tx_bytes": 4120000.0,
+            "wan2-rx_bytes": 1000000.0,
+            "wan2-tx_bytes": 500000.0,
+            "site": "600ee7a7c6aeaa055108e337",
+            "o": "site",
+            "oid": "600ee7a7c6aeaa055108e337",
+        },
+    ],
+}
+
 
 # Mock exception responses
 class MockUniFiAuthError(Exception):

@@ -311,6 +311,7 @@ class BaseUniFiClient(ABC):
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        expected_unsupported: bool = False,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make an HTTP request, retrying once after a short-lived 429.
@@ -324,7 +325,12 @@ class BaseUniFiClient(ABC):
         """
         return await self._retry_once_after_rate_limit(
             lambda: self._request_once(
-                method, path, params=params, json_data=json_data, headers=headers
+                method,
+                path,
+                params=params,
+                json_data=json_data,
+                headers=headers,
+                expected_unsupported=expected_unsupported,
             ),
             f"{method} {path}",
         )
@@ -337,6 +343,7 @@ class BaseUniFiClient(ABC):
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        expected_unsupported: bool = False,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a single HTTP request to the API.
@@ -347,6 +354,8 @@ class BaseUniFiClient(ABC):
             params: Query parameters.
             json_data: JSON body data.
             headers: Additional headers.
+            expected_unsupported: Whether a non-JSON 2xx response is an
+                expected unsupported-endpoint signal.
 
         Returns:
             Response data as dict, list, or None.
@@ -382,7 +391,11 @@ class BaseUniFiClient(ABC):
                 json=json_data,
                 headers=request_headers,
             ) as response:
-                return await self._handle_response(response)
+                return await self._handle_response(
+                    response,
+                    expected_unsupported=expected_unsupported,
+                    request_path=path,
+                )
 
         except aiohttp.ClientConnectorError as err:
             msg = f"Failed to connect to {url}: {err}"
@@ -401,12 +414,18 @@ class BaseUniFiClient(ABC):
     async def _handle_response(
         self,
         response: aiohttp.ClientResponse,
+        *,
+        expected_unsupported: bool = False,
+        request_path: str | None = None,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Handle API response.
 
         Args:
             response: The aiohttp response.
+            expected_unsupported: Log unredirected non-JSON 2xx responses at
+                DEBUG as expected unsupported-endpoint signals.
+            request_path: Original request path before any redirect.
 
         Returns:
             Response data.
@@ -479,17 +498,36 @@ class BaseUniFiClient(ABC):
             # instead of surfacing as unavailable and letting the
             # coordinator's normal retry/backoff take over.
             redacted_response = self._response_log_text(response_text, limit=200)
-            # Log the request path: without it this warning names only the
-            # body, so a console returning an HTML page on one of several
-            # polled endpoints cannot be attributed to the endpoint that
-            # actually failed. `url.path` deliberately omits the query
-            # string, which can carry credentials.
-            _LOGGER.warning(
-                "Response is not JSON for %s %s: %s",
-                response.method,
-                response.url.path,
-                redacted_response,
+            expected_path = (
+                f"/{request_path.lstrip('/')}"
+                if request_path is not None
+                else response.url.path
             )
+            history = getattr(response, "history", ())
+            is_unredirected = isinstance(history, (tuple, list)) and len(history) == 0
+            if (
+                expected_unsupported
+                and is_unredirected
+                and response.url.path == expected_path
+            ):
+                _LOGGER.debug(
+                    "Expected unsupported-endpoint non-JSON response for %s %s: %s",
+                    response.method,
+                    response.url.path,
+                    redacted_response,
+                )
+            else:
+                # Log the request path: without it this warning names only the
+                # body, so a console returning an HTML page on one of several
+                # polled endpoints cannot be attributed to the endpoint that
+                # actually failed. `url.path` deliberately omits the query
+                # string, which can carry credentials.
+                _LOGGER.warning(
+                    "Response is not JSON for %s %s: %s",
+                    response.method,
+                    response.url.path,
+                    redacted_response,
+                )
             msg = f"API returned non-JSON response (status {status})"
             raise UniFiResponseError(
                 msg,
@@ -502,6 +540,7 @@ class BaseUniFiClient(ABC):
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        expected_unsupported: bool = False,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a GET request.
@@ -509,12 +548,19 @@ class BaseUniFiClient(ABC):
         Args:
             path: API path.
             params: Query parameters.
+            expected_unsupported: Whether a non-JSON 2xx response is an
+                expected unsupported-endpoint signal.
 
         Returns:
             Response data.
 
         """
-        return await self._request("GET", path, params=params)
+        return await self._request(
+            "GET",
+            path,
+            params=params,
+            expected_unsupported=expected_unsupported,
+        )
 
     async def _post(
         self,

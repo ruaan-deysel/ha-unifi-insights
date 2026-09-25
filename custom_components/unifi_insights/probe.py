@@ -147,10 +147,16 @@ async def async_probe_innerspace(client: UniFiInnerSpaceClient) -> ProbeResult:
     endpoints succeed with no usable records.
     """
     try:
-        project = await client.get_project()
+        project = await client.get_project(expected_unsupported=True)
     except Exception as err:
         status = classify_error(err)
-        _LOGGER.debug("InnerSpace API probe (project): %s (%r)", status, err)
+        status_code = getattr(err, "status_code", None)
+        _LOGGER.debug(
+            "InnerSpace API probe (project): %s (status=%s, %r)",
+            status,
+            status_code,
+            err,
+        )
         return ProbeResult(status, err)
 
     if (

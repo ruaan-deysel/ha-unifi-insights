@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from .client import UniFiNetworkClient
 from .models import (
+    DEFAULT_SITE_REPORT_ATTRS,
+    SITE_REPORT_INTERVALS,
     Client,
     ClientType,
     Device,
@@ -22,6 +24,7 @@ from .models import (
     PortBytesMetrics,
     Site,
     SiteHealth,
+    SiteReportBucket,
     VpnClient,
     WifiNetwork,
     WifiSecurity,
@@ -29,6 +32,8 @@ from .models import (
 )
 
 __all__ = [
+    "DEFAULT_SITE_REPORT_ATTRS",
+    "SITE_REPORT_INTERVALS",
     "Client",
     "ClientType",
     "Device",
@@ -47,6 +52,7 @@ __all__ = [
     "PortBytesMetrics",
     "Site",
     "SiteHealth",
+    "SiteReportBucket",
     "UniFiNetworkClient",
     "VpnClient",
     "WifiNetwork",

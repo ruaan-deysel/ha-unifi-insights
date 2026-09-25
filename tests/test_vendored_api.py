@@ -35,12 +35,15 @@ from custom_components.unifi_insights.api.exceptions import (
     UniFiValidationError,
 )
 from custom_components.unifi_insights.api.network import (
+    DEFAULT_SITE_REPORT_ATTRS,
     PolicyBasedRoute,
+    SiteReportBucket,
     UniFiNetworkClient,
     VpnClient,
     parse_outlet_metrics,
 )
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
+from tests.fixtures.library_responses import SAMPLE_SITE_REPORT_RESPONSE
 
 
 def _network_client() -> UniFiNetworkClient:
@@ -1383,6 +1386,7 @@ def _make_response(
     json_side_effect=None,
     method: str = "GET",
     path: str = "/proxy/network/integration/v1/sites",
+    history: tuple[MagicMock, ...] = (),
 ):
     """Build a fake aiohttp.ClientResponse for _handle_response tests."""
     response = MagicMock()
@@ -1390,6 +1394,7 @@ def _make_response(
     response.text = AsyncMock(return_value=text)
     response.headers = {}
     response.method = method
+    response.history = history
     response.url = MagicMock()
     response.url.path = path
     if json_side_effect is not None:
@@ -1496,6 +1501,98 @@ async def test_handle_response_non_json_warning_omits_query_string(
     assert "SUPER-SECRET" not in message
     assert "apiKey" not in message
     assert path in message
+
+
+async def test_handle_response_expected_unsupported_logs_debug_without_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """expected_unsupported=True logs non-redirected HTML 200 at DEBUG."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    path = "/proxy/innerspace/integration/v1/project"
+    response = _make_response(
+        status=200,
+        text="<!doctype html><html><body>UniFi OS</body></html>",
+        json_side_effect=aiohttp.ContentTypeError(MagicMock(), MagicMock()),
+        method="GET",
+        path=path,
+    )
+    response.url.__str__.return_value = f"https://192.168.1.1{path}?apiKey=SUPER-SECRET"
+
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(UniFiResponseError) as exc_info,
+    ):
+        await client._handle_response(
+            response,
+            expected_unsupported=True,
+            request_path=path,
+        )
+
+    assert exc_info.value.status_code == 200
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+    debug_records = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.DEBUG
+        and "Expected unsupported-endpoint non-JSON response" in r.getMessage()
+    ]
+    assert len(debug_records) == 1
+    msg = debug_records[0].getMessage()
+    assert "GET" in msg
+    assert path in msg
+    assert "SUPER-SECRET" not in msg
+    assert "apiKey" not in msg
+
+
+async def test_handle_response_expected_unsupported_retains_warning_on_redirect(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Redirect history or path mismatch retains WARNING."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    path = "/proxy/innerspace/integration/v1/project"
+
+    # Case 1: non-empty redirect history
+    redirected = _make_response(
+        status=200,
+        text="<!doctype html><html><body>login</body></html>",
+        json_side_effect=aiohttp.ContentTypeError(MagicMock(), MagicMock()),
+        method="GET",
+        path=path,
+        history=(MagicMock(),),
+    )
+    with caplog.at_level(logging.WARNING), pytest.raises(UniFiResponseError):
+        await client._handle_response(
+            redirected,
+            expected_unsupported=True,
+            request_path=path,
+        )
+    assert any("Response is not JSON" in r.getMessage() for r in caplog.records)
+
+    caplog.clear()
+
+    # Case 2: final path differs from request path
+    mismatched = _make_response(
+        status=200,
+        text="<!doctype html><html><body>login</body></html>",
+        json_side_effect=aiohttp.ContentTypeError(MagicMock(), MagicMock()),
+        method="GET",
+        path="/login",
+    )
+    with caplog.at_level(logging.WARNING), pytest.raises(UniFiResponseError):
+        await client._handle_response(
+            mismatched,
+            expected_unsupported=True,
+            request_path=path,
+        )
+    assert any("Response is not JSON" in r.getMessage() for r in caplog.records)
 
 
 async def test_handle_response_empty_body_returns_none() -> None:
@@ -2537,3 +2634,118 @@ class TestUniFiInnerSpaceClient:
         assert await client.validate_connection() is False
         with pytest.raises(UniFiResponseError):
             await client.list_floor_plans()
+
+        # expected_unsupported option forwarding (local & remote)
+        client._get = AsyncMock(return_value={"project": {"id": "p1"}})
+        await client.get_project(expected_unsupported=True)
+        client._get.assert_awaited_once_with(
+            "/proxy/innerspace/integration/v1/project",
+            params=None,
+            expected_unsupported=True,
+        )
+
+        remote_client = UniFiInnerSpaceClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            connection_type=ConnectionType.REMOTE,
+            console_id="console-123",
+        )
+        remote_client._get = AsyncMock(return_value={"project": {"id": "p1"}})
+        await remote_client.get_project(mode="2D", expected_unsupported=True)
+        remote_client._get.assert_awaited_once_with(
+            "/v1/connector/consoles/console-123/innerspace/integration/v1/project",
+            params={"mode": "2D"},
+            expected_unsupported=True,
+        )
+
+
+async def test_site_report_bucket_and_endpoint_local_and_remote() -> None:
+    """Test SiteReportBucket validation, combined WAN totals, and ReportsEndpoint."""
+    # Model handles floats, partial wan2-, and missing/non-numeric fields
+    bucket = SiteReportBucket.model_validate(
+        {
+            "time": 1790373600000,
+            "wan-rx_bytes": 100.4,
+            "wan-tx_bytes": "invalid",
+            "wan2-rx_bytes": 50.2,
+        }
+    )
+    assert bucket.rx_bytes == 151
+    assert bucket.total_rx_bytes == 151
+    assert bucket.tx_bytes is None
+    assert bucket.total_tx_bytes is None
+
+    # Local path and request body
+    local_client = _network_client()
+    local_client._post = AsyncMock(return_value=SAMPLE_SITE_REPORT_RESPONSE)
+    buckets = await local_client.reports.get_site_report(
+        "default",
+        "5minutes",
+        start_ms=1790370000000,
+        end_ms=1790373600000,
+    )
+    local_client._post.assert_awaited_once_with(
+        "/proxy/network/api/s/default/stat/report/5minutes.site",
+        json_data={
+            "attrs": list(DEFAULT_SITE_REPORT_ATTRS),
+            "start": 1790370000000,
+            "end": 1790373600000,
+        },
+    )
+    assert len(buckets) == 2
+    assert buckets[0].time == 1790373600000
+    assert buckets[1].rx_bytes == round(9.552575601358695e7 + 1000000.0)
+    assert buckets[1].tx_bytes == round(4120000.0 + 500000.0)
+
+    # Remote path and bare-list response with malformed items skipped
+    remote_client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        connection_type=ConnectionType.REMOTE,
+        console_id="console-id",
+    )
+    remote_client._post = AsyncMock(
+        return_value=[
+            {"time": 1790370000000, "wan-rx_bytes": 2048, "wan-tx_bytes": 1024},
+            "not-a-dict",
+            {"wan-rx_bytes": 500},  # missing time
+        ]
+    )
+    remote_buckets = await remote_client.get_site_report(
+        "default",
+        "hourly",
+        start=1790300000000,
+        end=1790370000000,
+    )
+    remote_client._post.assert_awaited_once_with(
+        "/v1/connector/consoles/console-id/network/api/s/default/"
+        "stat/report/hourly.site",
+        json_data={
+            "attrs": list(DEFAULT_SITE_REPORT_ATTRS),
+            "start": 1790300000000,
+            "end": 1790370000000,
+        },
+    )
+    assert len(remote_buckets) == 1
+    assert remote_buckets[0].rx_bytes == 2048
+    assert remote_buckets[0].tx_bytes == 1024
+
+    # meta.rc == "error" raises UniFiResponseError
+    local_client._post = AsyncMock(
+        return_value={"meta": {"rc": "error", "msg": "api.err.Invalid"}}
+    )
+    with pytest.raises(UniFiResponseError) as exc_info:
+        await local_client.reports.get_site_report(
+            "default",
+            "daily",
+            start_ms=1000,
+            end_ms=2000,
+        )
+    assert "api.err.Invalid" in exc_info.value.message
+
+    # Unsupported interval raises ValueError
+    with pytest.raises(ValueError, match="Unsupported report interval"):
+        await local_client.reports.get_site_report(
+            "default",
+            "monthly",
+            start_ms=1000,
+            end_ms=2000,
+        )

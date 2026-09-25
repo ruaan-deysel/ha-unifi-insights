@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -33,6 +34,7 @@ from custom_components.unifi_insights.sensor import (
     SENSOR_TYPES,
     SFP_SENSOR_TYPES,
     SITE_CLIENT_SENSOR_TYPES,
+    SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
     UnifiInsightsSensor,
     UnifiOutletSensor,
     UnifiPortSensor,
@@ -40,6 +42,7 @@ from custom_components.unifi_insights.sensor import (
     UnifiProtectSensor,
     UnifiProtectSensorEntityDescription,
     UnifiSiteClientSensor,
+    UnifiSiteInternetActivitySensor,
     UnifiWifiClientCountSensor,
     _bytes_to_gb,
     _calculate_storage_available,
@@ -3799,3 +3802,94 @@ class TestUnifiWifiClientCountSensor:
         coordinator.wifi_available.return_value = False
         assert sensor.available is False
         coordinator.wifi_available.assert_called_with("site1")
+
+
+class TestUnifiSiteInternetActivitySensor:
+    """Tests for site-level internet activity rolling-window sensors."""
+
+    def test_eight_sensor_descriptions_and_values(self) -> None:
+        """All 8 descriptions use DATA_SIZE, MEASUREMENT, BYTES, and suggested GB."""
+        assert len(SITE_INTERNET_ACTIVITY_SENSOR_TYPES) == 8
+        expected_keys = {
+            "internet_download_1h": 1_000,
+            "internet_upload_1h": 2_000,
+            "internet_download_1d": 3_000,
+            "internet_upload_1d": 4_000,
+            "internet_download_1w": 5_000,
+            "internet_upload_1w": 6_000,
+            "internet_download_1m": 7_000,
+            "internet_upload_1m": 8_000,
+        }
+
+        coordinator = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.config_available = True
+        coordinator.internet_activity_available = MagicMock(return_value=True)
+        coordinator.data = {
+            "sites": {"site1": {"name": "Default"}},
+            "devices": {},
+            "internet_activity": {
+                "site1": {
+                    "1h": {"rx_bytes": 1_000, "tx_bytes": 2_000},
+                    "1d": {"rx_bytes": 3_000, "tx_bytes": 4_000},
+                    "1w": {"rx_bytes": 5_000, "tx_bytes": 6_000},
+                    "1m": {"rx_bytes": 7_000, "tx_bytes": 8_000},
+                }
+            },
+        }
+
+        for desc in SITE_INTERNET_ACTIVITY_SENSOR_TYPES:
+            assert desc.device_class == SensorDeviceClass.DATA_SIZE
+            assert desc.state_class == SensorStateClass.MEASUREMENT
+            assert desc.native_unit_of_measurement == UnitOfInformation.BYTES
+            assert desc.suggested_unit_of_measurement == UnitOfInformation.GIGABYTES
+            assert desc.translation_key == desc.key
+
+            sensor = UnifiSiteInternetActivitySensor(
+                coordinator=coordinator,
+                description=desc,
+                site_id="site1",
+            )
+            assert sensor.unique_id == f"site1_{desc.key}"
+            assert sensor.available is True
+            assert sensor.native_value == expected_keys[desc.key]
+
+    def test_unavailable_when_section_unavailable_or_window_missing(self) -> None:
+        """Sensor is unavailable on failed refresh or missing window."""
+        desc = SITE_INTERNET_ACTIVITY_SENSOR_TYPES[0]
+        coordinator = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.config_available = True
+        coordinator.internet_activity_available = MagicMock(return_value=True)
+        coordinator.data = {
+            "sites": {"site1": {"name": "Default"}},
+            "devices": {"site1": {"gw1": {"features": ["gateway"]}}},
+            "internet_activity": {"site1": {"1h": {"rx_bytes": 1024}}},
+        }
+
+        sensor = UnifiSiteInternetActivitySensor(
+            coordinator=coordinator,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.available is True
+
+        # Section marked unavailable via coordinator method
+        coordinator.internet_activity_available.return_value = False
+        assert sensor.available is False
+
+        # Section marked unavailable via data set
+        coordinator.internet_activity_available.return_value = True
+        coordinator.data["internet_activity_unavailable"] = {"site1"}
+        assert sensor.available is False
+
+        # Missing window value
+        coordinator.data["internet_activity_unavailable"] = set()
+        coordinator.data["internet_activity"]["site1"] = {}
+        assert sensor.available is False
+        assert sensor.native_value is None
+
+        # Config refresh failed
+        coordinator.data["internet_activity"]["site1"] = {"1h": {"rx_bytes": 1024}}
+        coordinator.config_available = False
+        assert sensor.available is False

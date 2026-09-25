@@ -237,6 +237,30 @@
       "site_wireless_clients": {
         "name": "Wireless Clients"
       },
+      "internet_download_1h": {
+        "name": "Internet download (1h)"
+      },
+      "internet_upload_1h": {
+        "name": "Internet upload (1h)"
+      },
+      "internet_download_1d": {
+        "name": "Internet download (24h)"
+      },
+      "internet_upload_1d": {
+        "name": "Internet upload (24h)"
+      },
+      "internet_download_1w": {
+        "name": "Internet download (7d)"
+      },
+      "internet_upload_1w": {
+        "name": "Internet upload (7d)"
+      },
+      "internet_download_1m": {
+        "name": "Internet download (30d)"
+      },
+      "internet_upload_1m": {
+        "name": "Internet upload (30d)"
+      },
       "ac_power_consumption": {
         "name": "AC Power Consumption"
       },

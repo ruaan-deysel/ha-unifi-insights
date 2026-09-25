@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
 from homeassistant.helpers.entity import DeviceInfo, EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -611,9 +613,46 @@ class UnifiInnerSpaceEntity(CoordinatorEntity[UnifiFacadeCoordinator]):
         }
         if serial := record.get("serial"):
             device_info["serial_number"] = str(serial)
-        if mac := record.get("mac"):
-            device_info["connections"] = {(CONNECTION_NETWORK_MAC, str(mac))}
         return device_info
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return current device info reflecting any updated MAC correlation."""
+        self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
+        return self._attr_device_info
+
+    def _reconcile_device_association(self, new_device_info: DeviceInfo) -> None:
+        """Reconcile entity registry device_id when MAC correlation changes."""
+        old_identifiers = (
+            self._attr_device_info.get("identifiers")
+            if self._attr_device_info
+            else None
+        )
+        new_identifiers = new_device_info.get("identifiers")
+        self._attr_device_info = new_device_info
+        if (
+            old_identifiers == new_identifiers
+            or not new_identifiers
+            or self.hass is None
+            or not self.entity_id
+        ):
+            return
+        ent_reg = er.async_get(self.hass)
+        if ent_reg.async_get(self.entity_id) is None:
+            return
+        dev_reg = dr.async_get(self.hass)
+        device = dev_reg.async_get_device(identifiers=new_identifiers)
+        if device is None and self.coordinator.config_entry is not None:
+            device = dev_reg.async_get_or_create(
+                config_entry_id=self.coordinator.config_entry.entry_id,
+                identifiers=new_identifiers,
+                name=new_device_info.get("name"),
+                manufacturer=new_device_info.get("manufacturer"),
+                model=new_device_info.get("model"),
+                serial_number=new_device_info.get("serial_number"),
+            )
+        if device is not None:
+            ent_reg.async_update_entity(self.entity_id, device_id=device.id)
 
     @property
     def available(self) -> bool:
@@ -625,5 +664,7 @@ class UnifiInnerSpaceEntity(CoordinatorEntity[UnifiFacadeCoordinator]):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
+        new_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
+        self._reconcile_device_association(new_device_info)
         self._attr_available = self.available
         self.async_write_ha_state()

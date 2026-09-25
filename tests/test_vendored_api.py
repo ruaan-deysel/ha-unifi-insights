@@ -2456,8 +2456,7 @@ class TestUniFiInnerSpaceClient:
         assert remote_client.connection_type == ConnectionType.REMOTE
         assert remote_client.console_id == "console-123"
         expected_remote = (
-            "/v1/connector/consoles/console-123"
-            "/proxy/innerspace/integration/v1/floor_plans"
+            "/v1/connector/consoles/console-123/innerspace/integration/v1/floor_plans"
         )
         assert remote_client._build_api_path("/floor_plans") == expected_remote
 
@@ -2483,6 +2482,14 @@ class TestUniFiInnerSpaceClient:
         assert proj.project is not None
         assert proj.project.id == "proj-1"
         assert await client.validate_connection() is True
+
+        # Root-level project fields without 'project' wrapper are also accepted
+        client._get = AsyncMock(
+            return_value={"id": "proj-root", "title": "Root Project"}
+        )
+        proj_root = await client.get_project()
+        assert proj_root.project is not None
+        assert proj_root.project.id == "proj-root"
 
         client._get = AsyncMock(
             return_value={"floor_plans": [{"id": "fp-1", "name": "Floor 1"}]}
@@ -2525,5 +2532,8 @@ class TestUniFiInnerSpaceClient:
         assert await client.validate_connection() is False
 
         client._get = AsyncMock(return_value={"unexpected": []})
+        with pytest.raises(UniFiResponseError):
+            await client.get_project()
+        assert await client.validate_connection() is False
         with pytest.raises(UniFiResponseError):
             await client.list_floor_plans()

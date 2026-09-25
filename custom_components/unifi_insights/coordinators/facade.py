@@ -219,7 +219,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "devices": devices_map,
                 "last_update": raw_innerspace.get("last_update"),
             }
-            correlate_innerspace_devices(
+            innerspace_data["correlations"] = correlate_innerspace_devices(
                 innerspace_data,
                 network_devices=devices if isinstance(devices, dict) else None,
                 protect_devices=protect_data
@@ -227,7 +227,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else None,
             )
         else:
-            innerspace_data = normalize_innerspace_snapshot()
+            innerspace_data = {**normalize_innerspace_snapshot(), "last_update": None}
 
         self.data = {
             # From config coordinator
@@ -377,7 +377,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         *,
         include_protect: bool = True,
-        include_innerspace: bool = True,
+        include_innerspace: bool = False,
     ) -> list[str]:
         """
         Refresh the sub-coordinators concurrently and report what failed.

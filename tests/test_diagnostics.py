@@ -607,14 +607,24 @@ async def test_diagnostics_includes_redacted_innerspace_and_anonymizes_macs(
     diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
 
     assert diagnostics["connection"]["innerspace_client_connected"] is True
+    assert "innerspace" not in diagnostics["data"]
     assert "innerspace" in diagnostics
     innerspace_diag = diagnostics["innerspace"]
     assert innerspace_diag["available"] is True
     assert innerspace_diag["counts"]["devices"] == 1
-    dev_diag = innerspace_diag["devices"]["ap-rec-1"]
+    dev_diag = innerspace_diag["devices"][0]
     assert dev_diag["name"] == "Ceiling AP"
     assert dev_diag["serial"] == REDACTED
     assert dev_diag["matched_device_id"] == REDACTED
     assert dev_diag["mac"].startswith("**REDACTED-MAC-")
-    assert "de:ad:be:ef:12:34" not in _strings(diagnostics)
-    assert "SECRET-SERIAL-99" not in _strings(diagnostics)
+    all_strings = _strings(diagnostics)
+    for raw_sensitive in (
+        "secret-proj-id",
+        "fp-secret-1",
+        "site-secret-1",
+        "ap-rec-1",
+        "net-dev-secret-1",
+        "SECRET-SERIAL-99",
+        "de:ad:be:ef:12:34",
+    ):
+        assert raw_sensitive not in all_strings

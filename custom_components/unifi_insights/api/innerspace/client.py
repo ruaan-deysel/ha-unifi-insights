@@ -86,10 +86,8 @@ class UniFiInnerSpaceClient(BaseUniFiClient):
         endpoint = endpoint.lstrip("/")
         if self._connection_type == ConnectionType.LOCAL:
             return f"{INNERSPACE_INTEGRATION_PATH}/{endpoint}"
-        return (
-            f"/v1/connector/consoles/{self._console_id}"
-            f"{INNERSPACE_INTEGRATION_PATH}/{endpoint}"
-        )
+        connector_path = INNERSPACE_INTEGRATION_PATH.removeprefix("/proxy")
+        return f"/v1/connector/consoles/{self._console_id}{connector_path}/{endpoint}"
 
     @staticmethod
     def _raise_malformed(endpoint: str) -> NoReturn:
@@ -149,6 +147,23 @@ class UniFiInnerSpaceClient(BaseUniFiClient):
         if payload is None:
             return InnerSpaceProject()
         if not isinstance(payload, dict):
+            self._raise_malformed("/v1/project")
+        known_keys = {
+            "project",
+            "plans",
+            "products",
+            "wall_types",
+            "wallTypes",
+            "attenuation_object_types",
+            "attenuationObjectTypes",
+            "shapes",
+            "id",
+            "title",
+            "name",
+            "model",
+            "environment",
+        }
+        if payload and not (payload.keys() & known_keys):
             self._raise_malformed("/v1/project")
         return InnerSpaceProject.model_validate(payload)
 

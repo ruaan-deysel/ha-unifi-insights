@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 
 class InnerSpaceBaseModel(BaseModel):
@@ -100,6 +100,18 @@ class InnerSpaceProject(InnerSpaceBaseModel):
         serialization_alias="attenuationObjectTypes",
     )
     shapes: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_root_project(cls, data: Any) -> Any:
+        """Populate project identity when root-level project fields are returned."""
+        if isinstance(data, dict) and "project" not in data:
+            root_keys = ("id", "title", "name", "model", "environment")
+            if any(k in data for k in root_keys):
+                copied = dict(data)
+                copied["project"] = {k: data[k] for k in root_keys if k in data}
+                return copied
+        return data
 
 
 class InnerSpaceFloorPlan(InnerSpaceBaseModel):

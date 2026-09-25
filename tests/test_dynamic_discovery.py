@@ -6,6 +6,9 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.binary_sensor import (
     async_setup_entry as async_setup_binary_sensor,
@@ -816,14 +819,41 @@ class TestDiscoveryRegressions:
         assert inv_sensor.device_info["identifiers"] == {
             (DOMAIN, "innerspace_is-inv-1")
         }
+        assert "connections" not in inv_sensor.device_info
         assert "suggested_area" not in inv_sensor.device_info
 
         # Gated on innerspace_available
         mock_coordinator.innerspace_available = False
         assert ap_sensor.available is False
 
-        # Test Protect device correlation and missing record fallback
+        # Test Protect correlation and entity registry device_id reconciliation
         mock_coordinator.innerspace_available = True
+        real_entry = MockConfigEntry(
+            domain=DOMAIN,
+            entry_id=mock_config_entry.entry_id,
+        )
+        real_entry.add_to_hass(hass)
+        mock_coordinator.config_entry = real_entry
+        dev_reg = dr.async_get(hass)
+        ent_reg = er.async_get(hass)
+        initial_dev = dev_reg.async_get_or_create(
+            config_entry_id=real_entry.entry_id,
+            identifiers={(DOMAIN, "innerspace_is-inv-1")},
+        )
+        protect_dev = dev_reg.async_get_or_create(
+            config_entry_id=real_entry.entry_id,
+            identifiers={(DOMAIN, "protect_camera_cam-1")},
+        )
+        reg_entry = ent_reg.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            inv_sensor.unique_id,
+            config_entry=real_entry,
+            device_id=initial_dev.id,
+        )
+        inv_sensor.hass = hass
+        inv_sensor.entity_id = reg_entry.entity_id
+
         mock_coordinator.data["protect"]["cameras"] = {"cam-1": {"id": "cam-1"}}
         mock_coordinator.data["innerspace"]["devices"]["is-inv-1"].update(
             {
@@ -833,18 +863,25 @@ class TestDiscoveryRegressions:
                 "matched_device_id": "cam-1",
             }
         )
-        assert inv_sensor.native_value == "unknown"
-        assert inv_sensor._build_device_info()["identifiers"] == {
-            (DOMAIN, "protect_camera_cam-1")
-        }
         inv_sensor.async_write_ha_state = MagicMock()
         inv_sensor._handle_coordinator_update()
         inv_sensor.async_write_ha_state.assert_called_once()
+        assert inv_sensor.native_value == "unknown"
+        assert inv_sensor.device_info["identifiers"] == {
+            (DOMAIN, "protect_camera_cam-1")
+        }
+        updated_entry = ent_reg.async_get(reg_entry.entity_id)
+        assert updated_entry is not None
+        assert updated_entry.device_id == protect_dev.id
 
         # When record disappears from snapshot, fallback to innerspace_<id>
         mock_coordinator.data["innerspace"]["inventory"].clear()
         mock_coordinator.data["innerspace"]["devices"].clear()
+        inv_sensor._handle_coordinator_update()
         assert inv_sensor.native_value == "unknown"
-        assert inv_sensor._build_device_info()["identifiers"] == {
+        assert inv_sensor.device_info["identifiers"] == {
             (DOMAIN, "innerspace_is-inv-1")
         }
+        reverted_entry = ent_reg.async_get(reg_entry.entity_id)
+        assert reverted_entry is not None
+        assert reverted_entry.device_id == initial_dev.id

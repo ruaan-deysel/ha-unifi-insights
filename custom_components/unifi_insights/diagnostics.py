@@ -364,13 +364,65 @@ def _innerspace_summary(
     inventory = snapshot.get("inventory") or {}
     devices = snapshot.get("devices") or {}
 
+    redacted_project = (
+        async_redact_data(
+            {
+                "id": project.get("id"),
+                "plan_count": project.get("plan_count"),
+                "product_count": project.get("product_count"),
+                "wall_type_count": project.get("wall_type_count"),
+                "attenuation_type_count": project.get("attenuation_type_count"),
+            },
+            TO_REDACT,
+        )
+        if isinstance(project, Mapping)
+        else None
+    )
+
+    redacted_plans = [
+        async_redact_data(
+            {
+                "id": plan.get("id"),
+                "name": plan.get("name"),
+                "floor_number": plan.get("floor_number"),
+                "site_id": plan.get("site_id"),
+                "ppm": plan.get("ppm"),
+                "width": plan.get("width"),
+                "height": plan.get("height"),
+            },
+            TO_REDACT,
+        )
+        for plan in (floor_plans.values() if isinstance(floor_plans, Mapping) else ())
+        if isinstance(plan, Mapping)
+    ]
+
+    redacted_devices = [
+        async_redact_data(
+            {
+                "id": dev.get("id"),
+                "name": dev.get("name"),
+                "model": dev.get("model"),
+                "device_type": dev.get("device_type"),
+                "placement_state": dev.get("placement_state"),
+                "floor_plan_id": dev.get("floor_plan_id"),
+                "floor_plan_name": dev.get("floor_plan_name"),
+                "site_id": dev.get("site_id"),
+                "mac": dev.get("mac"),
+                "serial": dev.get("serial"),
+                "matched_domain": dev.get("matched_domain"),
+                "matched_site_id": dev.get("matched_site_id"),
+                "matched_device_id": dev.get("matched_device_id"),
+                "matched_protect_type": dev.get("matched_protect_type"),
+            },
+            TO_REDACT,
+        )
+        for dev in (devices.values() if isinstance(devices, Mapping) else ())
+        if isinstance(dev, Mapping)
+    ]
+
     return {
         "available": available,
-        "project": (
-            async_redact_data(project, TO_REDACT)
-            if isinstance(project, Mapping)
-            else None
-        ),
+        "project": redacted_project,
         "counts": {
             "floor_plans": len(floor_plans) if isinstance(floor_plans, Mapping) else 0,
             "access_points": (
@@ -380,16 +432,8 @@ def _innerspace_summary(
             "inventory": len(inventory) if isinstance(inventory, Mapping) else 0,
             "devices": len(devices) if isinstance(devices, Mapping) else 0,
         },
-        "floor_plans": (
-            async_redact_data(dict(floor_plans), TO_REDACT)
-            if isinstance(floor_plans, Mapping)
-            else {}
-        ),
-        "devices": (
-            async_redact_data(dict(devices), TO_REDACT)
-            if isinstance(devices, Mapping)
-            else {}
-        ),
+        "floor_plans": redacted_plans,
+        "devices": redacted_devices,
         "last_update": snapshot.get("last_update"),
     }
 
@@ -426,11 +470,11 @@ async def async_get_config_entry_diagnostics(
         protect_coordinator.websocket_health if protect_coordinator else None
     )
 
-    # The Site Manager snapshot contains account-wide identifiers and variable
-    # nested fields. Build its summary separately and exclude the raw section.
+    # The Site Manager and InnerSpace snapshots contain identifiers and variable
+    # nested fields. Build their summaries separately and exclude raw sections.
     facade_data = dict(coordinator.data)
     facade_data.pop("site_manager", None)
-    innerspace_snapshot = facade_data.get("innerspace")
+    innerspace_snapshot = facade_data.pop("innerspace", None)
     innerspace_coord = getattr(data, "innerspace_coordinator", None)
     if not isinstance(innerspace_snapshot, Mapping) and innerspace_coord is not None:
         innerspace_snapshot = innerspace_coord.data

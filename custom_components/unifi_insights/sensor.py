@@ -651,7 +651,7 @@ def _outlet_has_metering(outlet: dict[str, Any]) -> bool:
         try:
             if int(caps) & 2:
                 return True
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
     for key in (
         "outlet_power",
@@ -1117,14 +1117,14 @@ def _discover_port_sensors(
                         if pw is not None and float(pw) > 0:
                             poe_marker = True
                             break
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         pass
 
         if not poe_marker:
             norm = get_field(port, "poe_power_w")
             try:
                 poe_marker = norm is not None and float(norm) > 0
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 poe_marker = False
 
         if poe_marker:
@@ -1218,7 +1218,7 @@ def _create_port_stats_fallback(
             try:
                 if val is not None and float(val) <= 0:
                     continue
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 continue
             desc = PORT_SENSOR_TYPES[0]
             key = (site_id, device_id, port_idx, desc.key)
@@ -1280,7 +1280,7 @@ def _discover_outlet_sensors(
             continue
         try:
             outlet_idx = int(idx)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
 
         if not _outlet_has_metering(outlet):
@@ -1361,7 +1361,6 @@ def _discover_protect_sensors(
 INNERSPACE_PLACEMENT_DESCRIPTION = UnifiInsightsSensorEntityDescription(
     key="placement",
     translation_key="innerspace_placement",
-    name="InnerSpace placement",
     device_class=SensorDeviceClass.ENUM,
     options=["placed", "unplaced", "unknown"],
     entity_category=EntityCategory.DIAGNOSTIC,
@@ -2049,7 +2048,7 @@ class UnifiOutletSensor(UnifiInsightsEntity, SensorEntity):
                 try:
                     if int(idx) == self._outlet_index:
                         return outlet
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     continue
         return None
 

@@ -354,18 +354,6 @@ def _site_manager_summary(
     }
 
 
-def _innerspace_summary(
-    snapshot: Mapping[str, Any], *, available: bool
-) -> dict[str, Any]:
-    """Build a bounded, redacted diagnostic view of InnerSpace state."""
-    return build_innerspace_diagnostics_summary(
-        snapshot,
-        available=available,
-        redact_fn=async_redact_data,
-        to_redact=TO_REDACT,
-    )
-
-
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: UnifiInsightsConfigEntry
 ) -> dict[str, Any]:
@@ -414,9 +402,11 @@ async def async_get_config_entry_diagnostics(
         "data": _redact_coordinator_data(facade_data),
     }
     if isinstance(innerspace_snapshot, Mapping):
-        diagnostics_data["innerspace"] = _innerspace_summary(
+        diagnostics_data["innerspace"] = build_innerspace_diagnostics_summary(
             innerspace_snapshot,
             available=bool(getattr(coordinator, "innerspace_available", True)),
+            redact_fn=async_redact_data,
+            to_redact=TO_REDACT,
         )
     if data.site_manager_coordinator:
         diagnostics_data["site_manager"] = _site_manager_summary(

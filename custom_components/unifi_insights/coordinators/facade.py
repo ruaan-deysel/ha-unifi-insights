@@ -96,6 +96,8 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # in async_shutdown() so this facade's forwarding listener doesn't
         # outlive it on the sub-coordinators (see _setup_listeners).
         self._sub_coordinator_unsubs: list[Callable[[], None]] = []
+        self._innerspace_corr_key: tuple[Any, ...] | None = None
+        self._cached_innerspace_data: dict[str, Any] | None = None
 
         # Register listeners to update when any coordinator updates
         self._setup_listeners()
@@ -169,6 +171,55 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._aggregate_data()
         self.async_update_listeners()
 
+    @staticmethod
+    def _build_innerspace_corr_key(
+        raw_innerspace: dict[str, Any],
+        devices: Any,
+        protect_data: Any,
+    ) -> tuple[Any, ...]:
+        """Build a lightweight cache key for InnerSpace MAC correlation."""
+        net_pairs: list[tuple[str, str, Any]] = []
+        if isinstance(devices, dict):
+            for site_id, site_devs in sorted(devices.items()):
+                if isinstance(site_devs, dict):
+                    for dev_id, dev in sorted(site_devs.items()):
+                        if isinstance(dev, dict):
+                            net_pairs.append(
+                                (
+                                    str(site_id),
+                                    str(dev_id),
+                                    dev.get("macAddress")
+                                    or dev.get("mac_address")
+                                    or dev.get("mac"),
+                                )
+                            )
+        prot_pairs: list[tuple[str, str, Any]] = []
+        if isinstance(protect_data, dict):
+            for col_name in (
+                "cameras",
+                "lights",
+                "sensors",
+                "nvrs",
+                "viewers",
+                "chimes",
+                "doorlocks",
+                "viewports",
+            ):
+                col = protect_data.get(col_name)
+                if isinstance(col, dict):
+                    for dev_id, dev in sorted(col.items()):
+                        if isinstance(dev, dict):
+                            prot_pairs.append(
+                                (
+                                    col_name,
+                                    str(dev_id),
+                                    dev.get("mac")
+                                    or dev.get("macAddress")
+                                    or dev.get("mac_address"),
+                                )
+                            )
+        return (id(raw_innerspace), tuple(net_pairs), tuple(prot_pairs))
+
     def _aggregate_data(self) -> None:
         """Aggregate data from all coordinators into unified structure."""
         devices = self._device_coordinator.data.get("devices", {})
@@ -191,42 +242,55 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         if self._innerspace_coordinator and self._innerspace_coordinator.data:
             raw_innerspace = self._innerspace_coordinator.data
-            devices_map: dict[str, dict[str, Any]] = {}
-            access_points_map = {
-                str(rec_id): dict(rec)
-                for rec_id, rec in raw_innerspace.get("access_points", {}).items()
-                if isinstance(rec, dict)
-            }
-            switches_map = {
-                str(rec_id): dict(rec)
-                for rec_id, rec in raw_innerspace.get("switches", {}).items()
-                if isinstance(rec, dict)
-            }
-            inventory_map = {
-                str(rec_id): dict(rec)
-                for rec_id, rec in raw_innerspace.get("inventory", {}).items()
-                if isinstance(rec, dict)
-            }
-            for section_map in (access_points_map, switches_map, inventory_map):
-                devices_map.update(section_map)
-            innerspace_data: dict[str, Any] = {
-                "project": raw_innerspace.get("project"),
-                "floor_plans": dict(raw_innerspace.get("floor_plans", {})),
-                "access_points": access_points_map,
-                "switches": switches_map,
-                "inventory": inventory_map,
-                "placed_devices": {**access_points_map, **switches_map},
-                "devices": devices_map,
-                "last_update": raw_innerspace.get("last_update"),
-            }
-            innerspace_data["correlations"] = correlate_innerspace_devices(
-                innerspace_data,
-                network_devices=devices if isinstance(devices, dict) else None,
-                protect_devices=protect_data
-                if isinstance(protect_data, dict)
-                else None,
+            corr_key = self._build_innerspace_corr_key(
+                raw_innerspace, devices, protect_data
             )
+            if (
+                self._cached_innerspace_data is not None
+                and self._innerspace_corr_key == corr_key
+            ):
+                innerspace_data = self._cached_innerspace_data
+            else:
+                devices_map: dict[str, dict[str, Any]] = {}
+                access_points_map = {
+                    str(rec_id): dict(rec)
+                    for rec_id, rec in raw_innerspace.get("access_points", {}).items()
+                    if isinstance(rec, dict)
+                }
+                switches_map = {
+                    str(rec_id): dict(rec)
+                    for rec_id, rec in raw_innerspace.get("switches", {}).items()
+                    if isinstance(rec, dict)
+                }
+                inventory_map = {
+                    str(rec_id): dict(rec)
+                    for rec_id, rec in raw_innerspace.get("inventory", {}).items()
+                    if isinstance(rec, dict)
+                }
+                for section_map in (access_points_map, switches_map, inventory_map):
+                    devices_map.update(section_map)
+                innerspace_data = {
+                    "project": raw_innerspace.get("project"),
+                    "floor_plans": dict(raw_innerspace.get("floor_plans", {})),
+                    "access_points": access_points_map,
+                    "switches": switches_map,
+                    "inventory": inventory_map,
+                    "placed_devices": {**access_points_map, **switches_map},
+                    "devices": devices_map,
+                    "last_update": raw_innerspace.get("last_update"),
+                }
+                innerspace_data["correlations"] = correlate_innerspace_devices(
+                    innerspace_data,
+                    network_devices=devices if isinstance(devices, dict) else None,
+                    protect_devices=protect_data
+                    if isinstance(protect_data, dict)
+                    else None,
+                )
+                self._innerspace_corr_key = corr_key
+                self._cached_innerspace_data = innerspace_data
         else:
+            self._innerspace_corr_key = None
+            self._cached_innerspace_data = None
             innerspace_data = {**normalize_innerspace_snapshot(), "last_update": None}
 
         self.data = {

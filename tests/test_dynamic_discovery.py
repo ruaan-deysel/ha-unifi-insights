@@ -18,7 +18,6 @@ from custom_components.unifi_insights.camera import (
 )
 from custom_components.unifi_insights.const import (
     CONF_CLIENT_CONTROL,
-    DOMAIN,
 )
 from custom_components.unifi_insights.event import (
     async_setup_entry as async_setup_event,

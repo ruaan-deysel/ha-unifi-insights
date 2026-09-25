@@ -33,7 +33,7 @@ class UniFiInnerSpaceClient(BaseUniFiClient):
     Async client for the UniFi InnerSpace Integration API.
 
     Supports both LOCAL (direct console `/proxy/innerspace/integration/v1/...`)
-    and REMOTE (`https://api.ui.com/v1/connector/consoles/{consoleId}/proxy/innerspace/integration/v1/...`)
+    and REMOTE (`https://api.ui.com/v1/connector/consoles/{consoleId}/innerspace/integration/v1/...`)
     connections using `X-API-Key` credentials.
     """
 

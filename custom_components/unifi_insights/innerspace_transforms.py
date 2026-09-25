@@ -75,7 +75,7 @@ def transform_innerspace_project(project_data: Any) -> dict[str, Any] | None:
             plans.append(
                 {
                     "id": plan_id,
-                    "name": plan_dict.get("name"),
+                    "name": plan_dict.get("name") or plan_dict.get("title"),
                     "ppm": _valid_number(plan_dict.get("ppm")),
                     "project_id": (
                         plan_dict.get("project_id")
@@ -169,7 +169,12 @@ def transform_innerspace_floor_plan(
 
     return {
         "id": str(plan_id) if plan_id is not None else None,
-        "name": raw.get("name") or proj.get("name"),
+        "name": (
+            raw.get("name")
+            or raw.get("title")
+            or proj.get("name")
+            or proj.get("title")
+        ),
         "floor_number": _valid_int(raw.get("floor_number") or raw.get("floorNumber")),
         "site_id": site_id if isinstance(site_id, str) and site_id else None,
         "project_id": (

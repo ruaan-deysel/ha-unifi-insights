@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 _MAC_HEX_LEN = 12
@@ -9,15 +10,11 @@ _MAC_HEX_LEN = 12
 
 def _to_mapping(record: Any) -> dict[str, Any]:
     """Convert a Pydantic model or mapping to a plain dictionary."""
-    if record is None:
-        return {}
     if isinstance(record, dict):
         return dict(record)
     if hasattr(record, "model_dump"):
         dumped = record.model_dump(by_alias=False, exclude_none=False)
         return dict(dumped) if isinstance(dumped, dict) else {}
-    if hasattr(record, "__dict__"):
-        return {k: v for k, v in record.__dict__.items() if not k.startswith("_")}
     return {}
 
 
@@ -575,4 +572,93 @@ def normalize_innerspace_snapshot(
         "inventory": inventory_dict,
         "devices": devices_dict,
         "correlations": correlations,
+    }
+
+
+def build_innerspace_diagnostics_summary(
+    snapshot: Mapping[str, Any],
+    *,
+    available: bool,
+    redact_fn: Callable[[Any, Iterable[Any]], Any],
+    to_redact: Iterable[Any],
+) -> dict[str, Any]:
+    """Build a bounded, redacted diagnostic view of InnerSpace state."""
+    project = snapshot.get("project")
+    floor_plans = snapshot.get("floor_plans") or {}
+    access_points = snapshot.get("access_points") or {}
+    switches = snapshot.get("switches") or {}
+    inventory = snapshot.get("inventory") or {}
+    devices = snapshot.get("devices") or {}
+
+    redacted_project = (
+        redact_fn(
+            {
+                "id": project.get("id"),
+                "plan_count": project.get("plan_count"),
+                "product_count": project.get("product_count"),
+                "wall_type_count": project.get("wall_type_count"),
+                "attenuation_type_count": project.get("attenuation_type_count"),
+            },
+            to_redact,
+        )
+        if isinstance(project, Mapping)
+        else None
+    )
+
+    redacted_plans = [
+        redact_fn(
+            {
+                "id": plan.get("id"),
+                "name": plan.get("name"),
+                "floor_number": plan.get("floor_number"),
+                "site_id": plan.get("site_id"),
+                "ppm": plan.get("ppm"),
+                "width": plan.get("width"),
+                "height": plan.get("height"),
+            },
+            to_redact,
+        )
+        for plan in (floor_plans.values() if isinstance(floor_plans, Mapping) else ())
+        if isinstance(plan, Mapping)
+    ]
+
+    redacted_devices = [
+        redact_fn(
+            {
+                "id": dev.get("id"),
+                "name": dev.get("name"),
+                "model": dev.get("model"),
+                "device_type": dev.get("device_type"),
+                "placement_state": dev.get("placement_state"),
+                "floor_plan_id": dev.get("floor_plan_id"),
+                "floor_plan_name": dev.get("floor_plan_name"),
+                "site_id": dev.get("site_id"),
+                "mac": dev.get("mac"),
+                "serial": dev.get("serial"),
+                "matched_domain": dev.get("matched_domain"),
+                "matched_site_id": dev.get("matched_site_id"),
+                "matched_device_id": dev.get("matched_device_id"),
+                "matched_protect_type": dev.get("matched_protect_type"),
+            },
+            to_redact,
+        )
+        for dev in (devices.values() if isinstance(devices, Mapping) else ())
+        if isinstance(dev, Mapping)
+    ]
+
+    return {
+        "available": available,
+        "project": redacted_project,
+        "counts": {
+            "floor_plans": len(floor_plans) if isinstance(floor_plans, Mapping) else 0,
+            "access_points": (
+                len(access_points) if isinstance(access_points, Mapping) else 0
+            ),
+            "switches": len(switches) if isinstance(switches, Mapping) else 0,
+            "inventory": len(inventory) if isinstance(inventory, Mapping) else 0,
+            "devices": len(devices) if isinstance(devices, Mapping) else 0,
+        },
+        "floor_plans": redacted_plans,
+        "devices": redacted_devices,
+        "last_update": snapshot.get("last_update"),
     }

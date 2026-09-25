@@ -50,7 +50,6 @@ from .const import (
 )
 from .coordinators import UnifiFacadeCoordinator
 from .entity import (
-    UnifiInnerSpaceEntity,
     UnifiInsightsEntity,
     UnifiProtectEntity,
     device_has_feature,
@@ -60,6 +59,9 @@ from .entity import (
 )
 from .entity import (
     get_client_type as _get_client_type,
+)
+from .innerspace_entity import (
+    _discover_innerspace_sensors,
 )
 
 if TYPE_CHECKING:
@@ -1358,46 +1360,6 @@ def _discover_protect_sensors(
                     )
 
 
-INNERSPACE_PLACEMENT_DESCRIPTION = UnifiInsightsSensorEntityDescription(
-    key="placement",
-    translation_key="innerspace_placement",
-    device_class=SensorDeviceClass.ENUM,
-    options=["placed", "unplaced", "unknown"],
-    entity_category=EntityCategory.DIAGNOSTIC,
-    icon="mdi:floor-plan",
-)
-
-
-def _discover_innerspace_sensors(
-    coordinator: UnifiFacadeCoordinator,
-    known_sensor_keys: set[tuple[Any, ...]],
-    entities: list[SensorEntity],
-) -> None:
-    """Discover diagnostic placement sensors for UniFi InnerSpace devices."""
-    innerspace = coordinator.data.get("innerspace", {})
-    if not isinstance(innerspace, dict):
-        return
-
-    devices = innerspace.get("devices", {})
-    if not isinstance(devices, dict):
-        return
-
-    for record_id, record in devices.items():
-        if not isinstance(record_id, str) or not isinstance(record, dict):
-            continue
-        key = ("innerspace", record_id, INNERSPACE_PLACEMENT_DESCRIPTION.key)
-        if key in known_sensor_keys:
-            continue
-        known_sensor_keys.add(key)
-        entities.append(
-            UnifiInsightsInnerSpacePlacementSensor(
-                coordinator=coordinator,
-                description=INNERSPACE_PLACEMENT_DESCRIPTION,
-                record_id=record_id,
-            )
-        )
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: UnifiInsightsConfigEntry,
@@ -2418,54 +2380,3 @@ class UnifiWifiClientCountSensor(
             "is_guest": wifi_data.get("is_guest", wifi_data.get("isGuest", False)),
             "enabled": wifi_data.get("enabled", True),
         }
-
-
-class UnifiInsightsInnerSpacePlacementSensor(UnifiInnerSpaceEntity, SensorEntity):
-    """Diagnostic placement sensor for a UniFi InnerSpace record."""
-
-    entity_description: UnifiInsightsSensorEntityDescription
-
-    def __init__(
-        self,
-        coordinator: UnifiFacadeCoordinator,
-        description: UnifiInsightsSensorEntityDescription,
-        record_id: str,
-    ) -> None:
-        """Initialize the InnerSpace placement sensor."""
-        super().__init__(coordinator, description, record_id)
-
-    @property
-    def native_value(self) -> StateType:
-        """Return the placement state ('placed', 'unplaced', or 'unknown')."""
-        record = self.innerspace_record
-        if not record:
-            return "unknown"
-        placement = record.get("placement_state")
-        if placement in ("placed", "unplaced"):
-            return str(placement)
-        return "unknown"
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return structured InnerSpace placement and correlation attributes."""
-        record = self.innerspace_record or {}
-        attrs: dict[str, Any] = {
-            "innerspace_id": record.get("id") or self._record_id,
-            "placement_state": record.get("placement_state"),
-            "device_type": record.get("device_type"),
-            "floor_plan_id": record.get("floor_plan_id"),
-            "floor_plan_name": record.get("floor_plan_name"),
-            "site_id": record.get("site_id"),
-            "x": record.get("x"),
-            "y": record.get("y"),
-            "height": record.get("height"),
-            "azimuth": record.get("azimuth"),
-            "mount": record.get("mount"),
-            "status": record.get("status"),
-            "model": record.get("model"),
-            "serial": record.get("serial"),
-            "matched_domain": record.get("matched_domain"),
-            "matched_site_id": record.get("matched_site_id"),
-            "matched_device_id": record.get("matched_device_id"),
-        }
-        return {k: v for k, v in attrs.items() if v is not None}

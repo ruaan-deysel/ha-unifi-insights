@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from functools import partial
 from http import HTTPStatus
-import logging
 from typing import TYPE_CHECKING, Any
 
 from custom_components.unifi_insights.api import (
@@ -52,6 +52,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         entry: ConfigEntry,
         *,
         network_available: bool = True,
+        innerspace_available: bool = False,
     ) -> None:
         """Initialize the config coordinator."""
         super().__init__(
@@ -63,6 +64,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             update_interval=SCAN_INTERVAL_CONFIG,
         )
         self._network_available = network_available
+        self._innerspace_available = innerspace_available
         self.data: dict[str, Any] = {
             "sites": {},
             "wifi": {},
@@ -320,31 +322,23 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             _LOGGER.debug("Config coordinator: Fetching sites")
             sites_models = []
             if self._network_available:
+                other_app_available = (
+                    self.protect_client is not None or self._innerspace_available
+                )
                 try:
                     sites_models = await self.network_client.sites.get_all()
                 except (UniFiNotFoundError, UniFiAuthenticationError) as err:
-                    if self.protect_client is not None:
+                    if other_app_available:
                         self._network_available = False
                         _LOGGER.debug(
-                            "Config coordinator: Network API not available on Protect "
+                            "Config coordinator: Network API not available on "
                             "console: %s",
                             err,
                         )
                     else:
                         raise
                 except UniFiResponseError as err:
-                    # A console with no Network application answers this endpoint
-                    # with 200 and an HTML body. api/base.py raises for a 2xx
-                    # non-JSON response rather than returning None, which is right
-                    # in general, but here it is a permanent property of the
-                    # hardware rather than a transient fault, and setup validation
-                    # in __init__.py already tolerates it. Left unhandled, the
-                    # first refresh raises UpdateFailed, then ConfigEntryNotReady,
-                    # and the entry never loads. Only a 200 is tolerated, so a
-                    # redirect or any other sub-400 status still fails.
-                    # UniFiNotFoundError subclasses UniFiResponseError, so this
-                    # clause has to stay below the tuple above.
-                    if self.protect_client is None or err.status_code != HTTPStatus.OK:
+                    if not other_app_available or err.status_code != HTTPStatus.OK:
                         raise
                     self._network_available = False
                     _LOGGER.debug(

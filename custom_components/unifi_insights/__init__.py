@@ -20,6 +20,7 @@ from .api import (
     UniFiConnectionError,
     UniFiTimeoutError,
 )
+from .api.innerspace import UniFiInnerSpaceClient
 from .api.network import UniFiNetworkClient
 from .api.protect import UniFiProtectClient
 from .console_identity import (
@@ -43,6 +44,7 @@ from .coordinators import (
     UnifiConfigCoordinator,
     UnifiDeviceCoordinator,
     UnifiFacadeCoordinator,
+    UnifiInsightsInnerSpaceCoordinator,
     UnifiInsightsSiteManagerCoordinator,
     UnifiProtectCoordinator,
 )
@@ -53,6 +55,7 @@ from .coordinators.site_manager import (
 from .probe import (
     ProbeResult,
     ProbeStatus,
+    async_probe_innerspace,
     async_probe_network,
     async_probe_protect,
 )
@@ -74,6 +77,8 @@ class UnifiInsightsData:
     protect_coordinator: UnifiProtectCoordinator | None
     network_client: UniFiNetworkClient
     protect_client: UniFiProtectClient | None
+    innerspace_coordinator: UnifiInsightsInnerSpaceCoordinator | None = None
+    innerspace_client: UniFiInnerSpaceClient | None = None
     site_manager_coordinator: UnifiInsightsSiteManagerCoordinator | None = None
     site_manager_fingerprint: str | None = None
     # Facade coordinator for backward compatibility with entity classes
@@ -155,34 +160,41 @@ def _raise_for_setup_probes(
     entry_id: str,
     network_probe: ProbeResult,
     protect_probe: ProbeResult,
+    innerspace_probe: ProbeResult | None = None,
 ) -> None:
     """
-    Decide from the Network and Protect probes whether setup can continue.
+    Decide from the Network, Protect, and InnerSpace probes whether setup can continue.
 
-    - Neither application usable and one temporarily unreachable (connection,
+    - No application usable and one temporarily unreachable (connection,
       timeout, 408, 429, 5xx): retry setup for as long as that lasts. These
       retries don't use up either budget below, so a console that was
       unreachable while rebooting still gets them once it answers.
-    - One usable and the other temporarily unreachable: retry up to
+    - At least one usable and another temporarily unreachable: retry up to
       SETUP_PROBE_RETRIES times, so a console still starting doesn't silently
       lose that application, then load without it rather than keeping the
       working one offline too.
-    - Neither usable and a key rejected (401/403): reauth.
-    - Neither usable and nothing more specific (no sites, no NVR, no supported
+    - None usable and a key rejected (401/403): reauth.
+    - None usable and nothing more specific (no sites, no NVR, no supported
       application, an unparseable response): retry up to SETUP_PROBE_RETRIES
       times - applications still starting answer this way - then reauth as
       before.
     Each budget is counted separately per entry and cleared when the entry
     loads, reauth starts, or the entry is unloaded or removed. Network-only
     consoles (Protect absent), Protect-only consoles (Network absent or
-    rejecting the key) and camera-free NVRs load immediately.
+    rejecting the key), InnerSpace-only consoles, and camera-free NVRs load
+    immediately.
     """
     budgets: dict[str, int] = (
         hass.data.setdefault(DOMAIN, {})
         .setdefault(_SETUP_PROBE_ATTEMPTS, {})
         .setdefault(entry_id, {})
     )
-    probes = {"Network": network_probe, "Protect": protect_probe}
+    probes: dict[str, ProbeResult] = {
+        "Network": network_probe,
+        "Protect": protect_probe,
+    }
+    if innerspace_probe is not None:
+        probes["InnerSpace"] = innerspace_probe
     available = [
         name for name, probe in probes.items() if probe.status is ProbeStatus.AVAILABLE
     ]
@@ -234,15 +246,20 @@ def _raise_for_setup_probes(
         raise ConfigEntryAuthFailed(msg)
 
     if budget_left(_INCONCLUSIVE):
+        first_err = (
+            network_probe.error
+            or protect_probe.error
+            or (innerspace_probe.error if innerspace_probe is not None else None)
+        )
         retry(
-            "No Network sites or Protect NVR found on console yet, retrying in "
-            "case it is still starting",
-            network_probe.error or protect_probe.error,
+            "No Network sites, Protect NVR, or InnerSpace project found on console "
+            "yet, retrying in case it is still starting",
+            first_err,
             _INCONCLUSIVE,
         )
 
     _clear_setup_probe_attempts(hass, entry_id)
-    msg = "No Network sites or Protect NVR found on console"
+    msg = "No Network sites, Protect NVR, or InnerSpace project found on console"
     _LOGGER.error(msg)
     raise ConfigEntryAuthFailed(msg)
 
@@ -328,6 +345,14 @@ async def async_setup_entry(
                 timeout=30,
                 session=websession,
             )
+            _LOGGER.debug("Initializing UniFi InnerSpace API client (LOCAL)")
+            innerspace_api = UniFiInnerSpaceClient(
+                auth=auth,
+                base_url=entry.data.get(CONF_HOST, DEFAULT_API_HOST),
+                connection_type=ConnectionType.LOCAL,
+                timeout=30,
+                session=websession,
+            )
         else:
             _LOGGER.debug("Initializing UniFi Protect API client (REMOTE)")
             protect_api = UniFiProtectClient(
@@ -337,14 +362,25 @@ async def async_setup_entry(
                 timeout=30,
                 session=websession,
             )
+            _LOGGER.debug("Initializing UniFi InnerSpace API client (REMOTE)")
+            innerspace_api = UniFiInnerSpaceClient(
+                auth=auth,
+                connection_type=ConnectionType.REMOTE,
+                console_id=entry.data.get(CONF_CONSOLE_ID),
+                timeout=30,
+                session=websession,
+            )
 
-        # Probe both applications. Each result says whether the application
-        # is usable, absent, rejecting the key, or temporarily unreachable.
-        _LOGGER.debug("Validating Network and Protect API connections")
+        # Probe Network, Protect, and InnerSpace applications. Each result says
+        # whether the application is usable, absent, rejecting the key, or
+        # temporarily unreachable.
+        _LOGGER.debug("Validating Network, Protect, and InnerSpace API connections")
         network_probe = await async_probe_network(network_client)
         protect_probe = await async_probe_protect(protect_api)
+        innerspace_probe = await async_probe_innerspace(innerspace_api)
         network_available = network_probe.status is ProbeStatus.AVAILABLE
         protect_available = protect_probe.status is ProbeStatus.AVAILABLE
+        innerspace_available = innerspace_probe.status is ProbeStatus.AVAILABLE
         sites = network_probe.sites
         if network_available:
             _LOGGER.info(
@@ -354,8 +390,23 @@ async def async_setup_entry(
         if protect_available:
             _LOGGER.info("UniFi Protect API validated successfully")
             protect_client = protect_api
+        innerspace_client: UniFiInnerSpaceClient | None = None
+        if innerspace_available:
+            _LOGGER.info("UniFi InnerSpace API validated successfully")
+            innerspace_client = innerspace_api
+        else:
+            try:
+                await innerspace_api.close()
+            except Exception as err:
+                _LOGGER.debug("Error closing unused InnerSpace client: %s", err)
 
-        _raise_for_setup_probes(hass, entry.entry_id, network_probe, protect_probe)
+        _raise_for_setup_probes(
+            hass,
+            entry.entry_id,
+            network_probe,
+            protect_probe,
+            innerspace_probe=innerspace_probe,
+        )
 
     # Probe failures are classified in _raise_for_setup_probes; these catch
     # anything raised while building the clients.
@@ -378,6 +429,7 @@ async def async_setup_entry(
         protect_client=protect_client,
         entry=entry,
         network_available=network_available,
+        innerspace_available=innerspace_available,
     )
 
     # 2. Device coordinator - fast updates (30 seconds) for devices, stats
@@ -408,7 +460,20 @@ async def async_setup_entry(
             site_id=protect_site_id,
         )
 
-    # Fetch initial data - config first, then device/protect in parallel
+    # 4. InnerSpace coordinator - slow updates (5 minutes) for floor plans & inventory
+    innerspace_coordinator: UnifiInsightsInnerSpaceCoordinator | None = None
+    if innerspace_client:
+        innerspace_coordinator = UnifiInsightsInnerSpaceCoordinator(
+            hass=hass,
+            network_client=network_client,
+            protect_client=protect_client,
+            innerspace_client=innerspace_client,
+            entry=entry,
+            device_coordinator=device_coordinator,
+            protect_coordinator=protect_coordinator,
+        )
+
+    # Fetch initial data - config first, then device/protect/innerspace in parallel
     _LOGGER.debug("Fetching initial data from coordinators")
     await config_coordinator.async_config_entry_first_refresh()
 
@@ -416,6 +481,8 @@ async def async_setup_entry(
     refresh_tasks = [device_coordinator.async_config_entry_first_refresh()]
     if protect_coordinator:
         refresh_tasks.append(protect_coordinator.async_config_entry_first_refresh())
+    if innerspace_coordinator:
+        refresh_tasks.append(innerspace_coordinator.async_config_entry_first_refresh())
     await asyncio.gather(*refresh_tasks)
 
     # Discover and update console identity if needed (backward compatibility)
@@ -511,6 +578,8 @@ async def async_setup_entry(
             config_coordinator=config_coordinator,
             device_coordinator=device_coordinator,
             protect_coordinator=protect_coordinator,
+            innerspace_client=innerspace_client,
+            innerspace_coordinator=innerspace_coordinator,
             site_manager_coordinator=site_manager_coordinator,
         )
 
@@ -520,6 +589,8 @@ async def async_setup_entry(
             protect_coordinator=protect_coordinator,
             network_client=network_client,
             protect_client=protect_client,
+            innerspace_coordinator=innerspace_coordinator,
+            innerspace_client=innerspace_client,
             site_manager_coordinator=site_manager_coordinator,
             site_manager_fingerprint=site_manager_fingerprint,
             _facade_coordinator=facade_coordinator,
@@ -571,6 +642,13 @@ async def async_unload_entry(
                 await data.protect_client.close()
             except Exception as err:
                 _LOGGER.debug("Error closing Protect client: %s", err)
+
+        # Close InnerSpace client (await the async close)
+        if data.innerspace_client:
+            try:
+                await data.innerspace_client.close()
+            except Exception as err:
+                _LOGGER.debug("Error closing InnerSpace client: %s", err)
 
         # Close Network client (await the async close)
         if data.network_client:

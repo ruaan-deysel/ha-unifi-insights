@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from contextlib import AbstractAsyncContextManager
 
+    from .api.innerspace import UniFiInnerSpaceClient
     from .api.network import UniFiNetworkClient
     from .api.protect import UniFiProtectClient
 
@@ -134,6 +135,48 @@ async def async_probe_protect(client: UniFiProtectClient) -> ProbeResult:
         return ProbeResult(ProbeStatus.EMPTY)
     _LOGGER.debug("Protect API probe: NVR found with no cameras")
     return ProbeResult(ProbeStatus.AVAILABLE)
+
+
+async def async_probe_innerspace(client: UniFiInnerSpaceClient) -> ProbeResult:
+    """
+    Probe the InnerSpace application.
+
+    Returns ``ProbeStatus.AVAILABLE`` when the project endpoint returns a
+    usable project or when any floor-plan, access-point, switch, or inventory
+    endpoint returns records. Returns ``ProbeStatus.EMPTY`` when the
+    endpoints succeed with no usable records.
+    """
+    try:
+        project = await client.get_project()
+    except Exception as err:
+        status = classify_error(err)
+        _LOGGER.debug("InnerSpace API probe (project): %s (%r)", status, err)
+        return ProbeResult(status, err)
+
+    if (
+        (project.project is not None and bool(project.project.id))
+        or bool(project.plans)
+        or bool(project.products)
+    ):
+        return ProbeResult(ProbeStatus.AVAILABLE)
+
+    for label, fetch in (
+        ("floor_plans", client.list_floor_plans),
+        ("access_points", client.list_access_points),
+        ("switches", client.list_switches),
+        ("inventory", client.list_inventory),
+    ):
+        try:
+            records = await fetch()
+        except Exception as err:
+            status = classify_error(err)
+            _LOGGER.debug("InnerSpace API probe (%s): %s (%r)", label, status, err)
+            return ProbeResult(status, err)
+        if records:
+            return ProbeResult(ProbeStatus.AVAILABLE)
+
+    _LOGGER.debug("InnerSpace API probe: no project or device records")
+    return ProbeResult(ProbeStatus.EMPTY)
 
 
 async def async_probe_with_client[ClientT](

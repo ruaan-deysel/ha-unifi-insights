@@ -9,7 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
-from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api import (
+    ApiKeyAuth,
+    ConnectionType,
+    LocalAuth,
+    UniFiInnerSpaceClient,
+)
 from custom_components.unifi_insights.api import base as api_base
 from custom_components.unifi_insights.api.base import (
     RequestRateLimiter,
@@ -2412,3 +2417,113 @@ async def test_binary_request_is_throttled(fake_clock: _FakeClock) -> None:
 
     assert await client._get_binary("/cameras/abc/snapshot") == b"jpeg"
     assert fake_clock.sleeps == [pytest.approx(1.0)]
+
+
+class TestUniFiInnerSpaceClient:
+    """Tests for UniFiInnerSpaceClient local/remote paths and endpoints."""
+
+    def test_init_validation_and_paths(self) -> None:
+        """Test LOCAL and REMOTE client initialization and path building."""
+        with pytest.raises(ValueError, match="base_url is required"):
+            UniFiInnerSpaceClient(
+                auth=LocalAuth(api_key="k", verify_ssl=False),
+                connection_type=ConnectionType.LOCAL,
+            )
+
+        with pytest.raises(ValueError, match="console_id is required"):
+            UniFiInnerSpaceClient(
+                auth=ApiKeyAuth(api_key="k"),
+                connection_type=ConnectionType.REMOTE,
+            )
+
+        local_client = UniFiInnerSpaceClient(
+            auth=LocalAuth(api_key="k", verify_ssl=False),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        assert local_client.connection_type == ConnectionType.LOCAL
+        assert local_client.console_id is None
+        assert (
+            local_client._build_api_path("project")
+            == "/proxy/innerspace/integration/v1/project"
+        )
+
+        remote_client = UniFiInnerSpaceClient(
+            auth=ApiKeyAuth(api_key="k"),
+            connection_type=ConnectionType.REMOTE,
+            console_id="console-123",
+        )
+        assert remote_client.connection_type == ConnectionType.REMOTE
+        assert remote_client.console_id == "console-123"
+        expected_remote = (
+            "/v1/connector/consoles/console-123"
+            "/proxy/innerspace/integration/v1/floor_plans"
+        )
+        assert remote_client._build_api_path("/floor_plans") == expected_remote
+
+    @pytest.mark.asyncio
+    async def test_endpoints_and_malformed_handling(self) -> None:
+        """Test all 5 InnerSpace endpoints, validate_connection, and malformed data."""
+        client = UniFiInnerSpaceClient(
+            auth=LocalAuth(api_key="k", verify_ssl=False),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+
+        client._get = AsyncMock(
+            return_value={
+                "data": {
+                    "project": {"id": "proj-1"},
+                    "plans": [{"id": "fp-1", "name": "Floor 1", "siteId": "site-1"}],
+                    "products": [],
+                }
+            }
+        )
+        proj = await client.get_project(mode="2D")
+        assert proj.project is not None
+        assert proj.project.id == "proj-1"
+        assert await client.validate_connection() is True
+
+        client._get = AsyncMock(
+            return_value={"floor_plans": [{"id": "fp-1", "name": "Floor 1"}]}
+        )
+        fps = await client.list_floor_plans(site_id="site-1")
+        assert len(fps) == 1
+        assert fps[0].id == "fp-1"
+
+        client._get = AsyncMock(
+            return_value={
+                "access_points": [
+                    {"id": "ap-1", "name": "AP 1", "floor_plan_id": "fp-1"}
+                ]
+            }
+        )
+        aps = await client.list_access_points()
+        assert len(aps) == 1
+        assert aps[0].id == "ap-1"
+
+        client._get = AsyncMock(
+            return_value={
+                "switches": [{"id": "sw-1", "name": "SW 1", "floor_plan_id": "fp-1"}]
+            }
+        )
+        switches = await client.list_switches()
+        assert len(switches) == 1
+        assert switches[0].id == "sw-1"
+
+        client._get = AsyncMock(
+            return_value={"devices": [{"id": "inv-1", "name": "Unplaced AP"}]}
+        )
+        inventory = await client.list_inventory()
+        assert len(inventory) == 1
+        assert inventory[0].id == "inv-1"
+
+        # Malformed responses raise UniFiResponseError
+        client._get = AsyncMock(return_value="not-a-dict")
+        with pytest.raises(UniFiResponseError):
+            await client.get_project()
+        assert await client.validate_connection() is False
+
+        client._get = AsyncMock(return_value={"unexpected": []})
+        with pytest.raises(UniFiResponseError):
+            await client.list_floor_plans()

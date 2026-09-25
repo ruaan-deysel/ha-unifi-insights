@@ -28,10 +28,12 @@ class ConnectionType(str, Enum):
 # API Base URLs
 NETWORK_API_BASE_URL: Final[str] = "https://api.ui.com"
 PROTECT_API_BASE_URL: Final[str] = "https://api.ui.com"
+INNERSPACE_API_BASE_URL: Final[str] = "https://api.ui.com"
 
 # API Versions
 NETWORK_API_VERSION: Final[str] = "v1"
 PROTECT_API_VERSION: Final[str] = "v1"
+INNERSPACE_API_VERSION: Final[str] = "v1"
 
 # Network Integration API path prefix (used for both local and remote)
 NETWORK_INTEGRATION_PATH: Final[str] = "/proxy/network/integration/v1"
@@ -52,6 +54,9 @@ ENDPOINT_VPN_CONNECTIONS: Final[str] = "vpn/connections"
 
 # Protect Integration API path prefix (used for both local and remote)
 PROTECT_INTEGRATION_PATH: Final[str] = "/proxy/protect/integration/v1"
+
+# InnerSpace Integration API path prefix (used for both local and remote)
+INNERSPACE_INTEGRATION_PATH: Final[str] = "/proxy/innerspace/integration/v1"
 
 # Default timeouts (in seconds)
 DEFAULT_TIMEOUT: Final[int] = 30

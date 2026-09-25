@@ -13,11 +13,13 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
+    from custom_components.unifi_insights.api.innerspace import UniFiInnerSpaceClient
     from custom_components.unifi_insights.api.network import UniFiNetworkClient
     from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
     from .config import UnifiConfigCoordinator
     from .device import UnifiDeviceCoordinator
+    from .innerspace import UnifiInsightsInnerSpaceCoordinator
     from .protect import UnifiProtectCoordinator
     from .site_manager import UnifiInsightsSiteManagerCoordinator
 
@@ -26,6 +28,10 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from custom_components.unifi_insights.const import CONF_CONSOLE_ID, DOMAIN
+from custom_components.unifi_insights.data_transforms import (
+    correlate_innerspace_devices,
+    normalize_innerspace_snapshot,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +52,8 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     - stats: from device_coordinator
     - wifi: from config_coordinator
     - protect: from protect_coordinator (cameras, lights, sensors, etc.)
+    - innerspace: from innerspace_coordinator (floor_plans, access_points,
+      switches, inventory)
     - last_update: combined from all coordinators
     """
 
@@ -61,6 +69,8 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         device_coordinator: UnifiDeviceCoordinator,
         protect_coordinator: UnifiProtectCoordinator | None,
         *,
+        innerspace_client: UniFiInnerSpaceClient | None = None,
+        innerspace_coordinator: UnifiInsightsInnerSpaceCoordinator | None = None,
         site_manager_coordinator: UnifiInsightsSiteManagerCoordinator | None = None,
     ) -> None:
         """Initialize the facade coordinator."""
@@ -74,9 +84,11 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.network_client = network_client
         self.protect_client = protect_client
+        self.innerspace_client = innerspace_client
         self._config_coordinator = config_coordinator
         self._device_coordinator = device_coordinator
         self._protect_coordinator = protect_coordinator
+        self._innerspace_coordinator = innerspace_coordinator
         self._site_manager_coordinator = site_manager_coordinator
         self._site_manager_host_id = entry.data.get(CONF_CONSOLE_ID)
 
@@ -109,6 +121,12 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._protect_coordinator:
             self._sub_coordinator_unsubs.append(
                 self._protect_coordinator.async_add_listener(
+                    self._handle_coordinator_update
+                )
+            )
+        if self._innerspace_coordinator:
+            self._sub_coordinator_unsubs.append(
+                self._innerspace_coordinator.async_add_listener(
                     self._handle_coordinator_update
                 )
             )
@@ -153,6 +171,64 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _aggregate_data(self) -> None:
         """Aggregate data from all coordinators into unified structure."""
+        devices = self._device_coordinator.data.get("devices", {})
+        protect_data = (
+            self._protect_coordinator.data
+            if self._protect_coordinator
+            else {
+                "cameras": {},
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+                "doorlocks": {},
+                "viewports": {},
+                "liveviews": {},
+                "protect_info": {},
+                "events": {},
+            }
+        )
+        if self._innerspace_coordinator and self._innerspace_coordinator.data:
+            raw_innerspace = self._innerspace_coordinator.data
+            devices_map: dict[str, dict[str, Any]] = {}
+            access_points_map = {
+                str(rec_id): dict(rec)
+                for rec_id, rec in raw_innerspace.get("access_points", {}).items()
+                if isinstance(rec, dict)
+            }
+            switches_map = {
+                str(rec_id): dict(rec)
+                for rec_id, rec in raw_innerspace.get("switches", {}).items()
+                if isinstance(rec, dict)
+            }
+            inventory_map = {
+                str(rec_id): dict(rec)
+                for rec_id, rec in raw_innerspace.get("inventory", {}).items()
+                if isinstance(rec, dict)
+            }
+            for section_map in (access_points_map, switches_map, inventory_map):
+                devices_map.update(section_map)
+            innerspace_data: dict[str, Any] = {
+                "project": raw_innerspace.get("project"),
+                "floor_plans": dict(raw_innerspace.get("floor_plans", {})),
+                "access_points": access_points_map,
+                "switches": switches_map,
+                "inventory": inventory_map,
+                "placed_devices": {**access_points_map, **switches_map},
+                "devices": devices_map,
+                "last_update": raw_innerspace.get("last_update"),
+            }
+            correlate_innerspace_devices(
+                innerspace_data,
+                network_devices=devices if isinstance(devices, dict) else None,
+                protect_devices=protect_data
+                if isinstance(protect_data, dict)
+                else None,
+            )
+        else:
+            innerspace_data = normalize_innerspace_snapshot()
+
         self.data = {
             # From config coordinator
             "sites": self._config_coordinator.data.get("sites", {}),
@@ -166,29 +242,15 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "network_info": self._config_coordinator.data.get("network_info", {}),
             "client_links": self._config_coordinator.data.get("client_links", {}),
             # From device coordinator
-            "devices": self._device_coordinator.data.get("devices", {}),
+            "devices": devices,
             "clients": self._device_coordinator.data.get("clients", {}),
             "stats": self._device_coordinator.data.get("stats", {}),
             "vouchers": self._device_coordinator.data.get("vouchers", {}),
             "vpn_connections": self._device_coordinator.data.get("vpn_connections", {}),
             # From protect coordinator
-            "protect": (
-                self._protect_coordinator.data
-                if self._protect_coordinator
-                else {
-                    "cameras": {},
-                    "lights": {},
-                    "sensors": {},
-                    "nvrs": {},
-                    "viewers": {},
-                    "chimes": {},
-                    "doorlocks": {},
-                    "viewports": {},
-                    "liveviews": {},
-                    "protect_info": {},
-                    "events": {},
-                }
-            ),
+            "protect": protect_data,
+            # From innerspace coordinator
+            "innerspace": innerspace_data,
             # Combined timestamp
             "last_update": datetime.now(tz=UTC),
         }
@@ -223,7 +285,10 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def available(self) -> bool:
         """Return combined availability from all sub-coordinators."""
         return (
-            self.device_available and self.config_available and self.protect_available
+            self.device_available
+            and self.config_available
+            and self.protect_available
+            and self.innerspace_available
         )
 
     @property
@@ -250,6 +315,13 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._protect_coordinator is None:
             return True
         return self._protect_coordinator.last_update_success
+
+    @property
+    def innerspace_available(self) -> bool:
+        """Return True if the InnerSpace coordinator is available or not configured."""
+        if self._innerspace_coordinator is None:
+            return True
+        return self._innerspace_coordinator.last_update_success
 
     async def _async_update_data(self) -> dict[str, Any]:
         """
@@ -302,7 +374,10 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_refresh_children()
 
     async def _async_refresh_children(
-        self, *, include_protect: bool = True
+        self,
+        *,
+        include_protect: bool = True,
+        include_innerspace: bool = True,
     ) -> list[str]:
         """
         Refresh the sub-coordinators concurrently and report what failed.
@@ -320,6 +395,8 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ]
         if include_protect and self._protect_coordinator:
             targets.append(("protect", self._protect_coordinator))
+        if include_innerspace and self._innerspace_coordinator:
+            targets.append(("innerspace", self._innerspace_coordinator))
 
         results = await asyncio.gather(
             *(coordinator.async_refresh() for _, coordinator in targets),

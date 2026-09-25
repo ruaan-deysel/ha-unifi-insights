@@ -50,6 +50,7 @@ from .const import (
 )
 from .coordinators import UnifiFacadeCoordinator
 from .entity import (
+    UnifiInnerSpaceEntity,
     UnifiInsightsEntity,
     UnifiProtectEntity,
     device_has_feature,
@@ -650,7 +651,7 @@ def _outlet_has_metering(outlet: dict[str, Any]) -> bool:
         try:
             if int(caps) & 2:
                 return True
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     for key in (
         "outlet_power",
@@ -1116,14 +1117,14 @@ def _discover_port_sensors(
                         if pw is not None and float(pw) > 0:
                             poe_marker = True
                             break
-                    except (ValueError, TypeError):
+                    except ValueError, TypeError:
                         pass
 
         if not poe_marker:
             norm = get_field(port, "poe_power_w")
             try:
                 poe_marker = norm is not None and float(norm) > 0
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 poe_marker = False
 
         if poe_marker:
@@ -1217,7 +1218,7 @@ def _create_port_stats_fallback(
             try:
                 if val is not None and float(val) <= 0:
                     continue
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
             desc = PORT_SENSOR_TYPES[0]
             key = (site_id, device_id, port_idx, desc.key)
@@ -1279,7 +1280,7 @@ def _discover_outlet_sensors(
             continue
         try:
             outlet_idx = int(idx)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
 
         if not _outlet_has_metering(outlet):
@@ -1355,6 +1356,47 @@ def _discover_protect_sensors(
                             device_id=nvr_id,
                         )
                     )
+
+
+INNERSPACE_PLACEMENT_DESCRIPTION = UnifiInsightsSensorEntityDescription(
+    key="placement",
+    translation_key="innerspace_placement",
+    name="InnerSpace placement",
+    device_class=SensorDeviceClass.ENUM,
+    options=["placed", "unplaced", "unknown"],
+    entity_category=EntityCategory.DIAGNOSTIC,
+    icon="mdi:floor-plan",
+)
+
+
+def _discover_innerspace_sensors(
+    coordinator: UnifiFacadeCoordinator,
+    known_sensor_keys: set[tuple[Any, ...]],
+    entities: list[SensorEntity],
+) -> None:
+    """Discover diagnostic placement sensors for UniFi InnerSpace devices."""
+    innerspace = coordinator.data.get("innerspace", {})
+    if not isinstance(innerspace, dict):
+        return
+
+    devices = innerspace.get("devices", {})
+    if not isinstance(devices, dict):
+        return
+
+    for record_id, record in devices.items():
+        if not isinstance(record_id, str) or not isinstance(record, dict):
+            continue
+        key = ("innerspace", record_id, INNERSPACE_PLACEMENT_DESCRIPTION.key)
+        if key in known_sensor_keys:
+            continue
+        known_sensor_keys.add(key)
+        entities.append(
+            UnifiInsightsInnerSpacePlacementSensor(
+                coordinator=coordinator,
+                description=INNERSPACE_PLACEMENT_DESCRIPTION,
+                record_id=record_id,
+            )
+        )
 
 
 async def async_setup_entry(
@@ -1457,6 +1499,9 @@ async def async_setup_entry(
 
         # Add UniFi Protect sensors
         _discover_protect_sensors(coordinator, known_sensor_keys, entities)
+
+        # Add UniFi InnerSpace placement sensors
+        _discover_innerspace_sensors(coordinator, known_sensor_keys, entities)
 
         if entities:
             _LOGGER.info("Adding %d UniFi Insights sensors", len(entities))
@@ -2004,7 +2049,7 @@ class UnifiOutletSensor(UnifiInsightsEntity, SensorEntity):
                 try:
                     if int(idx) == self._outlet_index:
                         return outlet
-                except (TypeError, ValueError):
+                except TypeError, ValueError:
                     continue
         return None
 
@@ -2374,3 +2419,54 @@ class UnifiWifiClientCountSensor(
             "is_guest": wifi_data.get("is_guest", wifi_data.get("isGuest", False)),
             "enabled": wifi_data.get("enabled", True),
         }
+
+
+class UnifiInsightsInnerSpacePlacementSensor(UnifiInnerSpaceEntity, SensorEntity):
+    """Diagnostic placement sensor for a UniFi InnerSpace record."""
+
+    entity_description: UnifiInsightsSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        description: UnifiInsightsSensorEntityDescription,
+        record_id: str,
+    ) -> None:
+        """Initialize the InnerSpace placement sensor."""
+        super().__init__(coordinator, description, record_id)
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the placement state ('placed', 'unplaced', or 'unknown')."""
+        record = self.innerspace_record
+        if not record:
+            return "unknown"
+        placement = record.get("placement_state")
+        if placement in ("placed", "unplaced"):
+            return str(placement)
+        return "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return structured InnerSpace placement and correlation attributes."""
+        record = self.innerspace_record or {}
+        attrs: dict[str, Any] = {
+            "innerspace_id": record.get("id") or self._record_id,
+            "placement_state": record.get("placement_state"),
+            "device_type": record.get("device_type"),
+            "floor_plan_id": record.get("floor_plan_id"),
+            "floor_plan_name": record.get("floor_plan_name"),
+            "site_id": record.get("site_id"),
+            "x": record.get("x"),
+            "y": record.get("y"),
+            "height": record.get("height"),
+            "azimuth": record.get("azimuth"),
+            "mount": record.get("mount"),
+            "status": record.get("status"),
+            "model": record.get("model"),
+            "serial": record.get("serial"),
+            "matched_domain": record.get("matched_domain"),
+            "matched_site_id": record.get("matched_site_id"),
+            "matched_device_id": record.get("matched_device_id"),
+        }
+        return {k: v for k, v in attrs.items() if v is not None}

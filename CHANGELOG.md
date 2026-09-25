@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   integration already fetches.
   [#165](https://github.com/ruaan-deysel/ha-unifi-insights/issues/165)
 - Remote connections now load account-wide Site Manager host, site, and device inventory, five-minute ISP metrics, and SD-WAN configuration metadata through a shared optional coordinator. Diagnostics include bounded counts, selected-host ISP samples, and collection health without exporting cloud identifiers or raw account data. A Site Manager outage does not prevent the console integration from loading. [#171](https://github.com/ruaan-deysel/ha-unifi-insights/issues/171)
+- UniFi InnerSpace floor-plan, placed device, and unplaced inventory support across local and remote console connections. A dedicated `UniFiInnerSpaceClient` and `UnifiInsightsInnerSpaceCoordinator` poll `/v1/project`, `/v1/floor_plans`, `/v1/access_points`, `/v1/switches`, and `/v1/inventory` independently of Network and Protect, correlating records by normalized MAC (scoped by floor-plan `siteId` when present) and exposing diagnostic **InnerSpace Placement** enum sensors (`placed`, `unplaced`, `unknown`) without modifying existing Network or Protect entity unique IDs, device identifiers, or Home Assistant area assignments. Consoles where only InnerSpace is reachable can now complete setup, and diagnostics export redacted InnerSpace counts and correlation summaries without floor-plan image URLs or raw geometry shapes. [#170](https://github.com/ruaan-deysel/ha-unifi-insights/issues/170)
 
 ### Fixed
 

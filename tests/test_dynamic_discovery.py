@@ -18,6 +18,7 @@ from custom_components.unifi_insights.camera import (
 )
 from custom_components.unifi_insights.const import (
     CONF_CLIENT_CONTROL,
+    DOMAIN,
 )
 from custom_components.unifi_insights.event import (
     async_setup_entry as async_setup_event,
@@ -727,3 +728,123 @@ class TestDiscoveryRegressions:
         added = [e for call in add_entities.call_args_list for e in call[0][0]]
         unique_ids = [e.unique_id for e in added if getattr(e, "unique_id", None)]
         assert len(unique_ids) == len(set(unique_ids))
+
+    @pytest.mark.asyncio
+    async def test_innerspace_placement_sensor_discovery_and_device_correlation(
+        self,
+        hass: Any,
+        mock_coordinator: MagicMock,
+        mock_config_entry: MagicMock,
+    ) -> None:
+        """InnerSpace placement sensors discover records and attach via MAC."""
+        mock_coordinator.get_device = MagicMock(
+            side_effect=lambda site_id, dev_id: (
+                mock_coordinator.data["devices"].get(site_id, {}).get(dev_id)
+            )
+        )
+        mock_coordinator.data["devices"] = {
+            "site-1": {
+                "net-ap-1": {
+                    "id": "net-ap-1",
+                    "name": "Lobby AP",
+                    "model": "U6-Pro",
+                    "macAddress": "aa:bb:cc:11:22:33",
+                }
+            }
+        }
+        mock_coordinator.data["innerspace"] = {
+            "project": {"id": "proj-1"},
+            "floor_plans": {"fp-1": {"id": "fp-1", "name": "Lobby"}},
+            "access_points": {},
+            "switches": {},
+            "inventory": {},
+            "devices": {
+                "is-ap-1": {
+                    "id": "is-ap-1",
+                    "name": "Lobby AP",
+                    "model": "U6-Pro",
+                    "device_type": "access_point",
+                    "placement_state": "placed",
+                    "floor_plan_id": "fp-1",
+                    "floor_plan_name": "Lobby",
+                    "site_id": "site-1",
+                    "x": 12.5,
+                    "y": 34.0,
+                    "height": 2.7,
+                    "matched_domain": "network",
+                    "matched_site_id": "site-1",
+                    "matched_device_id": "net-ap-1",
+                },
+                "is-inv-1": {
+                    "id": "is-inv-1",
+                    "name": "Spare Switch",
+                    "model": "USW-Flex",
+                    "device_type": None,
+                    "placement_state": "unplaced",
+                    "mac": "aa:bb:cc:99:88:77",
+                    "serial": "SN-FLEX-1",
+                    "matched_domain": None,
+                    "matched_site_id": None,
+                    "matched_device_id": None,
+                },
+            },
+        }
+
+        add_entities = MagicMock()
+        await async_setup_sensor(hass, mock_config_entry, add_entities)
+        added = [e for call in add_entities.call_args_list for e in call[0][0]]
+        placement_sensors = {
+            e.unique_id: e
+            for e in added
+            if getattr(e, "unique_id", "").startswith("innerspace_")
+        }
+
+        assert "innerspace_is-ap-1_placement" in placement_sensors
+        assert "innerspace_is-inv-1_placement" in placement_sensors
+
+        ap_sensor = placement_sensors["innerspace_is-ap-1_placement"]
+        assert ap_sensor.native_value == "placed"
+        assert ap_sensor.available is True
+        # Correlated Network device reuses identifier without suggested_area
+        assert ap_sensor.device_info["identifiers"] == {(DOMAIN, "site-1_net-ap-1")}
+        assert "suggested_area" not in ap_sensor.device_info
+        assert ap_sensor.extra_state_attributes["floor_plan_name"] == "Lobby"
+        assert ap_sensor.extra_state_attributes["x"] == 12.5
+
+        inv_sensor = placement_sensors["innerspace_is-inv-1_placement"]
+        assert inv_sensor.native_value == "unplaced"
+        assert inv_sensor.device_info["identifiers"] == {
+            (DOMAIN, "innerspace_is-inv-1")
+        }
+        assert "suggested_area" not in inv_sensor.device_info
+
+        # Gated on innerspace_available
+        mock_coordinator.innerspace_available = False
+        assert ap_sensor.available is False
+
+        # Test Protect device correlation and missing record fallback
+        mock_coordinator.innerspace_available = True
+        mock_coordinator.data["protect"]["cameras"] = {"cam-1": {"id": "cam-1"}}
+        mock_coordinator.data["innerspace"]["devices"]["is-inv-1"].update(
+            {
+                "placement_state": "other",
+                "matched_domain": "protect",
+                "matched_protect_type": "camera",
+                "matched_device_id": "cam-1",
+            }
+        )
+        assert inv_sensor.native_value == "unknown"
+        assert inv_sensor._build_device_info()["identifiers"] == {
+            (DOMAIN, "protect_camera_cam-1")
+        }
+        inv_sensor.async_write_ha_state = MagicMock()
+        inv_sensor._handle_coordinator_update()
+        inv_sensor.async_write_ha_state.assert_called_once()
+
+        # When record disappears from snapshot, fallback to innerspace_<id>
+        mock_coordinator.data["innerspace"]["inventory"].clear()
+        mock_coordinator.data["innerspace"]["devices"].clear()
+        assert inv_sensor.native_value == "unknown"
+        assert inv_sensor._build_device_info()["identifiers"] == {
+            (DOMAIN, "innerspace_is-inv-1")
+        }

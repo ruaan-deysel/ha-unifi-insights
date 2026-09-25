@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.components.diagnostics.const import REDACTED
@@ -559,3 +560,61 @@ async def test_diagnostics_placeholders_client_links(
     assert link["network_name"] == "Cameras"
     for raw in ("8c:ed:e1:00:00:01", "28:70:4e:00:00:01"):
         assert raw not in _strings(diagnostics)
+
+
+async def test_diagnostics_includes_redacted_innerspace_and_anonymizes_macs(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations,
+) -> None:
+    """InnerSpace diagnostics redact IDs/serials and anonymize MACs."""
+    coordinator = init_integration.runtime_data.coordinator
+    coordinator.innerspace_client = MagicMock()
+    coordinator.data["innerspace"] = {
+        "project": {"id": "secret-proj-id", "plan_count": 1, "product_count": 1},
+        "floor_plans": {
+            "fp-secret-1": {
+                "id": "fp-secret-1",
+                "name": "Level 1",
+                "floor_number": 1,
+                "site_id": "site-secret-1",
+                "ppm": 25.0,
+            }
+        },
+        "access_points": {},
+        "switches": {},
+        "inventory": {},
+        "devices": {
+            "ap-rec-1": {
+                "id": "ap-rec-1",
+                "name": "Ceiling AP",
+                "model": "U6-Pro",
+                "device_type": "access_point",
+                "placement_state": "placed",
+                "mac": "de:ad:be:ef:12:34",
+                "serial": "SECRET-SERIAL-99",
+                "floor_plan_id": "fp-secret-1",
+                "floor_plan_name": "Level 1",
+                "site_id": "site-secret-1",
+                "matched_domain": "network",
+                "matched_site_id": "site-secret-1",
+                "matched_device_id": "net-dev-secret-1",
+            }
+        },
+        "last_update": "2026-09-25T00:00:00+00:00",
+    }
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
+
+    assert diagnostics["connection"]["innerspace_client_connected"] is True
+    assert "innerspace" in diagnostics
+    innerspace_diag = diagnostics["innerspace"]
+    assert innerspace_diag["available"] is True
+    assert innerspace_diag["counts"]["devices"] == 1
+    dev_diag = innerspace_diag["devices"]["ap-rec-1"]
+    assert dev_diag["name"] == "Ceiling AP"
+    assert dev_diag["serial"] == REDACTED
+    assert dev_diag["matched_device_id"] == REDACTED
+    assert dev_diag["mac"].startswith("**REDACTED-MAC-")
+    assert "de:ad:be:ef:12:34" not in _strings(diagnostics)
+    assert "SECRET-SERIAL-99" not in _strings(diagnostics)

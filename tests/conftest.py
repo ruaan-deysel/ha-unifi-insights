@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 from homeassistant.helpers import device_registry as dr
-import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.unifi_insights.api.innerspace import InnerSpaceProject
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
     CONNECTION_TYPE_LOCAL,
@@ -183,6 +184,42 @@ def _create_mock_protect_client() -> MagicMock:
     return client
 
 
+def _create_mock_innerspace_client() -> MagicMock:
+    """Create a mock InnerSpace client defaulting to empty/unconfigured console."""
+    client = MagicMock()
+    client.base_url = "https://192.168.1.1"
+    client.get_project = AsyncMock(return_value=InnerSpaceProject())
+    client.list_floor_plans = AsyncMock(return_value=[])
+    client.list_access_points = AsyncMock(return_value=[])
+    client.list_switches = AsyncMock(return_value=[])
+    client.list_inventory = AsyncMock(return_value=[])
+    client.validate_connection = AsyncMock(return_value=True)
+    client.close = AsyncMock()
+    return client
+
+
+@pytest.fixture(autouse=True)
+def mock_innerspace_client() -> Generator[MagicMock]:
+    """Return a mocked UniFi InnerSpace client."""
+    client = _create_mock_innerspace_client()
+
+    mock_class = MagicMock()
+    async_cm = MagicMock()
+    async_cm.__aenter__ = AsyncMock(return_value=client)
+    async_cm.__aexit__ = AsyncMock(return_value=None)
+    mock_class.return_value = async_cm
+
+    for attr in dir(client):
+        if not attr.startswith("_"):
+            setattr(mock_class.return_value, attr, getattr(client, attr))
+
+    with patch(
+        "custom_components.unifi_insights.UniFiInnerSpaceClient",
+        MagicMock(return_value=client),
+    ):
+        yield client
+
+
 @pytest.fixture
 def mock_network_client() -> Generator[MagicMock]:
     """Return a mocked UniFi Network client."""
@@ -278,8 +315,10 @@ def mock_coordinator() -> MagicMock:
     coordinator.device_available = True
     coordinator.config_available = True
     coordinator.protect_available = True
+    coordinator.innerspace_available = True
     coordinator.network_client = _create_mock_network_client()
     coordinator.protect_client = _create_mock_protect_client()
+    coordinator.innerspace_client = None
     coordinator.data = {
         "sites": {"default": {"id": "default", "name": "Default"}},
         "devices": {},
@@ -297,6 +336,17 @@ def mock_coordinator() -> MagicMock:
             "liveviews": {},
             "protect_info": {},
             "events": {},
+        },
+        "innerspace": {
+            "project": None,
+            "floor_plans": {},
+            "access_points": {},
+            "switches": {},
+            "placed_devices": {},
+            "inventory": {},
+            "devices": {},
+            "correlations": {},
+            "last_update": None,
         },
         "last_update": None,
     }

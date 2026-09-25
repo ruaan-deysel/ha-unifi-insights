@@ -52,6 +52,8 @@ from .exceptions import (
     UniFiValidationError,
 )
 
+from .innerspace import UniFiInnerSpaceClient
+
 __all__ = [
     # Version
     "__version__",
@@ -61,6 +63,8 @@ __all__ = [
     "LocalAuth",
     # Connection types
     "ConnectionType",
+    # Clients
+    "UniFiInnerSpaceClient",
     # Exceptions
     "UniFiAuthenticationError",
     "UniFiConnectionError",

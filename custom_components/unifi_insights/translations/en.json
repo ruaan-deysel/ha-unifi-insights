@@ -246,6 +246,14 @@
       "outlet_voltage": {
         "name": "{outlet_name} Voltage"
       },
+      "innerspace_placement": {
+        "name": "InnerSpace Placement",
+        "state": {
+          "placed": "Placed",
+          "unplaced": "Unplaced",
+          "unknown": "Unknown"
+        }
+      },
       "outlet_current": {
         "name": "{outlet_name} Current"
       },

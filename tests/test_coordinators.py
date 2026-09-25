@@ -23,6 +23,14 @@ from custom_components.unifi_insights.api import (
     UniFiResponseError,
     UniFiTimeoutError,
 )
+from custom_components.unifi_insights.api.innerspace import (
+    InnerSpaceAccessPoint,
+    InnerSpaceFloorPlan,
+    InnerSpaceInventoryDevice,
+    InnerSpaceProject,
+    InnerSpaceProjectIdentity,
+    InnerSpaceSwitch,
+)
 from custom_components.unifi_insights.api.network.models import (
     LegacyPortMetrics,
     PortBytesMetrics,
@@ -35,6 +43,9 @@ from custom_components.unifi_insights.const import (
     SCAN_INTERVAL_CONFIG,
     SCAN_INTERVAL_DEVICE,
     SCAN_INTERVAL_PROTECT,
+)
+from custom_components.unifi_insights.coordinators import (
+    UnifiInsightsInnerSpaceCoordinator,
 )
 from custom_components.unifi_insights.coordinators.base import UnifiBaseCoordinator
 from custom_components.unifi_insights.coordinators.config import UnifiConfigCoordinator
@@ -6571,3 +6582,124 @@ class TestProtectCoordinatorEdgeCases:
 
         # Event should be stored but no error
         assert "motion" in coordinator.data["events"]
+
+
+class TestUnifiInsightsInnerSpaceCoordinator:
+    """Tests for UnifiInsightsInnerSpaceCoordinator and facade integration."""
+
+    @pytest.mark.asyncio
+    async def test_update_and_snapshot_preservation_on_failure(
+        self,
+        hass: HomeAssistant,
+        mock_network_client: MagicMock,
+        mock_protect_client: MagicMock,
+        mock_innerspace_client: MagicMock,
+        mock_config_entry: MockConfigEntry,
+    ) -> None:
+        """Test InnerSpace refresh normalizes data and preserves snapshot on failure."""
+        mock_innerspace_client.get_project.return_value = InnerSpaceProject(
+            project=InnerSpaceProjectIdentity(id="proj-1"),
+        )
+        mock_innerspace_client.list_floor_plans.return_value = [
+            InnerSpaceFloorPlan(
+                id="fp-1",
+                name="First Floor",
+                floor_number=1,
+                site_id="default",
+                ppm=20.0,
+            )
+        ]
+        mock_innerspace_client.list_access_points.return_value = [
+            InnerSpaceAccessPoint(
+                id="ap-1",
+                name="Office AP",
+                model="U6-Pro",
+                mac="AA:BB:CC:DD:EE:FF",
+                floor_plan_id="fp-1",
+                x=10.0,
+                y=20.0,
+                status="online",
+            )
+        ]
+        mock_innerspace_client.list_switches.return_value = [
+            InnerSpaceSwitch(
+                id="sw-1",
+                name="Office SW",
+                model="USW-24",
+                floor_plan_id="fp-1",
+                x=5.0,
+                y=15.0,
+                status="online",
+            )
+        ]
+        mock_innerspace_client.list_inventory.return_value = [
+            InnerSpaceInventoryDevice(
+                id="inv-1",
+                name="Spare AP",
+                model="U6-LR",
+                mac="AA:BB:CC:99:99:99",
+            )
+        ]
+
+        coord = UnifiInsightsInnerSpaceCoordinator(
+            hass=hass,
+            network_client=mock_network_client,
+            protect_client=mock_protect_client,
+            innerspace_client=mock_innerspace_client,
+            entry=mock_config_entry,
+        )
+
+        data = await coord._async_update_data()
+        assert data["project"]["id"] == "proj-1"
+        assert "fp-1" in data["floor_plans"]
+        assert "ap-1" in data["access_points"]
+        assert "sw-1" in data["switches"]
+        assert "inv-1" in data["inventory"]
+        assert coord.available is True
+
+        # Transient failure raises UpdateFailed while keeping self.data
+        mock_innerspace_client.get_project.side_effect = UniFiConnectionError("Down")
+        with pytest.raises(UpdateFailed):
+            await coord._async_update_data()
+        assert coord.available is False
+        assert "ap-1" in coord.data["access_points"]
+
+        # Auth error raises ConfigEntryAuthFailed
+        mock_innerspace_client.get_project.side_effect = UniFiAuthenticationError(
+            "Expired", status_code=401
+        )
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coord._async_update_data()
+
+        # Timeout, response, and unexpected errors raise UpdateFailed
+        for exc in (
+            UniFiTimeoutError("Timeout"),
+            UniFiResponseError("Bad gateway", status_code=502),
+            RuntimeError("Unexpected"),
+        ):
+            mock_innerspace_client.get_project.side_effect = exc
+            with pytest.raises(UpdateFailed):
+                await coord._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_config_coordinator_innerspace_only_suppresses_network_404(
+        self,
+        hass: HomeAssistant,
+        mock_network_client: MagicMock,
+        mock_config_entry: MockConfigEntry,
+    ) -> None:
+        """Test UnifiConfigCoordinator suppresses Network 404 when InnerSpace used."""
+        mock_network_client.sites.get_all.side_effect = UniFiNotFoundError(
+            "Not found", status_code=404
+        )
+        config_coord = UnifiConfigCoordinator(
+            hass=hass,
+            network_client=mock_network_client,
+            protect_client=None,
+            entry=mock_config_entry,
+            network_available=True,
+            innerspace_available=True,
+        )
+        data = await config_coord._async_update_data()
+        assert data["sites"] == {}
+        assert config_coord.available is True

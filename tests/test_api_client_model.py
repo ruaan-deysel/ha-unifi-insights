@@ -3,6 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
+from custom_components.unifi_insights.api.innerspace import (
+    InnerSpaceAccessPoint,
+    InnerSpaceFloorPlan,
+    InnerSpaceInventoryDevice,
+    InnerSpaceProject,
+    InnerSpaceSwitch,
+)
 from custom_components.unifi_insights.api.network.models.client import Client
 from custom_components.unifi_insights.api.network.models.device import (
     Device,
@@ -280,3 +287,104 @@ def test_resources_model_accepts_unknown_statuses() -> None:
 
     assert wan.status == "DEGRADED"
     assert vpn.status == "PAUSED"
+
+
+def test_innerspace_models_parse_openapi_payloads() -> None:
+    """InnerSpace models should parse OpenAPI v1.3.23 payloads and tolerate extras."""
+    project = InnerSpaceProject.model_validate(
+        {
+            "project": {"id": "proj-1", "model": None, "environment": None},
+            "plans": [
+                {
+                    "id": "fp-1",
+                    "name": "Ground Floor",
+                    "ppm": 25.0,
+                    "ordering": 0,
+                    "siteId": "site-1",
+                }
+            ],
+            "products": [
+                {
+                    "id": "ap-1",
+                    "planId": "fp-1",
+                    "code": "U6-Pro",
+                    "mac": "AA:BB:CC:11:22:33",
+                    "x": 100.5,
+                    "y": 200.0,
+                    "height": 2.7,
+                }
+            ],
+            "shapes": [{"id": "shape-1", "type": "wall"}],
+            "unexpectedRootField": True,
+        }
+    )
+    assert project.project is not None
+    assert project.project.id == "proj-1"
+    assert project.plans[0].site_id == "site-1"
+    assert project.products[0].plan_id == "fp-1"
+
+    floor_plan = InnerSpaceFloorPlan.model_validate(
+        {
+            "id": "fp-1",
+            "name": "Ground Floor",
+            "floor_number": 1,
+            "image_url": "/proxy/innerspace/assets/fp-1.png",
+            "ppm": 25.0,
+            "width": 1200,
+            "height": 800,
+            "origin_x": 0.0,
+            "origin_y": 0.0,
+            "site_id": "site-1",
+        }
+    )
+    assert floor_plan.id == "fp-1"
+    assert floor_plan.site_id == "site-1"
+    assert floor_plan.floor_number == 1
+
+    ap = InnerSpaceAccessPoint.model_validate(
+        {
+            "id": "ap-1",
+            "name": "Lobby AP",
+            "model": "U6-Pro",
+            "mac": "AA:BB:CC:11:22:33",
+            "serial": "SN-AP-1",
+            "floor_plan_id": "fp-1",
+            "x": 100.5,
+            "y": 200.0,
+            "height": 2.7,
+            "azimuth": 90.0,
+            "mount": "ceiling",
+            "status": "online",
+        }
+    )
+    assert ap.id == "ap-1"
+    assert ap.floor_plan_id == "fp-1"
+    assert ap.mount == "ceiling"
+
+    switch = InnerSpaceSwitch.model_validate(
+        {
+            "id": "sw-1",
+            "name": "Core Switch",
+            "model": "USW-Pro-24",
+            "type": "switch",
+            "mac": "AA:BB:CC:44:55:66",
+            "floorPlanId": "fp-1",
+            "x": 50.0,
+            "y": 75.0,
+            "status": "online",
+        }
+    )
+    assert switch.id == "sw-1"
+    assert switch.floor_plan_id == "fp-1"
+
+    inv = InnerSpaceInventoryDevice.model_validate(
+        {
+            "id": "inv-1",
+            "name": "Spare Device",
+            "model": "U6-Mesh",
+            "mac": "AA:BB:CC:77:88:99",
+            "serial": "SN-INV-1",
+        }
+    )
+    assert inv.id == "inv-1"
+    assert inv.model == "U6-Mesh"

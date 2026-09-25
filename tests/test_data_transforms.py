@@ -2,6 +2,7 @@
 
 from custom_components.unifi_insights.data_transforms import (
     map_device_status,
+    normalize_innerspace_snapshot,
     normalize_legacy_wans,
     transform_network_device,
     transform_protect_camera,
@@ -210,3 +211,134 @@ def test_normalize_legacy_wans_without_wan_data():
         )
         == []
     )
+
+
+def test_normalize_innerspace_snapshot_excludes_shapes_and_urls_and_correlates_macs():
+    """Test InnerSpace normalization, placement states, and MAC correlation."""
+    project = {
+        "project": {"id": "proj-1", "model": None, "environment": None},
+        "plans": [
+            {
+                "id": "fp-1",
+                "name": "Office Floor",
+                "ppm": 20.0,
+                "ordering": 1,
+                "siteId": "site-a",
+            }
+        ],
+        "products": [{"id": "ap-1", "planId": "fp-1", "code": "U6-Pro"}],
+        "shapes": [{"id": "shape-1", "type": "wall"}],
+    }
+    floor_plans = [
+        {
+            "id": "fp-1",
+            "name": "Office Floor",
+            "floor_number": 2,
+            "image_url": "/proxy/innerspace/assets/fp-1.png",
+            "ppm": 20.0,
+            "width": 1000,
+            "height": 800,
+            "origin_x": 0.0,
+            "origin_y": 0.0,
+            "site_id": None,
+        },
+        {
+            "id": "fp-unmapped",
+            "name": "Warehouse Floor",
+            "floor_number": 1,
+            "site_id": None,
+        },
+    ]
+    access_points = [
+        {
+            "id": "ap-1",
+            "name": "Office AP",
+            "model": "U6-Pro",
+            "mac": "AA-BB-CC-11-22-33",
+            "serial": "SN1",
+            "floor_plan_id": "fp-1",
+            "x": 120.5,
+            "y": 340.0,
+            "height": 2.8,
+            "azimuth": 180.0,
+            "mount": "ceiling",
+            "status": "online",
+        }
+    ]
+    switches = [
+        {
+            "id": "sw-1",
+            "name": "Ambiguous Switch",
+            "model": "USW-24",
+            "mac": "AA:BB:CC:44:55:66",
+            "floor_plan_id": "fp-unmapped",
+            "x": 10.0,
+            "y": 20.0,
+            "status": "online",
+        }
+    ]
+    inventory = [
+        {
+            "id": "inv-1",
+            "name": "Spare Camera or AP",
+            "model": "U6-Enterprise",
+            "mac": "11:22:33:44:55:66",
+            "serial": "SN-INV",
+        }
+    ]
+
+    # Site-a and Site-b both have AA:BB:CC:11:22:33, narrowed by fp-1 to site-a.
+    # AA:BB:CC:44:55:66 has no site_id across two sites -> ambiguous -> no match.
+    network_devices = {
+        "site-a": {
+            "net-ap-a": {"id": "net-ap-a", "macAddress": "aa:bb:cc:11:22:33"},
+            "net-sw-a": {"id": "net-sw-a", "macAddress": "aa:bb:cc:44:55:66"},
+        },
+        "site-b": {
+            "net-ap-b": {"id": "net-ap-b", "macAddress": "aa:bb:cc:11:22:33"},
+            "net-sw-b": {"id": "net-sw-b", "macAddress": "aa:bb:cc:44:55:66"},
+        },
+    }
+    protect_devices = {
+        "cameras": {
+            "cam-1": {"id": "cam-1", "mac": "112233445566"},
+        }
+    }
+
+    snapshot = normalize_innerspace_snapshot(
+        project=project,
+        floor_plans=floor_plans,
+        access_points=access_points,
+        switches=switches,
+        inventory=inventory,
+        network_devices=network_devices,
+        protect_devices=protect_devices,
+    )
+
+    # Project shapes and floor_plan image_url must be excluded
+    assert "shapes" not in snapshot["project"]
+    assert "image_url" not in snapshot["floor_plans"]["fp-1"]
+    assert snapshot["floor_plans"]["fp-1"]["site_id"] == "site-a"
+
+    # Placed AP has placement_state='placed', site_id='site-a', and matches net-ap-a
+    ap_rec = snapshot["access_points"]["ap-1"]
+    assert ap_rec["placement_state"] == "placed"
+    assert ap_rec["device_type"] == "access_point"
+    assert ap_rec["matched_domain"] == "network"
+    assert ap_rec["matched_site_id"] == "site-a"
+    assert ap_rec["matched_device_id"] == "net-ap-a"
+
+    # Ambiguous switch across two sites without site_id is NOT matched
+    sw_rec = snapshot["switches"]["sw-1"]
+    assert sw_rec["placement_state"] == "placed"
+    assert sw_rec["matched_domain"] is None
+    assert sw_rec["correlation"] is None
+
+    # Unplaced inventory record stays distinct, never infers device_type from model,
+    # and correlates with Protect camera by normalized MAC
+    inv_rec = snapshot["inventory"]["inv-1"]
+    assert inv_rec["placement_state"] == "unplaced"
+    assert inv_rec["device_type"] is None
+    assert inv_rec["matched_domain"] == "protect"
+    assert inv_rec["matched_protect_type"] == "camera"
+    assert inv_rec["matched_device_id"] == "cam-1"

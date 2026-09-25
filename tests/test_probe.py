@@ -17,6 +17,7 @@ from custom_components.unifi_insights.api import (
 )
 from custom_components.unifi_insights.probe import (
     ProbeStatus,
+    async_probe_innerspace,
     async_probe_network,
     async_probe_protect,
     async_probe_with_client,
@@ -146,3 +147,95 @@ async def test_probe_with_client_classifies_context_errors() -> None:
     result = await async_probe_with_client(context, async_probe_network)
 
     assert result.status is ProbeStatus.UNREACHABLE
+
+
+@pytest.mark.parametrize(
+    ("project", "floor_plans", "inventory", "expected"),
+    [
+        (
+            MagicMock(
+                project=MagicMock(id="proj-1"),
+                plans=[],
+                products=[],
+            ),
+            [],
+            [],
+            "available",
+        ),
+        (
+            MagicMock(project=None, plans=[], products=[]),
+            [MagicMock(id="fp-1")],
+            [],
+            "available",
+        ),
+        (
+            MagicMock(project=None, plans=[], products=[]),
+            [],
+            [MagicMock(id="inv-1")],
+            "available",
+        ),
+        (
+            MagicMock(project=None, plans=[], products=[]),
+            [],
+            [],
+            "empty",
+        ),
+        (
+            UniFiNotFoundError("Not found", status_code=404),
+            [],
+            [],
+            "unsupported",
+        ),
+        (
+            UniFiAuthenticationError("Unauthorized", status_code=401),
+            [],
+            [],
+            "auth_failed",
+        ),
+        (
+            UniFiTimeoutError("Timed out"),
+            [],
+            [],
+            "unreachable",
+        ),
+        (
+            MagicMock(project=None, plans=[], products=[]),
+            UniFiResponseError("Bad gateway", status_code=502),
+            [],
+            "unreachable",
+        ),
+    ],
+    ids=[
+        "project-id",
+        "floor-plans-fallback",
+        "inventory-fallback",
+        "all-empty",
+        "404-unsupported",
+        "401-auth-failed",
+        "timeout-unreachable",
+        "secondary-502-unreachable",
+    ],
+)
+async def test_probe_innerspace_statuses(
+    project: object,
+    floor_plans: object,
+    inventory: object,
+    expected: str,
+) -> None:
+    """InnerSpace probe classifies available, empty, unsupported, and errors."""
+    client = MagicMock()
+    if isinstance(project, Exception):
+        client.get_project = AsyncMock(side_effect=project)
+    else:
+        client.get_project = AsyncMock(return_value=project)
+    if isinstance(floor_plans, Exception):
+        client.list_floor_plans = AsyncMock(side_effect=floor_plans)
+    else:
+        client.list_floor_plans = AsyncMock(return_value=floor_plans)
+    client.list_access_points = AsyncMock(return_value=[])
+    client.list_switches = AsyncMock(return_value=[])
+    client.list_inventory = AsyncMock(return_value=inventory)
+
+    result = await async_probe_innerspace(client)
+
+    assert result.status is ProbeStatus(expected)

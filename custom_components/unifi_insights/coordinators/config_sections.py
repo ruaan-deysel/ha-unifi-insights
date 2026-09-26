@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from custom_components.unifi_insights.api import UniFiAuthenticationError
 from custom_components.unifi_insights.topology_contract import normalize_mac
+
+from .internet_activity import resolve_report_site_name as resolve_report_site_name
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -180,9 +183,6 @@ def client_links(active_clients: list[Any]) -> dict[str, dict[str, Any]]:
     return links
 
 
-from .internet_activity import resolve_report_site_name as resolve_report_site_name
-
-
 async def async_fetch_site_wifi_and_links(
     coordinator: Any,
     site_id: str,
@@ -190,8 +190,6 @@ async def async_fetch_site_wifi_and_links(
     failed_sections: set[tuple[str, str]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Fetch WiFi networks, client links, and legacy WiFi enrichment for one site."""
-    from functools import partial
-
     wifi_models = await coordinator._fetch_optional_section(
         "wifi", site_id, partial(coordinator.network_client.wifi.get_all, site_id)
     )
@@ -243,8 +241,6 @@ async def async_fetch_site_firewall(
     failed_sections: set[tuple[str, str]],
 ) -> dict[str, Any]:
     """Fetch firewall rules for one site."""
-    from functools import partial
-
     firewall_models = await coordinator._fetch_optional_section(
         "firewall_rules",
         site_id,

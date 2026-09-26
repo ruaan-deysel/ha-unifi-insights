@@ -61,11 +61,22 @@ from custom_components.unifi_insights.coordinators.config import (
     UnifiConfigCoordinator,
     aggregate_internet_activity_windows,
 )
+from custom_components.unifi_insights.coordinators.config_sections import (
+    async_fetch_site_routes,
+    async_fetch_site_wifi_and_links,
+    enrich_wifi,
+    map_legacy_site_names,
+    resolve_report_site_name,
+    wifi_qr_payload,
+)
 from custom_components.unifi_insights.coordinators.device import (
     MAX_STATS_REUSE_POLLS,
     UnifiDeviceCoordinator,
 )
 from custom_components.unifi_insights.coordinators.facade import UnifiFacadeCoordinator
+from custom_components.unifi_insights.coordinators.internet_activity import (
+    async_update_site_internet_activity,
+)
 from custom_components.unifi_insights.coordinators.protect import (
     MAX_CONSECUTIVE_EMPTY_FETCHES,
     MAX_CONSECUTIVE_MISSING_POLLS,
@@ -7024,15 +7035,7 @@ class TestUnifiInsightsInnerSpaceCoordinator:
         mock_network_client: MagicMock,
     ) -> None:
         """Test edge branches in config_sections helper functions."""
-        from custom_components.unifi_insights.coordinators.config_sections import (
-            async_fetch_site_routes,
-            enrich_wifi,
-            map_legacy_site_names,
-            resolve_report_site_name,
-            wifi_qr_payload,
-        )
-
-        # map_legacy_site_names: skip non-str/empty name and fall back to single legacy site
+        # map_legacy_site_names: skip empty name and fall back to single legacy site
         mappings = map_legacy_site_names(
             {"unmatched_site": {"name": "Office"}},
             [{"name": ""}, {"name": "default", "desc": "Main"}],
@@ -7044,7 +7047,7 @@ class TestUnifiInsightsInnerSpaceCoordinator:
         assert "T:WEP" in qr
         assert "H:true" in qr
 
-        # enrich_wifi: client without essid, wifi without ssid, wifi without matching config
+        # enrich_wifi: client without essid, wifi without ssid/matching config
         wifi_dict: dict[str, dict[str, Any]] = {
             "w1": {"id": "w1"},
             "w2": {"id": "w2", "name": "UnmatchedSSID"},
@@ -7073,13 +7076,6 @@ class TestUnifiInsightsInnerSpaceCoordinator:
         assert list(routes.keys()) == ["r1"]
 
         # async_update_site_internet_activity: failed fetch with no prior_activity
-        from custom_components.unifi_insights.coordinators.config_sections import (
-            async_fetch_site_wifi_and_links,
-        )
-        from custom_components.unifi_insights.coordinators.internet_activity import (
-            async_update_site_internet_activity,
-        )
-
         failed_set: set[tuple[str, str]] = set()
         activity_map: dict[str, dict[str, dict[str, int]]] = {}
         await async_update_site_internet_activity(
@@ -7095,7 +7091,7 @@ class TestUnifiInsightsInnerSpaceCoordinator:
         assert ("internet_activity", "site1") in failed_set
         assert "site1" not in activity_map
 
-        # async_fetch_site_wifi_and_links: get_legacy_configs raising logs debug and still returns wifi_dict
+        # async_fetch_site_wifi_and_links: get_legacy_configs raising logs debug
         dummy_coord = MagicMock()
         dummy_coord._fetch_optional_section = AsyncMock(
             return_value=[{"id": "w1", "name": "Net"}]

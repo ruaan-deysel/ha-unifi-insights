@@ -75,6 +75,7 @@ class ReportsEndpoint:
         start: int | None = None,
         end: int | None = None,
         attrs: Sequence[str] | None = None,
+        expected_unsupported: bool = True,
     ) -> list[SiteReportBucket]:
         """
         Fetch historical site traffic report buckets for a time window.
@@ -94,6 +95,8 @@ class ReportsEndpoint:
             start: Alias for ``start_ms``.
             end: Alias for ``end_ms``.
             attrs: Optional attribute list (defaults to WAN RX/TX byte fields).
+            expected_unsupported: Whether a non-JSON 2xx response is an
+                expected unsupported-endpoint signal.
 
         Returns:
             List of validated ``SiteReportBucket`` instances.
@@ -127,7 +130,11 @@ class ReportsEndpoint:
             "start": int(resolved_start),
             "end": int(resolved_end),
         }
-        response = await self._client._post(path, json_data=payload)
+        response = await self._client._post(
+            path,
+            json_data=payload,
+            expected_unsupported=expected_unsupported,
+        )
         raw_items = self._extract_buckets_list(response)
 
         buckets: list[SiteReportBucket] = []

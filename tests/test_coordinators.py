@@ -7017,3 +7017,57 @@ class TestUnifiInsightsInnerSpaceCoordinator:
         data = await config_coord._async_update_data()
         assert data["sites"] == {}
         assert config_coord.available is True
+
+    @pytest.mark.asyncio
+    async def test_config_sections_helper_branches(
+        self,
+        mock_network_client: MagicMock,
+    ) -> None:
+        """Test edge branches in config_sections helper functions."""
+        from custom_components.unifi_insights.coordinators.config_sections import (
+            async_fetch_site_routes,
+            enrich_wifi,
+            map_legacy_site_names,
+            resolve_report_site_name,
+            wifi_qr_payload,
+        )
+
+        # map_legacy_site_names: skip non-str/empty name and fall back to single legacy site
+        mappings = map_legacy_site_names(
+            {"unmatched_site": {"name": "Office"}},
+            [{"name": ""}, {"name": "default", "desc": "Main"}],
+        )
+        assert mappings == {"unmatched_site": "default"}
+
+        # wifi_qr_payload: WEP and hidden SSID
+        qr = wifi_qr_payload("My;Net", "secret", "wep", hidden=True)
+        assert "T:WEP" in qr
+        assert "H:true" in qr
+
+        # enrich_wifi: client without essid, wifi without ssid, wifi without matching config
+        wifi_dict: dict[str, dict[str, Any]] = {
+            "w1": {"id": "w1"},
+            "w2": {"id": "w2", "name": "UnmatchedSSID"},
+        }
+        enrich_wifi(
+            wifi_dict,
+            [{"name": "OtherSSID", "x_passphrase": "pw", "security": "wpapsk"}],
+            [{"is_wired": False}],
+        )
+        assert wifi_dict["w2"]["num_connected_clients"] == 0
+
+        # resolve_report_site_name: non-dict site_data and internalReference fallback
+        assert resolve_report_site_name("site1", "not_a_dict", None) == "site1"
+        assert (
+            resolve_report_site_name("site1", {"internalReference": "custom_ref"}, None)
+            == "custom_ref"
+        )
+
+        # async_fetch_site_routes: route without id is skipped
+        mock_network_client.routes.list_routes = AsyncMock(
+            return_value=[{"name": "no-id"}, {"id": "r1", "name": "with-id"}]
+        )
+        routes = await async_fetch_site_routes(
+            mock_network_client, dict, "site1", "default"
+        )
+        assert list(routes.keys()) == ["r1"]

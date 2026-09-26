@@ -16,9 +16,18 @@ from custom_components.unifi_insights.api import (
     UniFiTimeoutError,
 )
 from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_CONFIG
-from custom_components.unifi_insights.topology_contract import normalize_mac
 
 from .base import UnifiBaseCoordinator
+from .config_sections import (
+    async_fetch_site_routes,
+    async_fetch_site_vpn_clients,
+    async_fetch_site_vpns,
+    client_links,
+    enrich_wifi,
+    map_legacy_site_names,
+    resolve_report_site_name,
+    wifi_qr_payload,
+)
 from .internet_activity import (
     WINDOW_1D_MS,
     WINDOW_1H_MS,
@@ -63,6 +72,11 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     - Network info
     """
 
+    _map_legacy_site_names = staticmethod(map_legacy_site_names)
+    _wifi_qr_payload = staticmethod(wifi_qr_payload)
+    _enrich_wifi = staticmethod(enrich_wifi)
+    _client_links = staticmethod(client_links)
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -96,13 +110,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             "internet_activity": {},
             "internet_activity_unavailable": set(),
         }
-        # Every site the console reports (id -> display name), before the
-        # site filter is applied, so the options flow can offer all of them.
         self.available_sites: dict[str, str] = {}
         self._warned_no_selected_sites = False
-        # (section, site_id) pairs for optional sections (WiFi, firewall,
-        # internet_activity) whose last fetch failed. They keep their previous
-        # data but report unavailable, without failing the whole refresh.
         self._failed_sections: set[tuple[str, str]] = set()
 
     def wifi_available(self, site_id: str) -> bool:
@@ -129,18 +138,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         site_id: str,
         fetch: Callable[[], Awaitable[list[Any]]],
     ) -> list[Any] | None:
-        """
-        Fetch an optional per-site section (WiFi networks, firewall rules).
-
-        Returns the models, an empty list when the console or API key does
-        not offer the feature, or None when the fetch failed. A failure used
-        to be reported as an empty section with a successful refresh, which
-        blanked those entities; the caller now keeps the previous data and
-        marks the section unavailable instead. It deliberately does not fail
-        the whole refresh: at setup that would block every other platform
-        (including Protect) on one optional endpoint. A 401 still raises so
-        reauth starts.
-        """
+        """Fetch an optional per-site section (WiFi, firewall, or site reports)."""
         try:
             return await fetch()
         except UniFiAuthenticationError as err:
@@ -204,181 +202,9 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             now_ms=now_ms,
         )
 
-    @staticmethod
-    def _map_legacy_site_names(
-        integration_sites: dict[str, dict[str, Any]],
-        legacy_sites: list[dict[str, Any]],
-    ) -> dict[str, str]:
-        """Map integration site IDs to classic ("legacy") site names."""
-
-        def _norm(value: Any) -> str | None:
-            if not isinstance(value, str):
-                return None
-            stripped = value.strip().lower()
-            return stripped or None
-
-        legacy: list[tuple[str, set[str]]] = []
-        for site in legacy_sites:
-            name = site.get("name")
-            if not isinstance(name, str) or not name:
-                continue
-            candidates = {
-                c
-                for c in (
-                    _norm(name),
-                    _norm(site.get("desc")),
-                    _norm(site.get("description")),
-                )
-                if c is not None
-            }
-            legacy.append((name, candidates))
-
-        mappings: dict[str, str] = {}
-        for site_id, site_data in integration_sites.items():
-            candidates = {
-                c
-                for c in (
-                    _norm(site_id),
-                    _norm(site_data.get("name")),
-                    _norm(site_data.get("description")),
-                    _norm(site_data.get("desc")),
-                )
-                if c is not None
-            }
-            for legacy_name, legacy_candidates in legacy:
-                if candidates & legacy_candidates:
-                    mappings[site_id] = legacy_name
-                    break
-            if site_id not in mappings and len(legacy) == 1:
-                mappings[site_id] = legacy[0][0]
-        return mappings
-
-    @staticmethod
-    def _wifi_qr_payload(
-        ssid: str,
-        passphrase: str | None,
-        security: str | None,
-        *,
-        hidden: bool,
-    ) -> str:
-        """
-        Build a standard ``WIFI:`` QR payload string.
-
-        Follows the de-facto WiFi network config QR format consumed by phone
-        cameras: ``WIFI:T:<auth>;S:<ssid>;P:<password>;H:<hidden>;;``.
-        """
-
-        def _escape(value: str) -> str:
-            for char in ("\\", ";", ",", ":", '"'):
-                value = value.replace(char, f"\\{char}")
-            return value
-
-        security_lower = (security or "").lower()
-        if not passphrase or security_lower in ("", "open", "none"):
-            auth = "nopass"
-        elif "wep" in security_lower:
-            auth = "WEP"
-        else:
-            auth = "WPA"
-
-        parts = [f"T:{auth}", f"S:{_escape(ssid)}"]
-        if auth != "nopass" and passphrase:
-            parts.append(f"P:{_escape(passphrase)}")
-        if hidden:
-            parts.append("H:true")
-        return "WIFI:" + ";".join(parts) + ";;"
-
-    @staticmethod
-    def _enrich_wifi(
-        wifi_dict: dict[str, dict[str, Any]],
-        legacy_configs: list[dict[str, Any]],
-        active_clients: list[dict[str, Any]],
-    ) -> None:
-        """
-        Add secrets, per-SSID client counts, and QR payloads to WiFi data.
-
-        Secrets come from the classic ``/rest/wlanconf`` data (the official API
-        redacts them); per-SSID counts are derived from active clients' essid.
-        """
-        configs_by_name = {
-            config.get("name"): config
-            for config in legacy_configs
-            if config.get("name")
-        }
-
-        counts: dict[str, int] = {}
-        for client in active_clients:
-            if client.get("is_wired"):
-                continue
-            essid = client.get("essid")
-            if essid:
-                counts[essid] = counts.get(essid, 0) + 1
-
-        for wifi in wifi_dict.values():
-            ssid = wifi.get("name") or wifi.get("ssid")
-            if not ssid:
-                continue
-
-            wifi["num_connected_clients"] = counts.get(ssid, 0)
-
-            config = configs_by_name.get(ssid)
-            if config is None:
-                continue
-
-            passphrase = config.get("x_passphrase")
-            security = config.get("security")
-            hidden = bool(config.get("hide_ssid"))
-            wifi["ssid"] = ssid
-            wifi["passphrase"] = passphrase
-            wifi["security"] = security
-            wifi["wpa_mode"] = config.get("wpa_mode")
-            wifi["hide_ssid"] = hidden
-            wifi["is_guest"] = config.get("is_guest", wifi.get("isGuest", False))
-            wifi["qr_code"] = UnifiConfigCoordinator._wifi_qr_payload(
-                ssid, passphrase, security, hidden=hidden
-            )
-
-    @staticmethod
-    def _client_links(active_clients: list[Any]) -> dict[str, dict[str, Any]]:
-        """
-        Extract each active client's switch port, AP, VLAN and network name.
-
-        The v1 clients endpoint leaves swMac/swPort/apMac/vlan/networkId null
-        on current firmware; the classic /stat/sta response (already fetched
-        for per-SSID counts) carries them. Keyed by normalised client MAC so
-        the topology builder can join it to v1 clients.
-        """
-        links: dict[str, dict[str, Any]] = {}
-        for client in active_clients:
-            if not isinstance(client, dict):
-                continue
-            client_mac = normalize_mac(client.get("mac"))
-            if client_mac is None:
-                continue
-            link: dict[str, Any] = {}
-            for key in ("sw_mac", "ap_mac"):
-                mac = normalize_mac(client.get(key))
-                if mac is not None:
-                    link[key] = mac
-            sw_port = client.get("sw_port")
-            if isinstance(sw_port, int) and not isinstance(sw_port, bool):
-                link["sw_port"] = sw_port
-            # VLAN 0 is an 802.1Q priority tag, not a real VLAN; untagged
-            # (the default network) reports no vlan key at all on real
-            # hardware, so only a VLAN id of 1 or higher is kept.
-            vlan = client.get("vlan")
-            if isinstance(vlan, int) and not isinstance(vlan, bool) and vlan >= 1:
-                link["vlan"] = vlan
-            network_name = client.get("network")
-            if isinstance(network_name, str) and network_name:
-                link["network_name"] = network_name
-            links[client_mac] = link
-        return links
-
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch configuration data from API."""
         try:
-            # Get all sites
             _LOGGER.debug("Config coordinator: Fetching sites")
             sites_models = []
             if self._network_available:
@@ -420,29 +246,23 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             sites = self._filter_selected_sites(all_sites)
             self.data["sites"] = sites
 
-            _LOGGER.debug(
-                "Config coordinator: Found %d sites",
-                len(sites),
-            )
-
             if not sites:
-                self.data["sites"] = sites
-                self.data["wifi"] = {}
-                self.data["firewall_rules"] = {}
-                self.data["policy_based_routes"] = {}
-                self.data["vpn_clients"] = {}
-                self.data["site_vpns"] = {}
-                self.data["network_info"] = {}
-                self.data["client_links"] = {}
-                self.data["internet_activity"] = {}
+                for key in (
+                    "wifi",
+                    "firewall_rules",
+                    "policy_based_routes",
+                    "vpn_clients",
+                    "site_vpns",
+                    "network_info",
+                    "client_links",
+                    "internet_activity",
+                ):
+                    self.data[key] = {}
                 self.data["internet_activity_unavailable"] = set()
                 self._available = True
                 self.data["last_update"] = datetime.now(tz=UTC)
                 return self.data
 
-            # Per-site maps are updated in place below, so drop any site that
-            # is no longer polled (removed from the console, or deselected)
-            # rather than keep serving its last values.
             for key in (
                 "wifi",
                 "firewall_rules",
@@ -456,8 +276,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     if site_id in self.data["sites"]
                 }
 
-            # Resolve classic site names so we can enrich WiFi data with secrets
-            # and per-SSID client counts that the official API does not expose.
             legacy_site_names: dict[str, str] = {}
             legacy_mapping_failed = False
             try:
@@ -470,10 +288,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     err,
                 )
 
-            # Everything below is collected into fresh dicts and only
-            # published once every site has refreshed. An error that fails
-            # the refresh (e.g. a 401) part-way through therefore leaves the
-            # previous snapshot intact rather than a half-updated one.
             wifi_by_site: dict[str, dict[str, Any]] = {}
             firewall_by_site: dict[str, dict[str, Any]] = {}
             internet_activity_by_site: dict[str, dict[str, dict[str, int]]] = {}
@@ -485,10 +299,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
 
             for site_id in sites:
-                _LOGGER.debug(
-                    "Config coordinator: Fetching WiFi networks for site %s",
-                    site_id,
-                )
                 wifi_models = await self._fetch_optional_section(
                     "wifi", site_id, partial(self.network_client.wifi.get_all, site_id)
                 )
@@ -501,9 +311,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     wifi_id = wifi.get("id")
                     if wifi_id:
                         wifi_dict[wifi_id] = wifi
-                # One classic /stat/sta call per site feeds both the topology
-                # client links and the per-SSID Wi-Fi counts. It runs even
-                # when the Wi-Fi section failed, so topology keeps its links.
                 legacy_name = legacy_site_names.get(site_id)
                 active_clients: list[Any] | None = None
                 if legacy_name:
@@ -525,8 +332,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     if active_clients is not None
                     else self.data["client_links"].get(site_id, {})
                 )
-
-                # Enrich with classic data (secrets, per-SSID counts, QR).
                 if (
                     wifi_models is not None
                     and legacy_name
@@ -546,20 +351,9 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                             site_id,
                             err,
                         )
-
                 if wifi_models is not None:
                     wifi_by_site[site_id] = wifi_dict
-                    _LOGGER.debug(
-                        "Config coordinator: Successfully fetched %d WiFi networks "
-                        "for site %s",
-                        len(wifi_dict),
-                        site_id,
-                    )
 
-                _LOGGER.debug(
-                    "Config coordinator: Fetching firewall rules for site %s",
-                    site_id,
-                )
                 firewall_models = await self._fetch_optional_section(
                     "firewall_rules",
                     site_id,
@@ -578,32 +372,13 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     )
                 else:
                     firewall_by_site[site_id] = firewall_rules_dict
-                    _LOGGER.debug(
-                        "Config coordinator: Successfully fetched %d firewall rules "
-                        "for site %s",
-                        len(firewall_rules_dict),
-                        site_id,
-                    )
 
-                # Fetch historical internet activity reports (5minutes, hourly, daily)
-                site_data = sites.get(site_id, {})
-                report_site_name = (
-                    legacy_name
-                    or (
-                        site_data.get("internal_reference")
-                        if isinstance(site_data, dict)
-                        else None
-                    )
-                    or (
-                        site_data.get("internalReference")
-                        if isinstance(site_data, dict)
-                        else None
-                    )
-                    or site_id
+                report_site_name = resolve_report_site_name(
+                    site_id, sites.get(site_id), legacy_name
                 )
                 site_activity = await self._fetch_site_internet_activity(
                     site_id=site_id,
-                    site_name=str(report_site_name),
+                    site_name=report_site_name,
                     now_ms=now_ms,
                 )
                 if site_activity is None:
@@ -614,116 +389,19 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 elif site_activity:
                     internet_activity_by_site[site_id] = site_activity
 
-                # Fetch policy-based routes (traffic routes) via legacy v2 endpoint
-                legacy_name = legacy_site_names.get(site_id)
-                if legacy_name:
-                    try:
-                        _LOGGER.debug(
-                            "Config coordinator: Fetching policy-based routes "
-                            "for site %s (%s)",
-                            site_id,
-                            legacy_name,
-                        )
-                        route_models = await self.network_client.routes.list_routes(
-                            legacy_name
-                        )
-                        routes_dict: dict[str, Any] = {}
-                        for route_model in route_models:
-                            route = self._model_to_dict(route_model)
-                            route_id = route.get("id") or route.get("_id")
-                            if route_id:
-                                routes_dict[route_id] = route
-                        routes_by_site[site_id] = routes_dict
-                        _LOGGER.debug(
-                            "Config coordinator: Successfully fetched %d "
-                            "policy-based routes for site %s",
-                            len(routes_dict),
-                            site_id,
-                        )
-                    except UniFiAuthenticationError:
-                        raise
-                    except Exception as err:
-                        _LOGGER.debug(
-                            "Config coordinator: Policy-based routes unavailable "
-                            "for site %s: %s",
-                            site_id,
-                            err,
-                        )
-                        routes_by_site[site_id] = {}
-                else:
-                    routes_by_site[site_id] = {}
-
-                # Fetch VPN clients via classic networkconf endpoint
-                if legacy_name:
-                    try:
-                        _LOGGER.debug(
-                            "Config coordinator: Fetching VPN clients for site %s (%s)",
-                            site_id,
-                            legacy_name,
-                        )
-                        vpn_client_models = (
-                            await self.network_client.vpn_clients.list_vpn_clients(
-                                legacy_name
-                            )
-                        )
-                        vpn_clients_dict: dict[str, Any] = {}
-                        for vpn_client_model in vpn_client_models:
-                            vpn_client = self._model_to_dict(vpn_client_model)
-                            vpn_client_id = vpn_client.get("id") or vpn_client.get(
-                                "_id"
-                            )
-                            if vpn_client_id:
-                                vpn_clients_dict[vpn_client_id] = vpn_client
-                        vpn_clients_by_site[site_id] = vpn_clients_dict
-                        _LOGGER.debug(
-                            "Config coordinator: Successfully fetched %d "
-                            "VPN clients for site %s",
-                            len(vpn_clients_dict),
-                            site_id,
-                        )
-                    except UniFiAuthenticationError:
-                        raise
-                    except Exception as err:
-                        _LOGGER.debug(
-                            "Config coordinator: VPN clients unavailable "
-                            "for site %s: %s",
-                            site_id,
-                            err,
-                        )
-                        vpn_clients_by_site[site_id] = {}
-                else:
-                    vpn_clients_by_site[site_id] = {}
-
-                # Site-to-site VPN tunnels (names/types for per-tunnel entities;
-                # their live state comes from the device coordinator).
-                if legacy_name:
-                    try:
-                        vpn_endpoint = self.network_client.vpn_clients
-                        tunnels = await vpn_endpoint.list_site_to_site_vpns(legacy_name)
-                        site_vpns_by_site[site_id] = {
-                            tunnel["id"]: tunnel for tunnel in tunnels
-                        }
-                    except UniFiAuthenticationError:
-                        raise
-                    except Exception as err:
-                        _LOGGER.debug(
-                            "Config coordinator: Site-to-site VPNs unavailable "
-                            "for site %s: %s",
-                            site_id,
-                            err,
-                        )
-                        # Keep the last known tunnels: their sensors would
-                        # otherwise all go unavailable until the next poll.
-                        site_vpns_by_site[site_id] = self.data.get("site_vpns", {}).get(
-                            site_id, {}
-                        )
-                elif legacy_mapping_failed:
-                    # Same reason: the tunnels were not re-read, not deleted.
-                    site_vpns_by_site[site_id] = self.data.get("site_vpns", {}).get(
-                        site_id, {}
-                    )
-                else:
-                    site_vpns_by_site[site_id] = {}
+                routes_by_site[site_id] = await async_fetch_site_routes(
+                    self.network_client, self._model_to_dict, site_id, legacy_name
+                )
+                vpn_clients_by_site[site_id] = await async_fetch_site_vpn_clients(
+                    self.network_client, self._model_to_dict, site_id, legacy_name
+                )
+                site_vpns_by_site[site_id] = await async_fetch_site_vpns(
+                    self.network_client,
+                    site_id,
+                    legacy_name,
+                    legacy_mapping_failed=legacy_mapping_failed,
+                    prior_site_vpns=self.data.get("site_vpns", {}).get(site_id, {}),
+                )
 
             self.data["sites"] = sites
             self.data["wifi"] = wifi_by_site
@@ -746,18 +424,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 )
             self._failed_sections = failed_sections
             self._available = True
-            _LOGGER.debug(
-                "Config coordinator: Update complete - %d sites, %d WiFi configs, "
-                "%d firewall rules, %d policy-based routes, %d VPN clients",
-                len(self.data["sites"]),
-                sum(len(w) for w in self.data["wifi"].values()),
-                sum(len(rules) for rules in self.data["firewall_rules"].values()),
-                sum(
-                    len(routes) for routes in self.data["policy_based_routes"].values()
-                ),
-                sum(len(clients) for clients in self.data["vpn_clients"].values()),
-            )
-
             return self.data
 
         except UniFiAuthenticationError as err:
@@ -771,7 +437,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         except Exception as err:
             self._handle_generic_error(err)
 
-        # Should never reach here due to raises above
         return self.data  # pragma: no cover
 
     def get_site(self, site_id: str) -> dict[str, Any] | None:
@@ -783,12 +448,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     def _filter_selected_sites(
         self, sites: dict[str, dict[str, Any]]
     ) -> dict[str, dict[str, Any]]:
-        """
-        Narrow sites to the ones selected in options.
-
-        Both coordinators fan out per site from ``self.data["sites"]``, so
-        filtering here is what keeps unselected sites off the API entirely.
-        """
+        """Narrow sites to the ones selected in options."""
         selected = self.config_entry.options.get(CONF_SITE_IDS)
         if not selected or not sites:
             return sites
@@ -799,7 +459,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         if filtered:
             self._warned_no_selected_sites = False
         elif not self._warned_no_selected_sites:
-            # Warn once rather than on every poll until the user acts.
             self._warned_no_selected_sites = True
             _LOGGER.warning(
                 "Config coordinator: none of the selected sites (%s) exist on "

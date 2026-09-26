@@ -2690,6 +2690,7 @@ async def test_site_report_bucket_and_endpoint_local_and_remote() -> None:
             "start": 1790370000000,
             "end": 1790373600000,
         },
+        expected_unsupported=True,
     )
     assert len(buckets) == 2
     assert buckets[0].time == 1790373600000
@@ -2723,10 +2724,31 @@ async def test_site_report_bucket_and_endpoint_local_and_remote() -> None:
             "start": 1790300000000,
             "end": 1790370000000,
         },
+        expected_unsupported=True,
     )
     assert len(remote_buckets) == 1
     assert remote_buckets[0].rx_bytes == 2048
     assert remote_buckets[0].tx_bytes == 1024
+
+    # BaseUniFiClient._post forwards expected_unsupported to _request
+    post_client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    post_client._request = AsyncMock(return_value={"data": []})
+    await post_client._post(
+        "/proxy/network/api/s/default/stat/report/daily.site",
+        json_data={"start": 1, "end": 2},
+        expected_unsupported=True,
+    )
+    post_client._request.assert_awaited_once_with(
+        "POST",
+        "/proxy/network/api/s/default/stat/report/daily.site",
+        json_data={"start": 1, "end": 2},
+        params=None,
+        expected_unsupported=True,
+    )
 
     # meta.rc == "error" raises UniFiResponseError
     local_client._post = AsyncMock(

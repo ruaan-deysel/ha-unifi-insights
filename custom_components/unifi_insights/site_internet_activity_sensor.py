@@ -15,9 +15,8 @@ from homeassistant.const import UnitOfInformation
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER
 from .coordinators import UnifiFacadeCoordinator
-from .entity import is_gateway_device
+from .entity import build_site_device_info, find_site_gateway_device_id
 
 
 @dataclass
@@ -157,36 +156,11 @@ class UnifiSiteInternetActivitySensor(
 
     def _find_gateway_device_id(self) -> str | None:
         """Find the gateway device ID for this site."""
-        site_devices = self.coordinator.data.get("devices", {}).get(self._site_id, {})
-        if not isinstance(site_devices, dict):
-            return None
-
-        for device_id, device_data in site_devices.items():
-            if isinstance(device_data, dict) and is_gateway_device(device_data):
-                return str(device_id)
-
-        return None
+        return find_site_gateway_device_id(self.coordinator.data, self._site_id)
 
     def _build_device_info(self) -> dict[str, Any]:
         """Build device info for site-level entity grouping."""
-        gateway_id = self._find_gateway_device_id()
-        if gateway_id is not None:
-            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_id}")}}
-
-        site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
-        meta = site_data.get("meta", {}) if isinstance(site_data, dict) else {}
-        site_name = (meta.get("name") if isinstance(meta, dict) else None) or (
-            site_data.get("name", self._site_id)
-            if isinstance(site_data, dict)
-            else self._site_id
-        )
-
-        return {
-            "identifiers": {(DOMAIN, f"site_{self._site_id}")},
-            "name": f"UniFi Site ({site_name})",
-            "manufacturer": MANUFACTURER,
-            "model": "UniFi Site",
-        }
+        return build_site_device_info(self.coordinator.data, self._site_id)
 
     def _get_window_value(self) -> int | None:
         """Return the current byte total for this sensor's window and metric."""

@@ -43,11 +43,11 @@ from custom_components.unifi_insights.sensor import (
     UnifiProtectSensorEntityDescription,
     UnifiSiteClientSensor,
     UnifiSiteInternetActivitySensor,
-    _discover_site_internet_activity_sensors,
     UnifiWifiClientCountSensor,
     _bytes_to_gb,
     _calculate_storage_available,
     _calculate_storage_percent,
+    _discover_site_internet_activity_sensors,
     _get_client_type,
     _get_port_label,
     _get_storage_bytes,
@@ -3901,7 +3901,8 @@ class TestUnifiSiteInternetActivitySensor:
         assert sensor.available is False
         coordinator.last_update_success = True
 
-        # Non-dict site_devices, non-gateway device, non-dict data/site_windows, bool value
+        # Non-dict site_devices, non-gateway device, non-dict data/site_windows,
+        # and bool value
         coordinator.data["devices"]["site1"] = "not_a_dict"
         assert sensor._find_gateway_device_id() is None
         coordinator.data["devices"]["site1"] = {"sw1": {"features": ["switching"]}}
@@ -3909,9 +3910,14 @@ class TestUnifiSiteInternetActivitySensor:
         coordinator.data["internet_activity"]["site1"] = {"1h": {"rx_bytes": True}}
         assert sensor.native_value is None
         coordinator.data["internet_activity"]["site1"] = "not_a_dict"
+        assert sensor.native_value is None
         assert _discover_site_internet_activity_sensors(coordinator, set()) == []
         coordinator.data["internet_activity"] = {"site1": {"1h": {"rx_bytes": 100}}}
-        assert len(_discover_site_internet_activity_sensors(coordinator, set())) == 1
+        known_keys: set[tuple[str, ...]] = set()
+        assert (
+            len(_discover_site_internet_activity_sensors(coordinator, known_keys)) == 1
+        )
+        assert _discover_site_internet_activity_sensors(coordinator, known_keys) == []
         coordinator.data["internet_activity"] = "not_a_dict"
         assert _discover_site_internet_activity_sensors(coordinator, set()) == []
         assert sensor.native_value is None

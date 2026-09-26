@@ -568,6 +568,7 @@ class BaseUniFiClient(ABC):
         *,
         json_data: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        expected_unsupported: bool = False,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a POST request.
@@ -576,12 +577,20 @@ class BaseUniFiClient(ABC):
             path: API path.
             json_data: JSON body data.
             params: Query parameters.
+            expected_unsupported: Whether a non-JSON 2xx response is an
+                expected unsupported-endpoint signal.
 
         Returns:
             Response data.
 
         """
-        return await self._request("POST", path, json_data=json_data, params=params)
+        return await self._request(
+            "POST",
+            path,
+            json_data=json_data,
+            params=params,
+            expected_unsupported=expected_unsupported,
+        )
 
     async def _put(
         self,

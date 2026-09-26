@@ -52,6 +52,7 @@ from .coordinators import UnifiFacadeCoordinator
 from .entity import (
     UnifiInsightsEntity,
     UnifiProtectEntity,
+    build_site_device_info,
     device_has_feature,
     first_not_none,
     get_field,
@@ -64,9 +65,9 @@ from .innerspace_entity import (
     _discover_innerspace_sensors,
 )
 from .site_internet_activity_sensor import (
-    SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
-    UnifiSiteInternetActivitySensor,
-    UnifiSiteInternetActivitySensorEntityDescription,
+    SITE_INTERNET_ACTIVITY_SENSOR_TYPES as SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
+    UnifiSiteInternetActivitySensor as UnifiSiteInternetActivitySensor,
+    UnifiSiteInternetActivitySensorEntityDescription as UnifiSiteInternetActivitySensorEntityDescription,
     _discover_site_internet_activity_sensors,
 )
 
@@ -2284,36 +2285,9 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
         self._attr_name = description.name  # type: ignore[assignment]
         self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
 
-    def _find_gateway_device_id(self) -> str | None:
-        """Find the gateway device ID for this site."""
-        site_devices = self.coordinator.data.get("devices", {}).get(self._site_id, {})
-        if not isinstance(site_devices, dict):
-            return None
-
-        for device_id, device_data in site_devices.items():
-            if isinstance(device_data, dict) and is_gateway_device(device_data):
-                return str(device_id)
-
-        return None
-
     def _build_device_info(self) -> dict[str, Any]:
         """Build device info for site-level entity grouping."""
-        gateway_id = self._find_gateway_device_id()
-        if gateway_id is not None:
-            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_id}")}}
-
-        site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
-        meta = site_data.get("meta", {})
-        site_name = (
-            meta.get("name") if isinstance(meta, dict) else None
-        ) or site_data.get("name", self._site_id)
-
-        return {
-            "identifiers": {(DOMAIN, f"site_{self._site_id}")},
-            "name": f"UniFi Site ({site_name})",
-            "manufacturer": MANUFACTURER,
-            "model": "UniFi Site",
-        }
+        return build_site_device_info(self.coordinator.data, self._site_id)
 
     @property
     def available(self) -> bool:

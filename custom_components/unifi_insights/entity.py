@@ -103,6 +103,43 @@ def is_gateway_device(device_data: dict[str, Any]) -> bool:
     )
 
 
+def find_site_gateway_device_id(
+    coordinator_data: dict[str, Any], site_id: str
+) -> str | None:
+    """Find the gateway device ID for a site from coordinator data."""
+    site_devices = coordinator_data.get("devices", {}).get(site_id, {})
+    if not isinstance(site_devices, dict):
+        return None
+
+    for device_id, device_data in site_devices.items():
+        if isinstance(device_data, dict) and is_gateway_device(device_data):
+            return str(device_id)
+
+    return None
+
+
+def build_site_device_info(
+    coordinator_data: dict[str, Any], site_id: str
+) -> dict[str, Any]:
+    """Build DeviceInfo dictionary for site-level entity grouping."""
+    gateway_id = find_site_gateway_device_id(coordinator_data, site_id)
+    if gateway_id is not None:
+        return {"identifiers": {(DOMAIN, f"{site_id}_{gateway_id}")}}
+
+    site_data = coordinator_data.get("sites", {}).get(site_id, {})
+    meta = site_data.get("meta", {}) if isinstance(site_data, dict) else {}
+    site_name = (meta.get("name") if isinstance(meta, dict) else None) or (
+        site_data.get("name", site_id) if isinstance(site_data, dict) else site_id
+    )
+
+    return {
+        "identifiers": {(DOMAIN, f"site_{site_id}")},
+        "name": f"UniFi Site ({site_name})",
+        "manufacturer": MANUFACTURER,
+        "model": "UniFi Site",
+    }
+
+
 def is_device_online(data: dict[str, Any]) -> bool:
     """
     Check if device is online, handling different status field formats.

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2026.9.9] - 2026-09-26
+
 ### Added
 
 - Historical **Internet Activity** site-level download and upload sensors for rolling **Last Hour** (`1h`), **Last 24 Hours** (`1d`), **Last 7 Days** (`1w`), and **Last 30 Days** (`1m`) windows (`Internet Download (Last Hour)` / `internet_download_1h`, `Internet Upload (Last Hour)` / `internet_upload_1h`, `Internet Download (Last 24 Hours)` / `internet_download_1d`, `Internet Upload (Last 24 Hours)` / `internet_upload_1d`, `Internet Download (Last 7 Days)` / `internet_download_1w`, `Internet Upload (Last 7 Days)` / `internet_upload_1w`, `Internet Download (Last 30 Days)` / `internet_download_1m`, `Internet Upload (Last 30 Days)` / `internet_upload_1m`), matching the UniFi Network **Internet Activity** (`1H`, `1D`, `1W`, `1M`) time ranges. The config coordinator queries the classic `/stat/report/{5minutes|hourly|daily}.site` endpoints every five minutes (`1d` and `1w` share a single `7d` `hourly` query), groups the entities under each site's gateway device (with virtual site fallback), exposes totals in `B` with a `GB` suggested display unit (`SensorDeviceClass.DATA_SIZE`, `SensorStateClass.MEASUREMENT`), and includes `period`, `unifi_window`, `direction`, and `report_interval` attributes. Consoles that do not support `/stat/report/*.site` skip creating the entities cleanly. [#176](https://github.com/ruaan-deysel/ha-unifi-insights/issues/176)

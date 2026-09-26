@@ -7071,3 +7071,45 @@ class TestUnifiInsightsInnerSpaceCoordinator:
             mock_network_client, dict, "site1", "default"
         )
         assert list(routes.keys()) == ["r1"]
+
+        # async_update_site_internet_activity: failed fetch with no prior_activity
+        from custom_components.unifi_insights.coordinators.config_sections import (
+            async_fetch_site_wifi_and_links,
+        )
+        from custom_components.unifi_insights.coordinators.internet_activity import (
+            async_update_site_internet_activity,
+        )
+
+        failed_set: set[tuple[str, str]] = set()
+        activity_map: dict[str, dict[str, dict[str, int]]] = {}
+        await async_update_site_internet_activity(
+            AsyncMock(return_value=None),
+            site_id="site1",
+            site_data={},
+            legacy_name="default",
+            now_ms=1000,
+            prior_activity=None,
+            internet_activity_by_site=activity_map,
+            failed_sections=failed_set,
+        )
+        assert ("internet_activity", "site1") in failed_set
+        assert "site1" not in activity_map
+
+        # async_fetch_site_wifi_and_links: get_legacy_configs raising logs debug and still returns wifi_dict
+        dummy_coord = MagicMock()
+        dummy_coord._fetch_optional_section = AsyncMock(
+            return_value=[{"id": "w1", "name": "Net"}]
+        )
+        dummy_coord._model_to_dict = dict
+        dummy_coord._client_links = lambda _: {}
+        dummy_coord.data = {"client_links": {}, "wifi": {}}
+        dummy_coord.network_client.clients.get_active_legacy = AsyncMock(
+            return_value=[]
+        )
+        dummy_coord.network_client.wifi.get_legacy_configs = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+        wifi_res, _ = await async_fetch_site_wifi_and_links(
+            dummy_coord, "site1", "default", set()
+        )
+        assert "w1" in wifi_res

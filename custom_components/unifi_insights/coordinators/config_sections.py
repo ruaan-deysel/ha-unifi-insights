@@ -180,21 +180,86 @@ def client_links(active_clients: list[Any]) -> dict[str, dict[str, Any]]:
     return links
 
 
-def resolve_report_site_name(
+from .internet_activity import resolve_report_site_name as resolve_report_site_name
+
+
+async def async_fetch_site_wifi_and_links(
+    coordinator: Any,
     site_id: str,
-    site_data: Any,
     legacy_name: str | None,
-) -> str:
-    """Resolve the classic site name used for ``/stat/report/*.site`` requests."""
+    failed_sections: set[tuple[str, str]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Fetch WiFi networks, client links, and legacy WiFi enrichment for one site."""
+    from functools import partial
+
+    wifi_models = await coordinator._fetch_optional_section(
+        "wifi", site_id, partial(coordinator.network_client.wifi.get_all, site_id)
+    )
+    wifi_dict: dict[str, Any] = {}
+    for wifi_model in wifi_models or []:
+        wifi = coordinator._model_to_dict(wifi_model)
+        wifi_id = wifi.get("id")
+        if wifi_id:
+            wifi_dict[wifi_id] = wifi
+
+    active_clients: list[Any] | None = None
     if legacy_name:
-        return str(legacy_name)
-    if isinstance(site_data, dict):
-        internal_ref = site_data.get("internal_reference") or site_data.get(
-            "internalReference"
-        )
-        if internal_ref:
-            return str(internal_ref)
-    return str(site_id)
+        try:
+            active_clients = await coordinator.network_client.clients.get_active_legacy(
+                legacy_name
+            )
+        except Exception as err:
+            _LOGGER.debug(
+                "Config coordinator: Unable to fetch active clients for site %s: %s",
+                site_id,
+                err,
+            )
+    site_links = (
+        coordinator._client_links(active_clients)
+        if active_clients is not None
+        else coordinator.data["client_links"].get(site_id, {})
+    )
+    if wifi_models is not None and legacy_name and active_clients is not None:
+        try:
+            legacy_configs = await coordinator.network_client.wifi.get_legacy_configs(
+                legacy_name
+            )
+            coordinator._enrich_wifi(wifi_dict, legacy_configs, active_clients)
+        except Exception as err:
+            _LOGGER.debug(
+                "Config coordinator: Unable to enrich WiFi data for site %s: %s",
+                site_id,
+                err,
+            )
+    if wifi_models is None:
+        failed_sections.add(("wifi", site_id))
+        return coordinator.data["wifi"].get(site_id, {}), site_links
+    return wifi_dict, site_links
+
+
+async def async_fetch_site_firewall(
+    coordinator: Any,
+    site_id: str,
+    failed_sections: set[tuple[str, str]],
+) -> dict[str, Any]:
+    """Fetch firewall rules for one site."""
+    from functools import partial
+
+    firewall_models = await coordinator._fetch_optional_section(
+        "firewall_rules",
+        site_id,
+        partial(coordinator.network_client.firewall.list_rules, site_id),
+    )
+    if firewall_models is None:
+        failed_sections.add(("firewall_rules", site_id))
+        return dict(coordinator.data["firewall_rules"].get(site_id, {}))
+    firewall_rules_dict: dict[str, Any] = {}
+    for firewall_model in firewall_models:
+        firewall_rule = coordinator._model_to_dict(firewall_model)
+        firewall_rule_id = firewall_rule.get("id")
+        if firewall_rule_id:
+            firewall_rules_dict[firewall_rule_id] = firewall_rule
+    return firewall_rules_dict
 
 
 async def async_fetch_site_routes(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from functools import partial
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
@@ -19,13 +18,14 @@ from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_
 
 from .base import UnifiBaseCoordinator
 from .config_sections import (
+    async_fetch_site_firewall,
     async_fetch_site_routes,
     async_fetch_site_vpn_clients,
     async_fetch_site_vpns,
+    async_fetch_site_wifi_and_links,
     client_links,
     enrich_wifi,
     map_legacy_site_names,
-    resolve_report_site_name,
     wifi_qr_payload,
 )
 from .internet_activity import (
@@ -36,6 +36,7 @@ from .internet_activity import (
     aggregate_internet_activity_windows,
     async_call_site_report,
     async_fetch_site_internet_activity,
+    async_update_site_internet_activity,
 )
 
 __all__ = [
@@ -60,17 +61,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class UnifiConfigCoordinator(UnifiBaseCoordinator):
-    """
-    Coordinator for slow-changing configuration data (5 minute updates).
-
-    Handles:
-    - Sites configuration
-    - WiFi networks configuration
-    - Firewall policy configuration
-    - Policy-based routes (traffic routes) configuration
-    - Internet activity rolling-window traffic statistics
-    - Network info
-    """
+    """Coordinator for slow-changing configuration data (5 minute updates)."""
 
     _map_legacy_site_names = staticmethod(map_legacy_site_names)
     _wifi_qr_payload = staticmethod(wifi_qr_payload)
@@ -114,23 +105,23 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         self._warned_no_selected_sites = False
         self._failed_sections: set[tuple[str, str]] = set()
 
-    def wifi_available(self, site_id: str) -> bool:
-        """Return True if the last refresh fetched WiFi networks for a site."""
-        return self.last_update_success and ("wifi", site_id) not in (
+    def _section_available(self, section: str, site_id: str) -> bool:
+        """Return True if the last refresh fetched the given section for a site."""
+        return self.last_update_success and (section, site_id) not in (
             self._failed_sections
         )
+
+    def wifi_available(self, site_id: str) -> bool:
+        """Return True if the last refresh fetched WiFi networks for a site."""
+        return self._section_available("wifi", site_id)
 
     def firewall_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched firewall rules for a site."""
-        return self.last_update_success and ("firewall_rules", site_id) not in (
-            self._failed_sections
-        )
+        return self._section_available("firewall_rules", site_id)
 
     def internet_activity_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched internet activity for a site."""
-        return self.last_update_success and ("internet_activity", site_id) not in (
-            self._failed_sections
-        )
+        return self._section_available("internet_activity", site_id)
 
     async def _fetch_optional_section(
         self,
@@ -179,11 +170,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     ) -> list[Any]:
         """Invoke the Network client site report method for one interval."""
         return await async_call_site_report(
-            self.network_client,
-            site_name,
-            interval,
-            start_ms=start_ms,
-            end_ms=end_ms,
+            self.network_client, site_name, interval, start_ms=start_ms, end_ms=end_ms
         )
 
     async def _fetch_site_internet_activity(
@@ -205,7 +192,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch configuration data from API."""
         try:
-            _LOGGER.debug("Config coordinator: Fetching sites")
             sites_models = []
             if self._network_available:
                 other_app_available = (
@@ -217,9 +203,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     if other_app_available:
                         self._network_available = False
                         _LOGGER.debug(
-                            "Config coordinator: Network API not available on "
-                            "console: %s",
-                            err,
+                            "Config coordinator: Network API not available: %s", err
                         )
                     else:
                         raise
@@ -228,8 +212,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                         raise
                     self._network_available = False
                     _LOGGER.debug(
-                        "Config coordinator: sites endpoint returned a non-JSON "
-                        "body (status %s) - console has no Network application",
+                        "Config coordinator: sites endpoint returned non-JSON "
+                        "(status %s)",
                         err.status_code,
                     )
 
@@ -247,20 +231,19 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             self.data["sites"] = sites
 
             if not sites:
-                for key in (
-                    "wifi",
-                    "firewall_rules",
-                    "policy_based_routes",
-                    "vpn_clients",
-                    "site_vpns",
-                    "network_info",
-                    "client_links",
-                    "internet_activity",
-                ):
-                    self.data[key] = {}
-                self.data["internet_activity_unavailable"] = set()
+                self.data.update(
+                    wifi={},
+                    firewall_rules={},
+                    policy_based_routes={},
+                    vpn_clients={},
+                    site_vpns={},
+                    network_info={},
+                    client_links={},
+                    internet_activity={},
+                    internet_activity_unavailable=set(),
+                    last_update=datetime.now(tz=UTC),
+                )
                 self._available = True
-                self.data["last_update"] = datetime.now(tz=UTC)
                 return self.data
 
             for key in (
@@ -271,9 +254,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 "site_vpns",
             ):
                 self.data[key] = {
-                    site_id: value
-                    for site_id, value in self.data[key].items()
-                    if site_id in self.data["sites"]
+                    k: v for k, v in self.data[key].items() if k in self.data["sites"]
                 }
 
             legacy_site_names: dict[str, str] = {}
@@ -284,8 +265,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             except Exception as err:
                 legacy_mapping_failed = True
                 _LOGGER.debug(
-                    "Config coordinator: Unable to fetch legacy site mapping: %s",
-                    err,
+                    "Config coordinator: Unable to fetch legacy site mapping: %s", err
                 )
 
             wifi_by_site: dict[str, dict[str, Any]] = {}
@@ -299,96 +279,26 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
 
             for site_id in sites:
-                wifi_models = await self._fetch_optional_section(
-                    "wifi", site_id, partial(self.network_client.wifi.get_all, site_id)
-                )
-                if wifi_models is None:
-                    failed_sections.add(("wifi", site_id))
-                    wifi_by_site[site_id] = self.data["wifi"].get(site_id, {})
-                wifi_dict = {}
-                for wifi_model in wifi_models or []:
-                    wifi = self._model_to_dict(wifi_model)
-                    wifi_id = wifi.get("id")
-                    if wifi_id:
-                        wifi_dict[wifi_id] = wifi
                 legacy_name = legacy_site_names.get(site_id)
-                active_clients: list[Any] | None = None
-                if legacy_name:
-                    try:
-                        active_clients = (
-                            await self.network_client.clients.get_active_legacy(
-                                legacy_name
-                            )
-                        )
-                    except Exception as err:
-                        _LOGGER.debug(
-                            "Config coordinator: Unable to fetch active clients "
-                            "for site %s: %s",
-                            site_id,
-                            err,
-                        )
-                client_links_by_site[site_id] = (
-                    self._client_links(active_clients)
-                    if active_clients is not None
-                    else self.data["client_links"].get(site_id, {})
+                (
+                    wifi_by_site[site_id],
+                    client_links_by_site[site_id],
+                ) = await async_fetch_site_wifi_and_links(
+                    self, site_id, legacy_name, failed_sections
                 )
-                if (
-                    wifi_models is not None
-                    and legacy_name
-                    and active_clients is not None
-                ):
-                    try:
-                        legacy_configs = (
-                            await self.network_client.wifi.get_legacy_configs(
-                                legacy_name
-                            )
-                        )
-                        self._enrich_wifi(wifi_dict, legacy_configs, active_clients)
-                    except Exception as err:
-                        _LOGGER.debug(
-                            "Config coordinator: Unable to enrich WiFi data "
-                            "for site %s: %s",
-                            site_id,
-                            err,
-                        )
-                if wifi_models is not None:
-                    wifi_by_site[site_id] = wifi_dict
-
-                firewall_models = await self._fetch_optional_section(
-                    "firewall_rules",
-                    site_id,
-                    partial(self.network_client.firewall.list_rules, site_id),
+                firewall_by_site[site_id] = await async_fetch_site_firewall(
+                    self, site_id, failed_sections
                 )
-                firewall_rules_dict = {}
-                for firewall_model in firewall_models or []:
-                    firewall_rule = self._model_to_dict(firewall_model)
-                    firewall_rule_id = firewall_rule.get("id")
-                    if firewall_rule_id:
-                        firewall_rules_dict[firewall_rule_id] = firewall_rule
-                if firewall_models is None:
-                    failed_sections.add(("firewall_rules", site_id))
-                    firewall_by_site[site_id] = self.data["firewall_rules"].get(
-                        site_id, {}
-                    )
-                else:
-                    firewall_by_site[site_id] = firewall_rules_dict
-
-                report_site_name = resolve_report_site_name(
-                    site_id, sites.get(site_id), legacy_name
-                )
-                site_activity = await self._fetch_site_internet_activity(
+                await async_update_site_internet_activity(
+                    self._fetch_site_internet_activity,
                     site_id=site_id,
-                    site_name=report_site_name,
+                    site_data=sites.get(site_id),
+                    legacy_name=legacy_name,
                     now_ms=now_ms,
+                    prior_activity=self.data.get("internet_activity", {}).get(site_id),
+                    internet_activity_by_site=internet_activity_by_site,
+                    failed_sections=failed_sections,
                 )
-                if site_activity is None:
-                    failed_sections.add(("internet_activity", site_id))
-                    prior_activity = self.data.get("internet_activity", {}).get(site_id)
-                    if isinstance(prior_activity, dict) and prior_activity:
-                        internet_activity_by_site[site_id] = prior_activity
-                elif site_activity:
-                    internet_activity_by_site[site_id] = site_activity
-
                 routes_by_site[site_id] = await async_fetch_site_routes(
                     self.network_client, self._model_to_dict, site_id, legacy_name
                 )
@@ -403,19 +313,19 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     prior_site_vpns=self.data.get("site_vpns", {}).get(site_id, {}),
                 )
 
-            self.data["sites"] = sites
-            self.data["wifi"] = wifi_by_site
-            self.data["firewall_rules"] = firewall_by_site
-            self.data["internet_activity"] = internet_activity_by_site
-            self.data["internet_activity_unavailable"] = {
-                site_id
-                for section, site_id in failed_sections
-                if section == "internet_activity"
-            }
-            self.data["policy_based_routes"] = routes_by_site
-            self.data["vpn_clients"] = vpn_clients_by_site
-            self.data["site_vpns"] = site_vpns_by_site
-            self.data["client_links"] = client_links_by_site
+            self.data.update(
+                sites=sites,
+                wifi=wifi_by_site,
+                firewall_rules=firewall_by_site,
+                internet_activity=internet_activity_by_site,
+                internet_activity_unavailable={
+                    s for sec, s in failed_sections if sec == "internet_activity"
+                },
+                policy_based_routes=routes_by_site,
+                vpn_clients=vpn_clients_by_site,
+                site_vpns=site_vpns_by_site,
+                client_links=client_links_by_site,
+            )
             for section, site_id in self._failed_sections - failed_sections:
                 _LOGGER.info(
                     "Config coordinator: %s fetch for site %s recovered",
@@ -452,7 +362,6 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         selected = self.config_entry.options.get(CONF_SITE_IDS)
         if not selected or not sites:
             return sites
-
         filtered = {
             site_id: site for site_id, site in sites.items() if site_id in selected
         }
@@ -473,22 +382,16 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
 
     def get_wifi_networks(self, site_id: str) -> dict[str, Any]:
         """Get WiFi networks for a site."""
-        result: dict[str, Any] = self.data.get("wifi", {}).get(site_id, {})
-        return result
+        return dict(self.data.get("wifi", {}).get(site_id, {}))
 
     def get_firewall_rules(self, site_id: str) -> dict[str, Any]:
         """Get firewall rules for a site."""
-        result: dict[str, Any] = self.data.get("firewall_rules", {}).get(site_id, {})
-        return result
+        return dict(self.data.get("firewall_rules", {}).get(site_id, {}))
 
     def get_policy_based_routes(self, site_id: str) -> dict[str, Any]:
         """Get policy-based routes for a site."""
-        result: dict[str, Any] = self.data.get("policy_based_routes", {}).get(
-            site_id, {}
-        )
-        return result
+        return dict(self.data.get("policy_based_routes", {}).get(site_id, {}))
 
     def get_vpn_clients(self, site_id: str) -> dict[str, Any]:
         """Get VPN clients for a site."""
-        result: dict[str, Any] = self.data.get("vpn_clients", {}).get(site_id, {})
-        return result
+        return dict(self.data.get("vpn_clients", {}).get(site_id, {}))

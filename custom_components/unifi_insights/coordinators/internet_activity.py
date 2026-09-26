@@ -173,3 +173,48 @@ async def async_fetch_site_internet_activity(
         daily_buckets,
         now_ms=now_ms,
     )
+
+
+def resolve_report_site_name(
+    site_id: str,
+    site_data: Any,
+    legacy_name: str | None,
+) -> str:
+    """Resolve the classic site name used for ``/stat/report/*.site`` requests."""
+    if legacy_name:
+        return str(legacy_name)
+    if isinstance(site_data, dict):
+        internal_ref = site_data.get("internal_reference") or site_data.get(
+            "internalReference"
+        )
+        if internal_ref:
+            return str(internal_ref)
+    return str(site_id)
+
+
+async def async_update_site_internet_activity(
+    fetch_site_internet_activity: Callable[
+        ..., Awaitable[dict[str, dict[str, int]] | None]
+    ],
+    *,
+    site_id: str,
+    site_data: Any,
+    legacy_name: str | None,
+    now_ms: int,
+    prior_activity: Any,
+    internet_activity_by_site: dict[str, dict[str, dict[str, int]]],
+    failed_sections: set[tuple[str, str]],
+) -> None:
+    """Refresh internet activity for one site and update coordinator state dicts."""
+    report_site_name = resolve_report_site_name(site_id, site_data, legacy_name)
+    site_activity = await fetch_site_internet_activity(
+        site_id=site_id,
+        site_name=report_site_name,
+        now_ms=now_ms,
+    )
+    if site_activity is None:
+        failed_sections.add(("internet_activity", site_id))
+        if isinstance(prior_activity, dict) and prior_activity:
+            internet_activity_by_site[site_id] = prior_activity
+    elif site_activity:
+        internet_activity_by_site[site_id] = site_activity

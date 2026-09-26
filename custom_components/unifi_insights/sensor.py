@@ -873,6 +873,7 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_total_clients",
         translation_key="site_total_clients",
+        name="Total Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:account-group",
         value_fn=len,
@@ -880,6 +881,7 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_wired_clients",
         translation_key="site_wired_clients",
+        name="Wired Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:ethernet",
         value_fn=lambda clients: len(
@@ -889,6 +891,7 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_wireless_clients",
         translation_key="site_wireless_clients",
+        name="Wireless Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wifi",
         value_fn=lambda clients: len(
@@ -2282,7 +2285,6 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
         self._site_id = site_id
 
         self._attr_unique_id = f"{site_id}_{description.key}"
-        self._attr_name = description.name  # type: ignore[assignment]
         self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
 
     def _build_device_info(self) -> dict[str, Any]:

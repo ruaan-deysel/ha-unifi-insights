@@ -27,6 +27,10 @@ class UnifiSiteInternetActivitySensorEntityDescription(  # type: ignore[misc]
 
     window: str = "1h"
     metric: str = "rx_bytes"
+    period_label: str = "Last Hour"
+    unifi_window: str = "1H"
+    direction: str = "download"
+    report_interval: str = "5minutes"
 
 
 SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
@@ -35,8 +39,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_download_1h",
         translation_key="internet_download_1h",
+        name="Internet Download (Last Hour)",
         window="1h",
         metric="rx_bytes",
+        period_label="Last Hour",
+        unifi_window="1H",
+        direction="download",
+        report_interval="5minutes",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -47,8 +56,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_upload_1h",
         translation_key="internet_upload_1h",
+        name="Internet Upload (Last Hour)",
         window="1h",
         metric="tx_bytes",
+        period_label="Last Hour",
+        unifi_window="1H",
+        direction="upload",
+        report_interval="5minutes",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -59,8 +73,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_download_1d",
         translation_key="internet_download_1d",
+        name="Internet Download (Last 24 Hours)",
         window="1d",
         metric="rx_bytes",
+        period_label="Last 24 Hours",
+        unifi_window="1D",
+        direction="download",
+        report_interval="hourly",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -71,8 +90,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_upload_1d",
         translation_key="internet_upload_1d",
+        name="Internet Upload (Last 24 Hours)",
         window="1d",
         metric="tx_bytes",
+        period_label="Last 24 Hours",
+        unifi_window="1D",
+        direction="upload",
+        report_interval="hourly",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -83,8 +107,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_download_1w",
         translation_key="internet_download_1w",
+        name="Internet Download (Last 7 Days)",
         window="1w",
         metric="rx_bytes",
+        period_label="Last 7 Days",
+        unifi_window="1W",
+        direction="download",
+        report_interval="hourly",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -95,8 +124,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_upload_1w",
         translation_key="internet_upload_1w",
+        name="Internet Upload (Last 7 Days)",
         window="1w",
         metric="tx_bytes",
+        period_label="Last 7 Days",
+        unifi_window="1W",
+        direction="upload",
+        report_interval="hourly",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -107,8 +141,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_download_1m",
         translation_key="internet_download_1m",
+        name="Internet Download (Last 30 Days)",
         window="1m",
         metric="rx_bytes",
+        period_label="Last 30 Days",
+        unifi_window="1M",
+        direction="download",
+        report_interval="daily",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -119,8 +158,13 @@ SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
     UnifiSiteInternetActivitySensorEntityDescription(
         key="internet_upload_1m",
         translation_key="internet_upload_1m",
+        name="Internet Upload (Last 30 Days)",
         window="1m",
         metric="tx_bytes",
+        period_label="Last 30 Days",
+        unifi_window="1M",
+        direction="upload",
+        report_interval="daily",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.BYTES,
         suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
@@ -151,8 +195,13 @@ class UnifiSiteInternetActivitySensor(
         self._site_id = site_id
 
         self._attr_unique_id = f"{site_id}_{description.key}"
-        self._attr_name = description.name  # type: ignore[assignment]
         self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
+        self._attr_extra_state_attributes = {
+            "period": description.period_label,
+            "unifi_window": description.unifi_window,
+            "direction": description.direction,
+            "report_interval": description.report_interval,
+        }
 
     def _find_gateway_device_id(self) -> str | None:
         """Find the gateway device ID for this site."""

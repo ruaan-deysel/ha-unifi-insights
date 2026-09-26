@@ -3851,9 +3851,19 @@ class TestUnifiSiteInternetActivitySensor:
                 description=desc,
                 site_id="site1",
             )
+            assert "_attr_name" not in sensor.__dict__
+            assert sensor.entity_description.name == desc.name
+            assert isinstance(desc.name, str)
+            assert desc.name.startswith("Internet ")
             assert sensor.unique_id == f"site1_{desc.key}"
             assert sensor.available is True
             assert sensor.native_value == expected_keys[desc.key]
+            assert sensor.extra_state_attributes == {
+                "period": desc.period_label,
+                "unifi_window": desc.unifi_window,
+                "direction": desc.direction,
+                "report_interval": desc.report_interval,
+            }
 
     def test_unavailable_when_section_unavailable_or_window_missing(self) -> None:
         """Sensor is unavailable on failed refresh or missing window."""

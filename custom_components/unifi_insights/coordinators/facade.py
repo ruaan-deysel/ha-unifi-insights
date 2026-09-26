@@ -305,6 +305,12 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "site_vpns": self._config_coordinator.data.get("site_vpns", {}),
             "network_info": self._config_coordinator.data.get("network_info", {}),
             "client_links": self._config_coordinator.data.get("client_links", {}),
+            "internet_activity": self._config_coordinator.data.get(
+                "internet_activity", {}
+            ),
+            "internet_activity_unavailable": self._config_coordinator.data.get(
+                "internet_activity_unavailable", set()
+            ),
             # From device coordinator
             "devices": devices,
             "clients": self._device_coordinator.data.get("clients", {}),
@@ -372,6 +378,12 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def firewall_available(self, site_id: str) -> bool:
         """Return True if a site's firewall rules were fetched on the last refresh."""
         return self._config_coordinator.firewall_available(site_id)
+
+    def internet_activity_available(self, site_id: str) -> bool:
+        """Return True if a site's internet activity was fetched on the last refresh."""
+        if hasattr(self._config_coordinator, "internet_activity_available"):
+            return self._config_coordinator.internet_activity_available(site_id)
+        return self.config_available
 
     @property
     def protect_available(self) -> bool:

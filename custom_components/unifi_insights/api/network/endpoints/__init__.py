@@ -9,6 +9,7 @@ from .dns import DNSEndpoint
 from .firewall import FirewallEndpoint
 from .lags import LagsEndpoint
 from .networks import NetworksEndpoint
+from .reports import ReportsEndpoint
 from .resources import ResourcesEndpoint
 from .routes import RoutesEndpoint
 from .sites import SitesEndpoint
@@ -26,6 +27,7 @@ __all__ = [
     "FirewallEndpoint",
     "LagsEndpoint",
     "NetworksEndpoint",
+    "ReportsEndpoint",
     "ResourcesEndpoint",
     "RoutesEndpoint",
     "SitesEndpoint",

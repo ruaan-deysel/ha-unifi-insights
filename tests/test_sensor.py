@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -33,6 +34,7 @@ from custom_components.unifi_insights.sensor import (
     SENSOR_TYPES,
     SFP_SENSOR_TYPES,
     SITE_CLIENT_SENSOR_TYPES,
+    SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
     UnifiInsightsSensor,
     UnifiOutletSensor,
     UnifiPortSensor,
@@ -40,10 +42,12 @@ from custom_components.unifi_insights.sensor import (
     UnifiProtectSensor,
     UnifiProtectSensorEntityDescription,
     UnifiSiteClientSensor,
+    UnifiSiteInternetActivitySensor,
     UnifiWifiClientCountSensor,
     _bytes_to_gb,
     _calculate_storage_available,
     _calculate_storage_percent,
+    _discover_site_internet_activity_sensors,
     _get_client_type,
     _get_port_label,
     _get_storage_bytes,
@@ -3799,3 +3803,133 @@ class TestUnifiWifiClientCountSensor:
         coordinator.wifi_available.return_value = False
         assert sensor.available is False
         coordinator.wifi_available.assert_called_with("site1")
+
+
+class TestUnifiSiteInternetActivitySensor:
+    """Tests for site-level internet activity rolling-window sensors."""
+
+    def test_eight_sensor_descriptions_and_values(self) -> None:
+        """All 8 descriptions use DATA_SIZE, MEASUREMENT, BYTES, and suggested GB."""
+        assert len(SITE_INTERNET_ACTIVITY_SENSOR_TYPES) == 8
+        expected_keys = {
+            "internet_download_1h": 1_000,
+            "internet_upload_1h": 2_000,
+            "internet_download_1d": 3_000,
+            "internet_upload_1d": 4_000,
+            "internet_download_1w": 5_000,
+            "internet_upload_1w": 6_000,
+            "internet_download_1m": 7_000,
+            "internet_upload_1m": 8_000,
+        }
+
+        coordinator = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.config_available = True
+        coordinator.internet_activity_available = MagicMock(return_value=True)
+        coordinator.data = {
+            "sites": {"site1": {"name": "Default"}},
+            "devices": {},
+            "internet_activity": {
+                "site1": {
+                    "1h": {"rx_bytes": 1_000, "tx_bytes": 2_000},
+                    "1d": {"rx_bytes": 3_000, "tx_bytes": 4_000},
+                    "1w": {"rx_bytes": 5_000, "tx_bytes": 6_000},
+                    "1m": {"rx_bytes": 7_000, "tx_bytes": 8_000},
+                }
+            },
+        }
+
+        for desc in SITE_INTERNET_ACTIVITY_SENSOR_TYPES:
+            assert desc.device_class == SensorDeviceClass.DATA_SIZE
+            assert desc.state_class == SensorStateClass.MEASUREMENT
+            assert desc.native_unit_of_measurement == UnitOfInformation.BYTES
+            assert desc.suggested_unit_of_measurement == UnitOfInformation.GIGABYTES
+            assert desc.translation_key == desc.key
+
+            sensor = UnifiSiteInternetActivitySensor(
+                coordinator=coordinator,
+                description=desc,
+                site_id="site1",
+            )
+            assert "_attr_name" not in sensor.__dict__
+            assert sensor.entity_description.name == desc.name
+            assert isinstance(desc.name, str)
+            assert desc.name.startswith("Internet ")
+            assert sensor.unique_id == f"site1_{desc.key}"
+            assert sensor.available is True
+            assert sensor.native_value == expected_keys[desc.key]
+            assert sensor.extra_state_attributes == {
+                "period": desc.period_label,
+                "unifi_window": desc.unifi_window,
+                "direction": desc.direction,
+                "report_interval": desc.report_interval,
+            }
+
+    def test_unavailable_when_section_unavailable_or_window_missing(self) -> None:
+        """Sensor is unavailable on failed refresh or missing window."""
+        desc = SITE_INTERNET_ACTIVITY_SENSOR_TYPES[0]
+        coordinator = MagicMock()
+        coordinator.last_update_success = True
+        coordinator.config_available = True
+        coordinator.internet_activity_available = MagicMock(return_value=True)
+        coordinator.data = {
+            "sites": {"site1": {"name": "Default"}},
+            "devices": {"site1": {"gw1": {"features": ["gateway"]}}},
+            "internet_activity": {"site1": {"1h": {"rx_bytes": 1024}}},
+        }
+
+        sensor = UnifiSiteInternetActivitySensor(
+            coordinator=coordinator,
+            description=desc,
+            site_id="site1",
+        )
+        assert sensor.available is True
+
+        # Section marked unavailable via coordinator method
+        coordinator.internet_activity_available.return_value = False
+        assert sensor.available is False
+
+        # Section marked unavailable via data set
+        coordinator.internet_activity_available.return_value = True
+        coordinator.data["internet_activity_unavailable"] = {"site1"}
+        assert sensor.available is False
+
+        # Missing window value
+        coordinator.data["internet_activity_unavailable"] = set()
+        coordinator.data["internet_activity"]["site1"] = {}
+        assert sensor.available is False
+        assert sensor.native_value is None
+
+        # Config refresh failed
+        coordinator.data["internet_activity"]["site1"] = {"1h": {"rx_bytes": 1024}}
+        coordinator.config_available = False
+        assert sensor.available is False
+
+        # Coordinator last_update_success is False
+        coordinator.config_available = True
+        coordinator.last_update_success = False
+        assert sensor.available is False
+        coordinator.last_update_success = True
+
+        # Non-dict site_devices, non-gateway device, non-dict data/site_windows,
+        # and bool value
+        coordinator.data["devices"]["site1"] = "not_a_dict"
+        assert sensor._find_gateway_device_id() is None
+        coordinator.data["devices"]["site1"] = {"sw1": {"features": ["switching"]}}
+        assert sensor._find_gateway_device_id() is None
+        coordinator.data["internet_activity"]["site1"] = {"1h": {"rx_bytes": True}}
+        assert sensor.native_value is None
+        coordinator.data["internet_activity"]["site1"] = "not_a_dict"
+        assert sensor.native_value is None
+        assert _discover_site_internet_activity_sensors(coordinator, set()) == []
+        coordinator.data["internet_activity"] = {"site1": {"1h": {"rx_bytes": 100}}}
+        known_keys: set[tuple[str, ...]] = set()
+        assert (
+            len(_discover_site_internet_activity_sensors(coordinator, known_keys)) == 1
+        )
+        assert _discover_site_internet_activity_sensors(coordinator, known_keys) == []
+        coordinator.data["internet_activity"] = "not_a_dict"
+        assert _discover_site_internet_activity_sensors(coordinator, set()) == []
+        assert sensor.native_value is None
+        coordinator.data = None
+        assert sensor.native_value is None

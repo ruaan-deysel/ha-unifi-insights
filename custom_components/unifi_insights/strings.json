@@ -237,6 +237,30 @@
       "site_wireless_clients": {
         "name": "Wireless Clients"
       },
+      "internet_download_1h": {
+        "name": "Internet Download (Last Hour)"
+      },
+      "internet_upload_1h": {
+        "name": "Internet Upload (Last Hour)"
+      },
+      "internet_download_1d": {
+        "name": "Internet Download (Last 24 Hours)"
+      },
+      "internet_upload_1d": {
+        "name": "Internet Upload (Last 24 Hours)"
+      },
+      "internet_download_1w": {
+        "name": "Internet Download (Last 7 Days)"
+      },
+      "internet_upload_1w": {
+        "name": "Internet Upload (Last 7 Days)"
+      },
+      "internet_download_1m": {
+        "name": "Internet Download (Last 30 Days)"
+      },
+      "internet_upload_1m": {
+        "name": "Internet Upload (Last 30 Days)"
+      },
       "ac_power_consumption": {
         "name": "AC Power Consumption"
       },

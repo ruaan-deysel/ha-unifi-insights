@@ -81,6 +81,10 @@ def _create_mock_network_client() -> MagicMock:
     client.vouchers.create = AsyncMock(return_value=[MagicMock(id="voucher1")])
     client.vouchers.delete = AsyncMock(return_value=True)
 
+    client.reports = MagicMock()
+    client.reports.get_site_report = AsyncMock(return_value=[])
+    client.get_site_report = AsyncMock(return_value=[])
+
     # Legacy methods (keeping for backwards compatibility in tests)
     client.restart_device = AsyncMock(return_value=True)
     client.authorize_guest = AsyncMock(return_value=True)

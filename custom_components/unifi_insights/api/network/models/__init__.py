@@ -51,6 +51,11 @@ from .lag import (
     McLagRole,
 )
 from .network import Network, NetworkPurpose, NetworkType
+from .report import (
+    DEFAULT_SITE_REPORT_ATTRS,
+    SITE_REPORT_INTERVALS,
+    SiteReportBucket,
+)
 from .resources import (
     DeviceTag,
     RADIUSProfile,
@@ -133,6 +138,10 @@ __all__ = [
     "Network",
     "NetworkPurpose",
     "NetworkType",
+    # Report
+    "DEFAULT_SITE_REPORT_ATTRS",
+    "SITE_REPORT_INTERVALS",
+    "SiteReportBucket",
     # Resources
     "DeviceTag",
     "RADIUSProfile",

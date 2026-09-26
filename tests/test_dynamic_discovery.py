@@ -727,3 +727,66 @@ class TestDiscoveryRegressions:
         added = [e for call in add_entities.call_args_list for e in call[0][0]]
         unique_ids = [e.unique_id for e in added if getattr(e, "unique_id", None)]
         assert len(unique_ids) == len(set(unique_ids))
+
+    @pytest.mark.asyncio
+    async def test_internet_activity_dynamic_discovery_and_site_unique_id_stability(
+        self,
+        hass: Any,
+        mock_coordinator: MagicMock,
+        mock_config_entry: MagicMock,
+    ) -> None:
+        """Report data discovers site activity sensors without changing site IDs."""
+        add_entities = MagicMock()
+        mock_coordinator.data["internet_activity"] = {}
+        await async_setup_sensor(hass, mock_config_entry, add_entities)
+        listener = mock_coordinator.async_add_listener.call_args[0][0]
+
+        initial_entities = [
+            e for call in add_entities.call_args_list for e in call[0][0]
+        ]
+        initial_site_ids = {
+            e.unique_id
+            for e in initial_entities
+            if getattr(e, "unique_id", "").startswith("site1_site_")
+        }
+        assert initial_site_ids == {
+            "site1_site_total_clients",
+            "site1_site_wired_clients",
+            "site1_site_wireless_clients",
+        }
+        assert not [
+            e
+            for e in initial_entities
+            if "internet_download_" in getattr(e, "unique_id", "")
+            or "internet_upload_" in getattr(e, "unique_id", "")
+        ]
+
+        # Report data appears on a later refresh -> creates 8 sensors once
+        add_entities.reset_mock()
+        mock_coordinator.data["internet_activity"] = {
+            "site1": {
+                "1h": {"rx_bytes": 100, "tx_bytes": 200},
+                "1d": {"rx_bytes": 300, "tx_bytes": 400},
+                "1w": {"rx_bytes": 500, "tx_bytes": 600},
+                "1m": {"rx_bytes": 700, "tx_bytes": 800},
+            }
+        }
+        listener()
+        assert add_entities.call_count == 1
+        discovered = add_entities.call_args[0][0]
+        discovered_ids = {e.unique_id for e in discovered}
+        assert discovered_ids == {
+            "site1_internet_download_1h",
+            "site1_internet_upload_1h",
+            "site1_internet_download_1d",
+            "site1_internet_upload_1d",
+            "site1_internet_download_1w",
+            "site1_internet_upload_1w",
+            "site1_internet_download_1m",
+            "site1_internet_upload_1m",
+        }
+
+        # Subsequent listener call does not duplicate sensors
+        add_entities.reset_mock()
+        listener()
+        assert add_entities.call_count == 0

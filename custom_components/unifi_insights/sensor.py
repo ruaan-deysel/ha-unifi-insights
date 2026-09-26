@@ -52,6 +52,7 @@ from .coordinators import UnifiFacadeCoordinator
 from .entity import (
     UnifiInsightsEntity,
     UnifiProtectEntity,
+    build_site_device_info,
     device_has_feature,
     first_not_none,
     get_field,
@@ -62,6 +63,12 @@ from .entity import (
 )
 from .innerspace_entity import (
     _discover_innerspace_sensors,
+)
+from .site_internet_activity_sensor import (
+    SITE_INTERNET_ACTIVITY_SENSOR_TYPES as SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
+    UnifiSiteInternetActivitySensor as UnifiSiteInternetActivitySensor,
+    UnifiSiteInternetActivitySensorEntityDescription as UnifiSiteInternetActivitySensorEntityDescription,
+    _discover_site_internet_activity_sensors,
 )
 
 if TYPE_CHECKING:
@@ -866,6 +873,7 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_total_clients",
         translation_key="site_total_clients",
+        name="Total Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:account-group",
         value_fn=len,
@@ -873,6 +881,7 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_wired_clients",
         translation_key="site_wired_clients",
+        name="Wired Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:ethernet",
         value_fn=lambda clients: len(
@@ -882,6 +891,7 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
     UnifiInsightsSensorEntityDescription(
         key="site_wireless_clients",
         translation_key="site_wireless_clients",
+        name="Wireless Clients",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:wifi",
         value_fn=lambda clients: len(
@@ -912,6 +922,7 @@ def _migrate_sensor_units(
         *PORT_SENSOR_TYPES,
         *PORT_RATE_SENSOR_TYPES,
         *OUTLET_SENSOR_TYPES,
+        *SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
     ):
         if desc.suggested_unit_of_measurement is not None:
             expected_units[desc.key] = str(desc.suggested_unit_of_measurement)
@@ -1437,6 +1448,11 @@ async def async_setup_entry(
                                 site_id=site_id,
                             )
                         )
+
+        # Add site-level internet activity rolling-window sensors
+        entities.extend(
+            _discover_site_internet_activity_sensors(coordinator, known_sensor_keys)
+        )
 
         # Add per-WiFi-network connected client count sensors
         wifi_by_site = coordinator.data.get("wifi", {})
@@ -2269,39 +2285,11 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
         self._site_id = site_id
 
         self._attr_unique_id = f"{site_id}_{description.key}"
-        self._attr_name = description.name  # type: ignore[assignment]
         self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
-
-    def _find_gateway_device_id(self) -> str | None:
-        """Find the gateway device ID for this site."""
-        site_devices = self.coordinator.data.get("devices", {}).get(self._site_id, {})
-        if not isinstance(site_devices, dict):
-            return None
-
-        for device_id, device_data in site_devices.items():
-            if isinstance(device_data, dict) and is_gateway_device(device_data):
-                return str(device_id)
-
-        return None
 
     def _build_device_info(self) -> dict[str, Any]:
         """Build device info for site-level entity grouping."""
-        gateway_id = self._find_gateway_device_id()
-        if gateway_id is not None:
-            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_id}")}}
-
-        site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
-        meta = site_data.get("meta", {})
-        site_name = (
-            meta.get("name") if isinstance(meta, dict) else None
-        ) or site_data.get("name", self._site_id)
-
-        return {
-            "identifiers": {(DOMAIN, f"site_{self._site_id}")},
-            "name": f"UniFi Site ({site_name})",
-            "manufacturer": MANUFACTURER,
-            "model": "UniFi Site",
-        }
+        return build_site_device_info(self.coordinator.data, self._site_id)
 
     @property
     def available(self) -> bool:

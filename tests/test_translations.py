@@ -15,6 +15,9 @@ from pathlib import Path
 from string import Formatter
 
 from custom_components.unifi_insights.binary_sensor import BINARY_SENSOR_TYPES
+from custom_components.unifi_insights.site_internet_activity_sensor import (
+    SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
+)
 
 _INTEGRATION_DIR = Path(__file__).parent.parent / "custom_components" / "unifi_insights"
 _EN_JSON = _INTEGRATION_DIR / "translations" / "en.json"
@@ -135,3 +138,19 @@ def test_switch_translation_placeholders_are_supplied() -> None:
             f"switch.{key} name needs placeholders {sorted(missing)} "
             "which switch.py never supplies"
         )
+
+
+def test_site_internet_activity_sensor_translations_resolve_in_both_files() -> None:
+    """Every site internet activity sensor must have matching translations."""
+    en_sensor = json.loads(_EN_JSON.read_text())["entity"]["sensor"]
+    strings_sensor = json.loads(_STRINGS_JSON.read_text())["entity"]["sensor"]
+
+    for desc in SITE_INTERNET_ACTIVITY_SENSOR_TYPES:
+        key = desc.translation_key
+        assert key is not None
+        assert key in strings_sensor, f"{key} missing from strings.json"
+        assert key in en_sensor, f"{key} missing from translations/en.json"
+        assert en_sensor[key] == strings_sensor[key], (
+            f"{key} differs between strings.json and translations/en.json"
+        )
+        assert desc.name == strings_sensor[key]["name"]

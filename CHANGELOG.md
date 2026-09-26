@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Historical **Internet Activity** site-level download and upload sensors for rolling **1 Hour** (`1h`), **1 Day** (`1d`), **1 Week** (`1w`), and **1 Month** (`1m`) windows (`internet_activity_1h_download`, `internet_activity_1h_upload`, `internet_activity_1d_download`, `internet_activity_1d_upload`, `internet_activity_1w_download`, `internet_activity_1w_upload`, `internet_activity_1m_download`, `internet_activity_1m_upload`), matching the UniFi Network **Insights -> Internet Activity** time ranges. The config coordinator queries the classic `/stat/report/{5minutes|hourly|daily}.site` endpoints every five minutes (`1d` and `1w` share a single `7d` `hourly` query), groups the entities under each site's gateway device (with virtual site fallback), and exposes totals in `B` with a `GB` suggested display unit (`SensorDeviceClass.DATA_SIZE`, `SensorStateClass.MEASUREMENT`). Consoles that do not support `/stat/report/*.site` skip creating the entities cleanly. [#176](https://github.com/ruaan-deysel/ha-unifi-insights/issues/176)
+
+### Fixed
+
+- Consoles without the UniFi InnerSpace application installed (or without classic report endpoints) that answer `/proxy/innerspace/api/v1/project` with HTTP `200 OK` and the UniFi OS HTML shell (`<!doctype html>...`) no longer log a `WARNING (MainThread) [custom_components.unifi_insights.api.base] Response is not JSON for GET /proxy/innerspace/api/v1/project` during setup or polling. Expected optional-feature probes now thread `expected_unsupported=True` through `BaseUniFiClient` so non-JSON `2xx` responses on the unredirected target path are logged at `DEBUG` while still raising `UniFiResponseError` for `async_probe_applications()` to mark InnerSpace unavailable. Unexpected non-JSON responses and login/SSO redirects continue to log at `WARNING`. [#183](https://github.com/ruaan-deysel/ha-unifi-insights/issues/183)
+- Pinned `frontend` TypeScript devDependency to `6.0.3` to match the `typescript-eslint@8.70.1` peer dependency range (`>=4.8.4 <6.1.0`) and restore `npm ci` in the Frontend CI workflow.
+
 ## [2026.9.8] - 2026-09-26
 
 ### Added

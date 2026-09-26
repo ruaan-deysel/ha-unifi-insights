@@ -63,6 +63,12 @@ from .entity import (
 from .innerspace_entity import (
     _discover_innerspace_sensors,
 )
+from .site_internet_activity_sensor import (
+    SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
+    UnifiSiteInternetActivitySensor,
+    UnifiSiteInternetActivitySensorEntityDescription,
+    _discover_site_internet_activity_sensors,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -653,7 +659,7 @@ def _outlet_has_metering(outlet: dict[str, Any]) -> bool:
         try:
             if int(caps) & 2:
                 return True
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
     for key in (
         "outlet_power",
@@ -891,118 +897,6 @@ SITE_CLIENT_SENSOR_TYPES: tuple[UnifiInsightsSensorEntityDescription, ...] = (
 )
 
 
-@dataclass
-class UnifiSiteInternetActivitySensorEntityDescription(  # type: ignore[misc]
-    SensorEntityDescription
-):
-    """Class describing UniFi site-level internet activity sensor entities."""
-
-    window: str = "1h"
-    metric: str = "rx_bytes"
-
-
-SITE_INTERNET_ACTIVITY_SENSOR_TYPES: tuple[
-    UnifiSiteInternetActivitySensorEntityDescription, ...
-] = (
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_download_1h",
-        translation_key="internet_download_1h",
-        window="1h",
-        metric="rx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:download-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_upload_1h",
-        translation_key="internet_upload_1h",
-        window="1h",
-        metric="tx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:upload-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_download_1d",
-        translation_key="internet_download_1d",
-        window="1d",
-        metric="rx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:download-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_upload_1d",
-        translation_key="internet_upload_1d",
-        window="1d",
-        metric="tx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:upload-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_download_1w",
-        translation_key="internet_download_1w",
-        window="1w",
-        metric="rx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:download-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_upload_1w",
-        translation_key="internet_upload_1w",
-        window="1w",
-        metric="tx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:upload-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_download_1m",
-        translation_key="internet_download_1m",
-        window="1m",
-        metric="rx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:download-network",
-    ),
-    UnifiSiteInternetActivitySensorEntityDescription(
-        key="internet_upload_1m",
-        translation_key="internet_upload_1m",
-        window="1m",
-        metric="tx_bytes",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        suggested_unit_of_measurement=UnitOfInformation.GIGABYTES,
-        suggested_display_precision=2,
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:upload-network",
-    ),
-)
-
-
 @callback
 def _migrate_sensor_units(
     hass: HomeAssistant,
@@ -1232,14 +1126,14 @@ def _discover_port_sensors(
                         if pw is not None and float(pw) > 0:
                             poe_marker = True
                             break
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         pass
 
         if not poe_marker:
             norm = get_field(port, "poe_power_w")
             try:
                 poe_marker = norm is not None and float(norm) > 0
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 poe_marker = False
 
         if poe_marker:
@@ -1333,7 +1227,7 @@ def _create_port_stats_fallback(
             try:
                 if val is not None and float(val) <= 0:
                     continue
-            except ValueError, TypeError:
+            except (ValueError, TypeError):
                 continue
             desc = PORT_SENSOR_TYPES[0]
             key = (site_id, device_id, port_idx, desc.key)
@@ -1395,7 +1289,7 @@ def _discover_outlet_sensors(
             continue
         try:
             outlet_idx = int(idx)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
 
         if not _outlet_has_metering(outlet):
@@ -1552,28 +1446,9 @@ async def async_setup_entry(
                         )
 
         # Add site-level internet activity rolling-window sensors
-        internet_activity_by_site = coordinator.data.get("internet_activity", {})
-        if isinstance(internet_activity_by_site, dict):
-            for site_id, site_windows in internet_activity_by_site.items():
-                if not isinstance(site_windows, dict) or not site_windows:
-                    continue
-                for activity_desc in SITE_INTERNET_ACTIVITY_SENSOR_TYPES:
-                    window_data = site_windows.get(activity_desc.window)
-                    if (
-                        not isinstance(window_data, dict)
-                        or window_data.get(activity_desc.metric) is None
-                    ):
-                        continue
-                    activity_key = (site_id, activity_desc.key)
-                    if activity_key not in known_sensor_keys:
-                        known_sensor_keys.add(activity_key)
-                        entities.append(
-                            UnifiSiteInternetActivitySensor(
-                                coordinator=coordinator,
-                                description=activity_desc,
-                                site_id=site_id,
-                            )
-                        )
+        entities.extend(
+            _discover_site_internet_activity_sensors(coordinator, known_sensor_keys)
+        )
 
         # Add per-WiFi-network connected client count sensors
         wifi_by_site = coordinator.data.get("wifi", {})
@@ -2147,7 +2022,7 @@ class UnifiOutletSensor(UnifiInsightsEntity, SensorEntity):
                 try:
                     if int(idx) == self._outlet_index:
                         return outlet
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     continue
         return None
 
@@ -2452,106 +2327,6 @@ class UnifiSiteClientSensor(CoordinatorEntity[UnifiFacadeCoordinator], SensorEnt
         if not isinstance(clients, dict):
             return 0
         return self.entity_description.value_fn(clients)  # type: ignore[misc]
-
-
-class UnifiSiteInternetActivitySensor(
-    CoordinatorEntity[UnifiFacadeCoordinator], SensorEntity
-):
-    """Representation of a site-level historical internet activity sensor."""
-
-    _attr_has_entity_name = True
-    entity_description: UnifiSiteInternetActivitySensorEntityDescription
-
-    def __init__(
-        self,
-        coordinator: UnifiFacadeCoordinator,
-        description: UnifiSiteInternetActivitySensorEntityDescription,
-        site_id: str,
-    ) -> None:
-        """Initialize the site-level internet activity sensor."""
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._site_id = site_id
-
-        self._attr_unique_id = f"{site_id}_{description.key}"
-        self._attr_name = description.name  # type: ignore[assignment]
-        self._attr_device_info = DeviceInfo(**self._build_device_info())  # type: ignore[typeddict-item]
-
-    def _find_gateway_device_id(self) -> str | None:
-        """Find the gateway device ID for this site."""
-        site_devices = self.coordinator.data.get("devices", {}).get(self._site_id, {})
-        if not isinstance(site_devices, dict):
-            return None
-
-        for device_id, device_data in site_devices.items():
-            if isinstance(device_data, dict) and is_gateway_device(device_data):
-                return str(device_id)
-
-        return None
-
-    def _build_device_info(self) -> dict[str, Any]:
-        """Build device info for site-level entity grouping."""
-        gateway_id = self._find_gateway_device_id()
-        if gateway_id is not None:
-            return {"identifiers": {(DOMAIN, f"{self._site_id}_{gateway_id}")}}
-
-        site_data = self.coordinator.data.get("sites", {}).get(self._site_id, {})
-        meta = site_data.get("meta", {}) if isinstance(site_data, dict) else {}
-        site_name = (meta.get("name") if isinstance(meta, dict) else None) or (
-            site_data.get("name", self._site_id)
-            if isinstance(site_data, dict)
-            else self._site_id
-        )
-
-        return {
-            "identifiers": {(DOMAIN, f"site_{self._site_id}")},
-            "name": f"UniFi Site ({site_name})",
-            "manufacturer": MANUFACTURER,
-            "model": "UniFi Site",
-        }
-
-    def _get_window_value(self) -> int | None:
-        """Return the current byte total for this sensor's window and metric."""
-        data: Any = self.coordinator.data
-        if not isinstance(data, dict):
-            return None
-        site_windows = (data.get("internet_activity") or {}).get(self._site_id)
-        if not isinstance(site_windows, dict):
-            return None
-        window_data = site_windows.get(self.entity_description.window)
-        if not isinstance(window_data, dict):
-            return None
-        raw_value = window_data.get(self.entity_description.metric)
-        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
-            return None
-        return int(round(raw_value))
-
-    @property
-    def available(self) -> bool:
-        """Return True if the config refresh and site report section succeeded."""
-        if not self.coordinator.last_update_success:
-            return False
-        if not bool(getattr(self.coordinator, "config_available", True)):
-            return False
-        section_available_fn = getattr(
-            self.coordinator, "internet_activity_available", None
-        )
-        if callable(section_available_fn) and not bool(
-            section_available_fn(self._site_id)
-        ):
-            return False
-        unavailable_sites = self.coordinator.data.get("internet_activity_unavailable")
-        if (
-            isinstance(unavailable_sites, (set, list, tuple))
-            and self._site_id in unavailable_sites
-        ):
-            return False
-        return self._get_window_value() is not None
-
-    @property
-    def native_value(self) -> StateType:
-        """Return the window byte total."""
-        return self._get_window_value()
 
 
 class UnifiWifiClientCountSensor(

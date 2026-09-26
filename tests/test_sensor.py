@@ -43,6 +43,7 @@ from custom_components.unifi_insights.sensor import (
     UnifiProtectSensorEntityDescription,
     UnifiSiteClientSensor,
     UnifiSiteInternetActivitySensor,
+    _discover_site_internet_activity_sensors,
     UnifiWifiClientCountSensor,
     _bytes_to_gb,
     _calculate_storage_available,
@@ -3893,3 +3894,26 @@ class TestUnifiSiteInternetActivitySensor:
         coordinator.data["internet_activity"]["site1"] = {"1h": {"rx_bytes": 1024}}
         coordinator.config_available = False
         assert sensor.available is False
+
+        # Coordinator last_update_success is False
+        coordinator.config_available = True
+        coordinator.last_update_success = False
+        assert sensor.available is False
+        coordinator.last_update_success = True
+
+        # Non-dict site_devices, non-gateway device, non-dict data/site_windows, bool value
+        coordinator.data["devices"]["site1"] = "not_a_dict"
+        assert sensor._find_gateway_device_id() is None
+        coordinator.data["devices"]["site1"] = {"sw1": {"features": ["switching"]}}
+        assert sensor._find_gateway_device_id() is None
+        coordinator.data["internet_activity"]["site1"] = {"1h": {"rx_bytes": True}}
+        assert sensor.native_value is None
+        coordinator.data["internet_activity"]["site1"] = "not_a_dict"
+        assert _discover_site_internet_activity_sensors(coordinator, set()) == []
+        coordinator.data["internet_activity"] = {"site1": {"1h": {"rx_bytes": 100}}}
+        assert len(_discover_site_internet_activity_sensors(coordinator, set())) == 1
+        coordinator.data["internet_activity"] = "not_a_dict"
+        assert _discover_site_internet_activity_sensors(coordinator, set()) == []
+        assert sensor.native_value is None
+        coordinator.data = None
+        assert sensor.native_value is None

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import logging
 from datetime import UTC, datetime
 from functools import partial
@@ -16,14 +15,31 @@ from custom_components.unifi_insights.api import (
     UniFiResponseError,
     UniFiTimeoutError,
 )
-from custom_components.unifi_insights.api.network.models.report import SiteReportBucket
 from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_CONFIG
 from custom_components.unifi_insights.topology_contract import normalize_mac
 
 from .base import UnifiBaseCoordinator
+from .internet_activity import (
+    WINDOW_1D_MS,
+    WINDOW_1H_MS,
+    WINDOW_1M_MS,
+    WINDOW_1W_MS,
+    aggregate_internet_activity_windows,
+    async_call_site_report,
+    async_fetch_site_internet_activity,
+)
+
+__all__ = [
+    "WINDOW_1D_MS",
+    "WINDOW_1H_MS",
+    "WINDOW_1M_MS",
+    "WINDOW_1W_MS",
+    "UnifiConfigCoordinator",
+    "aggregate_internet_activity_windows",
+]
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
@@ -32,77 +48,6 @@ if TYPE_CHECKING:
     from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
 _LOGGER = logging.getLogger(__name__)
-
-WINDOW_1H_MS = 3_600_000
-WINDOW_1D_MS = 86_400_000
-WINDOW_1W_MS = 7 * 86_400_000
-WINDOW_1M_MS = 30 * 86_400_000
-
-
-def _sum_report_window(
-    buckets: Sequence[SiteReportBucket | dict[str, Any] | object],
-    cutoff_ms: int,
-) -> dict[str, int] | None:
-    """Sum download (RX) and upload (TX) bytes for buckets at or after ``cutoff_ms``."""
-    rx_values: list[int] = []
-    tx_values: list[int] = []
-
-    for item in buckets:
-        if isinstance(item, SiteReportBucket):
-            bucket = item
-        elif isinstance(item, dict):
-            try:
-                bucket = SiteReportBucket.model_validate(item)
-            except Exception as err:
-                _LOGGER.debug("Skipping invalid site report bucket: %s", err)
-                continue
-        else:
-            continue
-
-        if bucket.time < cutoff_ms:
-            continue
-        if bucket.rx_bytes is not None:
-            rx_values.append(bucket.rx_bytes)
-        if bucket.tx_bytes is not None:
-            tx_values.append(bucket.tx_bytes)
-
-    if not rx_values and not tx_values:
-        return None
-
-    window_totals: dict[str, int] = {}
-    if rx_values:
-        window_totals["rx_bytes"] = sum(rx_values)
-    if tx_values:
-        window_totals["tx_bytes"] = sum(tx_values)
-    return window_totals
-
-
-def aggregate_internet_activity_windows(
-    five_minute_buckets: Sequence[SiteReportBucket | dict[str, Any]],
-    hourly_buckets: Sequence[SiteReportBucket | dict[str, Any]],
-    daily_buckets: Sequence[SiteReportBucket | dict[str, Any]],
-    *,
-    now_ms: int,
-) -> dict[str, dict[str, int]]:
-    """
-    Aggregate site report buckets into ``1h``, ``1d``, ``1w``, and ``1m`` totals.
-
-    - ``1h`` uses ``5minutes`` buckets with ``time >= now_ms - 1h``.
-    - ``1d`` and ``1w`` reuse ``hourly`` buckets with ``1d`` and ``7d`` cutoffs.
-    - ``1m`` uses ``daily`` buckets with ``time >= now_ms - 30d``.
-    Windows without usable buckets are omitted rather than publishing zero.
-    """
-    windows: dict[str, dict[str, int]] = {}
-    for window_key, source_buckets, duration_ms in (
-        ("1h", five_minute_buckets, WINDOW_1H_MS),
-        ("1d", hourly_buckets, WINDOW_1D_MS),
-        ("1w", hourly_buckets, WINDOW_1W_MS),
-        ("1m", daily_buckets, WINDOW_1M_MS),
-    ):
-        totals = _sum_report_window(source_buckets, now_ms - duration_ms)
-        if totals:
-            windows[window_key] = totals
-    return windows
 
 
 class UnifiConfigCoordinator(UnifiBaseCoordinator):
@@ -235,43 +180,13 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         end_ms: int,
     ) -> list[Any]:
         """Invoke the Network client site report method for one interval."""
-        reports_obj = getattr(self.network_client, "reports", None)
-        reports_fn = getattr(reports_obj, "get_site_report", None)
-        client_fn = getattr(self.network_client, "get_site_report", None)
-
-        target_fn: Callable[..., Any] | None = None
-        if reports_fn is not None and (
-            inspect.iscoroutinefunction(reports_fn)
-            or getattr(reports_fn, "side_effect", None) is not None
-            or "return_value" in getattr(reports_fn, "__dict__", {})
-        ):
-            target_fn = reports_fn
-        elif client_fn is not None and (
-            inspect.iscoroutinefunction(client_fn)
-            or getattr(client_fn, "side_effect", None) is not None
-            or "return_value" in getattr(client_fn, "__dict__", {})
-        ):
-            target_fn = client_fn
-        elif callable(reports_fn):
-            target_fn = reports_fn
-        elif callable(client_fn):
-            target_fn = client_fn
-
-        if target_fn is None:
-            return []
-
-        result = target_fn(
+        return await async_call_site_report(
+            self.network_client,
             site_name,
             interval,
             start_ms=start_ms,
             end_ms=end_ms,
         )
-        if inspect.isawaitable(result):
-            awaited = await result
-            return list(awaited) if isinstance(awaited, (list, tuple)) else []
-        if isinstance(result, (list, tuple)):
-            return list(result)
-        return []
 
     async def _fetch_site_internet_activity(
         self,
@@ -280,60 +195,12 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         site_name: str,
         now_ms: int,
     ) -> dict[str, dict[str, int]] | None:
-        """
-        Fetch ``5minutes``, ``hourly``, and ``daily`` site reports and aggregate.
-
-        Returns:
-            Window totals dict when supported (possibly empty if no buckets),
-            or ``None`` when a transient fetch failure occurred.
-
-        """
-        five_min_buckets = await self._fetch_optional_section(
-            "internet_activity",
-            site_id,
-            partial(
-                self._call_site_report,
-                site_name,
-                "5minutes",
-                start_ms=now_ms - WINDOW_1H_MS,
-                end_ms=now_ms,
-            ),
-        )
-        if five_min_buckets is None:
-            return None
-
-        hourly_buckets = await self._fetch_optional_section(
-            "internet_activity",
-            site_id,
-            partial(
-                self._call_site_report,
-                site_name,
-                "hourly",
-                start_ms=now_ms - WINDOW_1W_MS,
-                end_ms=now_ms,
-            ),
-        )
-        if hourly_buckets is None:
-            return None
-
-        daily_buckets = await self._fetch_optional_section(
-            "internet_activity",
-            site_id,
-            partial(
-                self._call_site_report,
-                site_name,
-                "daily",
-                start_ms=now_ms - WINDOW_1M_MS,
-                end_ms=now_ms,
-            ),
-        )
-        if daily_buckets is None:
-            return None
-
-        return aggregate_internet_activity_windows(
-            five_min_buckets,
-            hourly_buckets,
-            daily_buckets,
+        """Fetch ``5minutes``, ``hourly``, and ``daily`` site reports and aggregate."""
+        return await async_fetch_site_internet_activity(
+            self._fetch_optional_section,
+            self._call_site_report,
+            site_id=site_id,
+            site_name=site_name,
             now_ms=now_ms,
         )
 
@@ -567,6 +434,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 self.data["site_vpns"] = {}
                 self.data["network_info"] = {}
                 self.data["client_links"] = {}
+                self.data["internet_activity"] = {}
+                self.data["internet_activity_unavailable"] = set()
                 self._available = True
                 self.data["last_update"] = datetime.now(tz=UTC)
                 return self.data

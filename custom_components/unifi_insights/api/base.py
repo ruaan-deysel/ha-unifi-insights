@@ -499,7 +499,7 @@ class BaseUniFiClient(ABC):
             # coordinator's normal retry/backoff take over.
             redacted_response = self._response_log_text(response_text, limit=200)
             expected_path = (
-                f"/{request_path.lstrip('/')}"
+                self._build_url(request_path).path
                 if request_path is not None
                 else response.url.path
             )

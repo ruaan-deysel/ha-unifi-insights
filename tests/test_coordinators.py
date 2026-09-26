@@ -38,6 +38,7 @@ from custom_components.unifi_insights.api.innerspace import (
 from custom_components.unifi_insights.api.network.models import (
     LegacyPortMetrics,
     PortBytesMetrics,
+    SiteReportBucket,
 )
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
@@ -6907,6 +6908,92 @@ class TestUnifiInsightsInnerSpaceCoordinator:
             "rx_bytes": 8192,
             "tx_bytes": 4096,
         }
+
+        # 5. Cover bucket variations (SiteReportBucket instance, invalid dict,
+        # non-dict object, rx-only, tx-only), client fallback, hourly/daily
+        # partial failure, HTTP 200 HTML response, empty windows, and facade
+        mixed_buckets: list[Any] = [
+            SiteReportBucket.model_validate({"time": now_ms, "wan-rx_bytes": 100}),
+            {"time": now_ms, "wan-tx_bytes": 50},
+            {"invalid": "no_time"},
+            "not_a_dict",
+        ]
+        rx_only = aggregate_internet_activity_windows(
+            [SiteReportBucket.model_validate({"time": now_ms, "wan-rx_bytes": 100})],
+            [SiteReportBucket.model_validate({"time": now_ms, "wan-tx_bytes": 50})],
+            mixed_buckets,
+            now_ms=now_ms,
+        )
+        assert rx_only["1h"] == {"rx_bytes": 100}
+        assert rx_only["1d"] == {"tx_bytes": 50}
+        assert rx_only["1m"] == {"rx_bytes": 100, "tx_bytes": 50}
+
+        # Fallback to network_client.get_site_report and empty fallback
+        mock_network_client.reports = None
+        mock_network_client.get_site_report = AsyncMock(return_value=[])
+        assert (
+            await coord._call_site_report("default", "hourly", start_ms=1, end_ms=2)
+            == []
+        )
+        mock_network_client.get_site_report = None
+        assert (
+            await coord._call_site_report("default", "hourly", start_ms=1, end_ms=2)
+            == []
+        )
+
+        # Hourly / daily transient failures and HTTP 200 HTML unsupported
+        mock_network_client.reports = MagicMock()
+
+        async def _fail_hourly(
+            site_name: str, interval: str, *, start_ms: int, end_ms: int
+        ) -> list[dict[str, int]]:
+            if interval == "hourly":
+                raise UniFiTimeoutError("Hourly timeout")
+            return []
+
+        mock_network_client.reports.get_site_report = AsyncMock(
+            side_effect=_fail_hourly
+        )
+        assert (
+            await coord._fetch_site_internet_activity(
+                site_id="site1", site_name="default", now_ms=now_ms
+            )
+            is None
+        )
+
+        async def _fail_daily(
+            site_name: str, interval: str, *, start_ms: int, end_ms: int
+        ) -> list[dict[str, int]]:
+            if interval == "daily":
+                raise UniFiTimeoutError("Daily timeout")
+            return []
+
+        mock_network_client.reports.get_site_report = AsyncMock(side_effect=_fail_daily)
+        assert (
+            await coord._fetch_site_internet_activity(
+                site_id="site1", site_name="default", now_ms=now_ms
+            )
+            is None
+        )
+
+        mock_network_client.reports.get_site_report = AsyncMock(
+            side_effect=UniFiResponseError("HTML", status_code=200)
+        )
+        await coord._async_update_data()
+        assert "site1" not in coord.data["internet_activity"]
+
+        facade_with_cfg = MagicMock()
+        facade_with_cfg.config_available = True
+        facade_with_cfg._config_coordinator = coord
+        assert (
+            UnifiFacadeCoordinator.internet_activity_available(facade_with_cfg, "site1")
+            is True
+        )
+        facade_with_cfg._config_coordinator = None
+        assert (
+            UnifiFacadeCoordinator.internet_activity_available(facade_with_cfg, "site1")
+            is True
+        )
 
     @pytest.mark.asyncio
     async def test_config_coordinator_innerspace_only_suppresses_network_404(

@@ -446,7 +446,7 @@ async def async_setup_entry(
                             continue
                         try:
                             outlet_idx = int(idx)
-                        except TypeError, ValueError:
+                        except (TypeError, ValueError):
                             continue
 
                         switch_key = (site_id, device_id, outlet_idx, "outlet_switch")
@@ -1619,7 +1619,7 @@ class UnifiOutletSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntit
                 try:
                     if int(idx) == self._outlet_index:
                         return outlet
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     continue
         return None
 
@@ -1650,7 +1650,7 @@ class UnifiOutletSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], SwitchEntit
                                 if cycle_enabled is not None:
                                     outlet["cycle_enabled"] = cycle_enabled
                                 break
-                        except TypeError, ValueError:
+                        except (TypeError, ValueError):
                             continue
 
     @property
@@ -1829,7 +1829,7 @@ class UnifiOutletCycleSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], Switch
                 try:
                     if int(idx) == self._outlet_index:
                         return outlet
-                except TypeError, ValueError:
+                except (TypeError, ValueError):
                     continue
         return None
 
@@ -1856,7 +1856,7 @@ class UnifiOutletCycleSwitch(CoordinatorEntity["UnifiFacadeCoordinator"], Switch
                             if int(idx) == self._outlet_index:
                                 outlet["cycle_enabled"] = cycle_enabled
                                 break
-                        except TypeError, ValueError:
+                        except (TypeError, ValueError):
                             continue
 
     @property

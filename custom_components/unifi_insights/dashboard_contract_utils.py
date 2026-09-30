@@ -33,7 +33,7 @@ def utc_iso(value: Any) -> str | None:
         ts = value / 1000 if value > MILLISECONDS_EPOCH_THRESHOLD else value
         try:
             dt = datetime.fromtimestamp(ts, tz=UTC)
-        except ValueError, OSError:
+        except (ValueError, OSError):
             return None
         return dt.isoformat().replace("+00:00", "Z")
     if isinstance(value, str):

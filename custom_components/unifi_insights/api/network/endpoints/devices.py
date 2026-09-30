@@ -44,7 +44,7 @@ def _seed_outlet_overrides(device_dict: dict[str, Any]) -> list[dict[str, Any]]:
             index = outlet.get("outlet_idx")
         try:
             index_int = int(index)  # type: ignore[arg-type]
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
 
         override: dict[str, Any] = {
@@ -391,13 +391,13 @@ class DevicesEndpoint:
         def _to_float(value: Any) -> float | None:
             try:
                 return float(value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return None
 
         def _to_int(value: Any) -> int | None:
             try:
                 return int(value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return None
 
         def _get_port_idx(port: dict[str, Any]) -> int | None:
@@ -609,7 +609,7 @@ class DevicesEndpoint:
                 idx = override.get("outlet_idx")
             try:
                 idx_int = int(idx)  # type: ignore[arg-type]
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
 
             if idx_int == outlet_index:

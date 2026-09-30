@@ -6,7 +6,45 @@ var e=[`gateway`,`switch`,`access_point`,`client`,`other`],t=`unifi_insights/top
         focusable="false"
     >
         <path d=${e}></path>
-    </svg>`}var Ct=S`
+    </svg>`}var Ct=`unifi-insights-site-health-card`,wt=`unifi-insights-site-health-card-editor`,Tt=`unifi-insights-internet-activity-card`,Et=`unifi-insights-internet-activity-card-editor`,Dt=`unifi-insights-performance-card`,Ot=`unifi-insights-performance-card-editor`,kt=`unifi-insights-protect-status-card`,At=`unifi-insights-protect-status-card-editor`,jt=`unifi-insights-timeline-card`,Mt=`unifi-insights-timeline-card-editor`;function Nt(e){let t=Math.round(e/1e6);return e>=1e9?`${(e/1e9).toFixed(1)} GB`:`${t} MB`}function Pt(e){if(!(typeof e!=`number`||!Number.isFinite(e)||e<0))return e>=1e9?`${(e/1e9).toFixed(1)} Gbps`:e>=1e6?`${(e/1e6).toFixed(1)} Mbps`:e>=1e3?`${Math.round(e/1e3)} Kbps`:`${Math.round(e)} bps`}function Ft(e){if(typeof e!=`number`||!Number.isFinite(e)||e<=0)return;let t=Math.floor(e/86400),n=Math.floor(e%86400/3600);if(t>0)return`${t}d ${n}h`;let r=Math.max(1,Math.floor(e%3600/60));return n>0?`${n}h ${r}m`:`${r}m`}function It(e){if(typeof e!=`string`||!e)return``;let t=new Date(e);if(Number.isNaN(t.getTime()))return``;let n=Math.max(0,Math.round((Date.now()-t.getTime())/6e4));if(n<1)return`Just now`;if(n<60)return`${n}m ago`;let r=Math.floor(n/60);return r<24?`${r}h ago`:t.toLocaleTimeString([],{hour:`2-digit`,minute:`2-digit`})}function Lt(e){switch(String(e??``)){case`gateway`:return _;case`switch`:return Pe;case`access_point`:return pe;case`camera`:return ve;case`doorbell`:return we;case`chime`:case`ring`:return _e;default:return g}}function Rt(e){return e>=85?`critical`:e>=60?`warning`:`ok`}var zt=class extends X{static properties={hass:{attribute:!1},config:{state:!0}};cardType;sourceCommand;options;optionsRequested=!1;constructor(e,t){super(),this.cardType=e,this.sourceCommand=t,this.config={type:`custom:${e}`},this.options=[]}setConfig(e){this.config={...e}}willUpdate(){this.hass&&!this.optionsRequested&&(this.optionsRequested=!0,this.loadOptions())}async loadOptions(){if(this.hass)try{let e=await this.hass.callWS({type:this.sourceCommand});this.options=this.sourceCommand===`unifi_insights/protect/sources`?e.map(e=>({entryId:e.entry_id,siteId:`*`,label:e.title})):m(e).map(e=>({entryId:e.binding.entry_id,siteId:e.binding.site_id,label:e.label})),this.requestUpdate()}catch{this.options=[],this.requestUpdate()}}applySite(e){let t={...this.config,type:this.config.type||`custom:${this.cardType}`};if(!e)delete t.entry_id,delete t.site_id;else{let n=this.options[Number.parseInt(e,10)];n&&(t.entry_id=n.entryId,t.site_id=n.siteId)}this.config=t,Q(this,`config-changed`,{config:t})}applyTitle(e){let t={...this.config};e.trim()?t.title=e.trim():delete t.title,this.config=t,Q(this,`config-changed`,{config:t})}render(){let e=this.config.entry_id&&this.config.site_id?String(this.options.findIndex(e=>e.entryId===this.config.entry_id&&e.siteId===this.config.site_id)):``;return B`
+            <div class="editor">
+                <label>Site</label>
+                <select
+                    @change=${e=>this.applySite(e.target.value)}
+                >
+                    <option value="">Auto</option>
+                    ${this.options.map((t,n)=>{let r=String(n);return B`<option
+                            value=${r}
+                            ?selected=${r===e}
+                        >
+                            ${t.label}
+                        </option>`})}
+                </select>
+                <label>Title</label>
+                <input
+                    .value=${this.config.title??``}
+                    @input=${e=>this.applyTitle(e.target.value)}
+                />
+            </div>
+        `}static styles=S`
+        .editor {
+            display: grid;
+            gap: 8px;
+        }
+        label {
+            font-size: 0.85rem;
+            color: var(--secondary-text-color);
+        }
+        select,
+        input {
+            min-height: 36px;
+            border: 1px solid var(--divider-color);
+            border-radius: 8px;
+            padding: 4px 8px;
+            background: var(--card-background-color);
+            color: var(--primary-text-color);
+        }
+    `},Bt=S`
     :host {
         --uit-online: var(--success-color, #43a047);
         --uit-offline: var(--error-color, #db4437);
@@ -29,7 +67,7 @@ var e=[`gateway`,`switch`,`access_point`,`client`,`other`],t=`unifi_insights/top
             --uit-focus: Highlight;
         }
     }
-`,wt=S`
+`,Vt=S`
     button {
         font: inherit;
         color: var(--primary-text-color);
@@ -84,95 +122,421 @@ var e=[`gateway`,`switch`,`access_point`,`client`,`other`],t=`unifi_insights/top
             animation: none !important;
         }
     }
-`,Tt=`unifi-insights-site-health-card`,Et=`unifi-insights-site-health-card-editor`,Dt=`unifi-insights-internet-activity-card`,Ot=`unifi-insights-internet-activity-card-editor`,kt=`unifi-insights-performance-card`,At=`unifi-insights-performance-card-editor`,jt=`unifi-insights-protect-status-card`,Mt=`unifi-insights-protect-status-card-editor`,Nt=`unifi-insights-timeline-card`,Pt=`unifi-insights-timeline-card-editor`;function Ft(e){let t=Math.round(e/1e6);return e>=1e9?`${(e/1e9).toFixed(1)} GB`:`${t} MB`}function It(e){if(!(typeof e!=`number`||!Number.isFinite(e)||e<0))return e>=1e9?`${(e/1e9).toFixed(1)} Gbps`:e>=1e6?`${(e/1e6).toFixed(1)} Mbps`:e>=1e3?`${Math.round(e/1e3)} Kbps`:`${Math.round(e)} bps`}function Lt(e){if(typeof e!=`number`||!Number.isFinite(e)||e<=0)return;let t=Math.floor(e/86400),n=Math.floor(e%86400/3600);if(t>0)return`${t}d ${n}h`;let r=Math.max(1,Math.floor(e%3600/60));return n>0?`${n}h ${r}m`:`${r}m`}function Rt(e){if(typeof e!=`string`||!e)return``;let t=new Date(e);if(Number.isNaN(t.getTime()))return``;let n=Math.max(0,Math.round((Date.now()-t.getTime())/6e4));if(n<1)return`Just now`;if(n<60)return`${n}m ago`;let r=Math.floor(n/60);return r<24?`${r}h ago`:t.toLocaleTimeString([],{hour:`2-digit`,minute:`2-digit`})}function zt(e){switch(String(e??``)){case`gateway`:return _;case`switch`:return Pe;case`access_point`:return pe;case`camera`:return ve;case`doorbell`:return we;case`chime`:case`ring`:return _e;default:return g}}function Bt(e){return e>=85?`critical`:e>=60?`warning`:`ok`}var Vt=class extends X{static editorTag=``;static async getConfigElement(){return document.createElement(this.editorTag)}static properties={hass:{attribute:!1},config:{state:!0},snapshot:{state:!0},sources:{state:!0},loading:{state:!0},error:{state:!0}};unsubscribe;bindingKey;syncGeneration=0;failedBindingKey;retryAfterMs=0;retryTimer;constructor(){super(),this.config={type:``},this.snapshot=void 0,this.sources=[],this.loading=!1,this.error=void 0}get headerAccent(){return`var(--primary-color, #03a9f4)`}renderHeaderBadge(){return H}get loadingLabel(){return`Loading`}get includeSiteInSubscribeMessage(){return!0}connectedCallback(){super.connectedCallback(),this.sync()}disconnectedCallback(){super.disconnectedCallback(),this.syncGeneration+=1,this.retryTimer&&=(clearTimeout(this.retryTimer),void 0),this.unsubscribe?.(),this.unsubscribe=void 0}willUpdate(e){let t=e.has(`hass`),n=e.has(`config`),r=e.get(`hass`),i=t&&r?.connection!==this.hass?.connection;(n||i)&&this.sync()}setConfig(e){if(!e||typeof e.type!=`string`)throw Error(`Invalid card config`);this.config={...e}}getCardSize(){return 4}getGridOptions(){return{columns:6,rows:4,min_columns:3,min_rows:3}}getBinding(){return this.config.entry_id&&this.config.site_id?{entry_id:this.config.entry_id,site_id:this.config.site_id}:de({entry_id:this.config.entry_id,site_id:this.config.site_id,title:this.config.title,view:`graph`,show_site_selector:!1,clients:`collapsed`,kinds:[`gateway`,`switch`,`access_point`,`client`,`other`],density:void 0,orientation:`vertical`,show_labels:!0,max_clients:500},this.sources)}async sync(){let e=++this.syncGeneration;if(!this.hass)return;this.loading=!0;try{if(this.sources=await this.hass.callWS({type:this.sourceCommand}),e!==this.syncGeneration||!this.isConnected){this.loading=!1;return}this.error=void 0}catch(t){if(e!==this.syncGeneration||!this.isConnected){this.loading=!1;return}this.error=Z(t),this.loading=!1;return}let t=this.getBinding(),n=t?`${t.entry_id}:${t.site_id}`:void 0;if(n===this.bindingKey&&this.unsubscribe){this.loading=!1;return}if(this.bindingKey=n,n!==this.failedBindingKey&&(this.failedBindingKey=void 0,this.retryAfterMs=0),this.snapshot=void 0,await this.unsubscribe?.(),this.unsubscribe=void 0,!t){this.loading=!1;return}if(n!==void 0&&n===this.failedBindingKey&&Date.now()<this.retryAfterMs){this.loading=!1,this.retryTimer&&clearTimeout(this.retryTimer),this.retryTimer=setTimeout(()=>{e===this.syncGeneration&&this.isConnected&&this.sync()},Math.max(0,this.retryAfterMs-Date.now()));return}let r={type:this.subscribeCommand,entry_id:t.entry_id};this.includeSiteInSubscribeMessage&&(r.site_id=t.site_id);try{let t=await this.hass.connection.subscribeMessage(t=>{if(e===this.syncGeneration&&this.isConnected){if((Array.isArray(t.issues)?t.issues:[]).some(e=>e?.code===`entry_unloaded`)){this.unsubscribe?.().catch(()=>void 0),this.unsubscribe=void 0,this.bindingKey=void 0,this.retryTimer&&clearTimeout(this.retryTimer),this.retryTimer=setTimeout(()=>{e===this.syncGeneration&&this.isConnected&&this.sync()},1e3);return}this.failedBindingKey=void 0,this.retryAfterMs=0,this.error=void 0,this.snapshot=t,this.loading=!1}},r,{resubscribe:!1});if(e!==this.syncGeneration||!this.isConnected){await t(),this.loading=!1;return}this.unsubscribe=t}catch(t){if(e!==this.syncGeneration||!this.isConnected){this.loading=!1;return}this.failedBindingKey=n,this.retryAfterMs=Date.now()+5e3,this.error=Z(t),this.loading=!1,this.retryTimer=setTimeout(()=>{e===this.syncGeneration&&this.isConnected&&this.sync()},5e3)}}openMoreInfo(e){Q(this,`hass-more-info`,{entityId:e})}render(){let e=typeof this.snapshot?.site_name==`string`&&this.snapshot.site_name.trim()?this.snapshot.site_name:typeof this.snapshot?.entry_title==`string`&&this.snapshot.entry_title.trim()?this.snapshot.entry_title:void 0;return B`
+`,Ht=[Bt,S`
+        :host {
+            display: block;
+            height: 100%;
+        }
+        ha-card {
+            height: 100%;
+            box-sizing: border-box;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            overflow: hidden;
+        }
+        .icon {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+            flex: none;
+        }
+        .header,
+        .header-main,
+        .header-actions,
+        .hero-banner,
+        .hero-left,
+        .kpi-top,
+        .item-card,
+        .item-top,
+        .item-meta,
+        .ring-card {
+            display: flex;
+            align-items: center;
+        }
+        .header,
+        .hero-banner,
+        .kpi-top,
+        .item-top {
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .header-main,
+        .hero-left,
+        .item-card,
+        .ring-card {
+            gap: 10px;
+            min-width: 0;
+        }
+        .header-icon,
+        .item-icon,
+        .ring-gauge,
+        .empty-hero .icon-badge {
+            display: grid;
+            place-items: center;
+            flex: none;
+        }
+        .header-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 12px;
+            background: color-mix(
+                in srgb,
+                var(--card-accent, var(--primary-color)) 15%,
+                transparent
+            );
+            color: var(--card-accent, var(--primary-color));
+        }
+        .header-titles {
+            min-width: 0;
+        }
+        .header-title,
+        .hero-title,
+        .item-name,
+        .kpi-sub {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .header-title,
+        .hero-title,
+        .item-name,
+        .empty-title,
+        .chip,
+        .kpi-top,
+        .pill-tab,
+        button.link {
+            font-weight: 600;
+        }
+        .header-title {
+            font-size: 1.02rem;
+            line-height: 1.25;
+        }
+        .header-subtitle,
+        .hero-meta,
+        .kpi-sub,
+        .item-meta,
+        .empty-sub {
+            font-size: 0.75rem;
+            color: var(--secondary-text-color);
+        }
+        .header-actions,
+        .kpi-top,
+        .item-meta,
+        .empty-hero,
+        .chip {
+            gap: 6px;
+        }
+        .state {
+            color: var(--secondary-text-color);
+            font-size: 0.88rem;
+            padding: 12px;
+            border-radius: 12px;
+            background: color-mix(
+                in srgb,
+                var(--primary-text-color) 4%,
+                transparent
+            );
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .error,
+        .chip.critical,
+        .chip.offline,
+        .item-icon.offline {
+            color: var(--uit-offline);
+            background: color-mix(in srgb, var(--uit-offline) 14%, transparent);
+        }
+        .pulse-dot,
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            display: inline-block;
+            flex: none;
+        }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.74rem;
+            text-transform: capitalize;
+            background: color-mix(
+                in srgb,
+                var(--primary-text-color) 8%,
+                transparent
+            );
+            color: var(--primary-text-color);
+        }
+        .chip.ok,
+        .chip.healthy,
+        .chip.online,
+        .item-icon.online,
+        .empty-hero .icon-badge {
+            background: color-mix(in srgb, var(--uit-online) 16%, transparent);
+            color: var(--uit-online);
+        }
+        .chip.warning,
+        .chip.degraded,
+        .chip.partial {
+            background: color-mix(in srgb, var(--uit-warning) 18%, transparent);
+            color: var(--uit-warning);
+        }
+        .hero-banner {
+            padding: 10px 12px;
+            border-radius: 12px;
+            background: color-mix(
+                in srgb,
+                var(--card-accent, var(--primary-color)) 8%,
+                transparent
+            );
+            border: 1px solid
+                color-mix(
+                    in srgb,
+                    var(--card-accent, var(--primary-color)) 20%,
+                    transparent
+                );
+        }
+        .hero-left .icon {
+            color: var(--card-accent, var(--primary-color));
+        }
+        .hero-title {
+            font-size: 0.9rem;
+        }
+        .kpi-grid,
+        .ring-strip,
+        .list {
+            display: grid;
+            gap: 8px;
+        }
+        .kpi-grid {
+            grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+        }
+        .ring-strip {
+            grid-template-columns: repeat(2, 1fr);
+        }
+        .kpi-tile,
+        .ring-card,
+        .item-card {
+            border-radius: 12px;
+            background: color-mix(
+                in srgb,
+                var(--primary-text-color) 4%,
+                transparent
+            );
+            border: 1px solid var(--uit-line);
+        }
+        .kpi-tile {
+            appearance: none;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+            text-align: left;
+            font: inherit;
+            color: inherit;
+        }
+        .kpi-tile:disabled {
+            cursor: default;
+            opacity: 1;
+        }
+        .kpi-tile.clickable {
+            cursor: pointer;
+            transition: background 150ms ease;
+        }
+        .kpi-tile.clickable:hover {
+            background: color-mix(
+                in srgb,
+                var(--primary-color) 10%,
+                transparent
+            );
+        }
+        .kpi-top {
+            font-size: 0.73rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            color: var(--secondary-text-color);
+        }
+        .kpi-value {
+            font-size: 1.18rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            line-height: 1.2;
+            text-transform: capitalize;
+        }
+        .bar-track {
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: color-mix(
+                in srgb,
+                var(--primary-text-color) 10%,
+                transparent
+            );
+            overflow: hidden;
+            display: flex;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            background: var(--primary-color);
+            transition: width 250ms ease;
+        }
+        .bar-fill.ok {
+            background: var(--uit-online);
+        }
+        .bar-fill.warning {
+            background: var(--uit-warning);
+        }
+        .bar-fill.critical {
+            background: var(--uit-offline);
+        }
+        .bar-fill.secondary {
+            background: #8b5cf6;
+        }
+        .ring-card,
+        .item-card {
+            padding: 8px 10px;
+        }
+        .ring-gauge {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: conic-gradient(
+                var(--ring-color, var(--uit-online)) calc(var(--pct, 0) * 1%),
+                color-mix(in srgb, var(--primary-text-color) 10%, transparent) 0
+            );
+            position: relative;
+        }
+        .ring-gauge::before {
+            content: "";
+            position: absolute;
+            inset: 5px;
+            border-radius: 50%;
+            background: var(--card-background-color, #fff);
+        }
+        .ring-gauge span {
+            position: relative;
+            font-size: 0.7rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+        }
+        .item-icon {
+            width: 34px;
+            height: 34px;
+            border-radius: 10px;
+            background: color-mix(
+                in srgb,
+                var(--primary-color) 12%,
+                transparent
+            );
+            color: var(--primary-color);
+        }
+        .item-body {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .item-name {
+            font-size: 0.88rem;
+        }
+        .item-value {
+            font-size: 0.85rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            flex-shrink: 0;
+        }
+        .pill-tabs {
+            display: inline-flex;
+            background: color-mix(
+                in srgb,
+                var(--primary-text-color) 6%,
+                transparent
+            );
+            border-radius: 999px;
+            padding: 2px;
+            gap: 2px;
+        }
+        .pill-tab {
+            border: 0;
+            background: transparent;
+            color: var(--secondary-text-color);
+            font: inherit;
+            font-size: 0.7rem;
+            padding: 3px 8px;
+            border-radius: 999px;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+        .pill-tab[aria-pressed="true"] {
+            background: var(--primary-color);
+            color: var(--text-primary-color, #fff);
+        }
+        .empty-hero {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 18px 12px;
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--uit-online) 7%, transparent);
+            border: 1px dashed
+                color-mix(in srgb, var(--uit-online) 30%, transparent);
+        }
+        .empty-hero .icon-badge {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+        }
+        .empty-title {
+            font-size: 0.92rem;
+        }
+        button.link {
+            border: 0;
+            background: transparent;
+            color: var(--primary-color);
+            cursor: pointer;
+            padding: 0;
+            text-align: left;
+            font: inherit;
+        }
+        button.link:hover {
+            text-decoration: underline;
+        }
+    `],Ut=class extends X{static editorTag=``;static async getConfigElement(){return document.createElement(this.editorTag)}static properties={hass:{attribute:!1},config:{state:!0},snapshot:{state:!0},sources:{state:!0},loading:{state:!0},error:{state:!0}};unsubscribe;bindingKey;syncGeneration=0;failedBindingKey;retryAfterMs=0;retryTimer;constructor(){super(),this.config={type:``},this.snapshot=void 0,this.sources=[],this.loading=!1,this.error=void 0}get headerAccent(){return`var(--primary-color, #03a9f4)`}renderHeaderBadge(){return H}get loadingLabel(){return`Loading`}get includeSiteInSubscribeMessage(){return!0}connectedCallback(){super.connectedCallback(),this.sync()}disconnectedCallback(){super.disconnectedCallback(),this.syncGeneration+=1,this.retryTimer&&=(clearTimeout(this.retryTimer),void 0),this.unsubscribe?.(),this.unsubscribe=void 0}willUpdate(e){let t=e.has(`hass`),n=e.has(`config`),r=e.get(`hass`),i=t&&r?.connection!==this.hass?.connection;(n||i)&&this.sync()}setConfig(e){if(!e||typeof e.type!=`string`)throw Error(`Invalid card config`);this.config={...e}}getCardSize(){return 4}getGridOptions(){return{columns:6,rows:4,min_columns:3,min_rows:3}}getBinding(){return this.config.entry_id&&this.config.site_id?{entry_id:this.config.entry_id,site_id:this.config.site_id}:de({entry_id:this.config.entry_id,site_id:this.config.site_id,title:this.config.title,view:`graph`,show_site_selector:!1,clients:`collapsed`,kinds:[`gateway`,`switch`,`access_point`,`client`,`other`],density:void 0,orientation:`vertical`,show_labels:!0,max_clients:500},this.sources)}async sync(){let e=++this.syncGeneration;if(!this.hass)return;this.loading=!0;try{if(this.sources=await this.hass.callWS({type:this.sourceCommand}),e!==this.syncGeneration||!this.isConnected){this.loading=!1;return}this.error=void 0}catch(t){if(e!==this.syncGeneration||!this.isConnected){this.loading=!1;return}this.error=Z(t),this.loading=!1;return}let t=this.getBinding(),n=t?`${t.entry_id}:${t.site_id}`:void 0;if(n===this.bindingKey&&this.unsubscribe){this.loading=!1;return}if(this.bindingKey=n,n!==this.failedBindingKey&&(this.failedBindingKey=void 0,this.retryAfterMs=0),this.snapshot=void 0,await this.unsubscribe?.(),this.unsubscribe=void 0,!t){this.loading=!1;return}if(n!==void 0&&n===this.failedBindingKey&&Date.now()<this.retryAfterMs){this.loading=!1,this.retryTimer&&clearTimeout(this.retryTimer),this.retryTimer=setTimeout(()=>{e===this.syncGeneration&&this.isConnected&&this.sync()},Math.max(0,this.retryAfterMs-Date.now()));return}let r={type:this.subscribeCommand,entry_id:t.entry_id};this.includeSiteInSubscribeMessage&&(r.site_id=t.site_id);try{let t=await this.hass.connection.subscribeMessage(t=>{if(e===this.syncGeneration&&this.isConnected){if((Array.isArray(t.issues)?t.issues:[]).some(e=>e?.code===`entry_unloaded`)){this.unsubscribe?.().catch(()=>void 0),this.unsubscribe=void 0,this.bindingKey=void 0,this.retryTimer&&clearTimeout(this.retryTimer),this.retryTimer=setTimeout(()=>{e===this.syncGeneration&&this.isConnected&&this.sync()},1e3);return}this.failedBindingKey=void 0,this.retryAfterMs=0,this.error=void 0,this.snapshot=t,this.loading=!1}},r,{resubscribe:!1});if(e!==this.syncGeneration||!this.isConnected){await t(),this.loading=!1;return}this.unsubscribe=t}catch(t){if(e!==this.syncGeneration||!this.isConnected){this.loading=!1;return}this.failedBindingKey=n,this.retryAfterMs=Date.now()+5e3,this.error=Z(t),this.loading=!1,this.retryTimer=setTimeout(()=>{e===this.syncGeneration&&this.isConnected&&this.sync()},5e3)}}openMoreInfo(e){Q(this,`hass-more-info`,{entityId:e})}render(){let e=typeof this.snapshot?.site_name==`string`&&this.snapshot.site_name.trim()?this.snapshot.site_name:typeof this.snapshot?.entry_title==`string`&&this.snapshot.entry_title.trim()?this.snapshot.entry_title:void 0;return B`
             <ha-card style=${`--card-accent: ${this.headerAccent}`}>
                 <div class="header">
                     <div class="header-main">
-                        <div class="header-icon">${$(this.headerIcon)}</div>
+                        <div class="header-icon">
+                            ${$(this.headerIcon)}
+                        </div>
                         <div class="header-titles">
-                            <div class="header-title">${this.config.title??this.defaultTitle}</div>
-                            ${e?B`<div class="header-subtitle">${e}</div>`:H}
+                            <div class="header-title">
+                                ${this.config.title??this.defaultTitle}
+                            </div>
+                            ${e?B`<div class="header-subtitle">
+                                      ${e}
+                                  </div>`:H}
                         </div>
                     </div>
                     <div class="header-actions">${this.renderHeaderBadge()}</div>
                 </div>
-                ${this.loading?B`<div class="state loading-box"><span class="pulse-dot"></span><span>${this.loadingLabel}</span></div>`:H}
-                ${this.error?B`<div class="state error">${$(me)}<span>${this.error.code}</span></div>`:H}
+                ${this.loading?B`<div class="state loading-box">
+                          <span class="pulse-dot"></span>
+                          <span>${this.loadingLabel}</span>
+                      </div>`:H}
+                ${this.error?B`<div class="state error">
+                          ${$(me)}
+                          <span>${this.error.code}</span>
+                      </div>`:H}
                 ${!this.loading&&!this.error?this.renderContent():H}
             </ha-card>
-        `}static styles=[Ct,S`
-            :host { display: block; height: 100%; }
-            ha-card { height: 100%; box-sizing: border-box; padding: 16px; display: flex; flex-direction: column; gap: 12px; overflow: hidden; }
-            .icon { width: 20px; height: 20px; fill: currentColor; flex: none; }
-            .header, .header-main, .header-actions, .hero-banner, .hero-left, .kpi-top, .item-card, .item-top, .item-meta, .ring-card { display: flex; align-items: center; }
-            .header, .hero-banner, .kpi-top, .item-top { justify-content: space-between; gap: 10px; }
-            .header-main, .hero-left, .item-card, .ring-card { gap: 10px; min-width: 0; }
-            .header-icon { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, var(--card-accent, var(--primary-color)) 15%, transparent); color: var(--card-accent, var(--primary-color)); flex: none; }
-            .header-titles { min-width: 0; }
-            .header-title, .hero-title, .item-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .header-title { font-size: 1.02rem; line-height: 1.25; }
-            .header-subtitle, .hero-meta, .kpi-sub, .item-meta, .empty-sub { font-size: 0.75rem; color: var(--secondary-text-color); }
-            .header-actions { gap: 6px; flex-shrink: 0; }
-            .state { color: var(--secondary-text-color); font-size: 0.88rem; padding: 12px; border-radius: 12px; background: color-mix(in srgb, var(--primary-text-color) 4%, transparent); display: flex; align-items: center; gap: 8px; }
-            .error { color: var(--uit-offline); background: color-mix(in srgb, var(--uit-offline) 12%, transparent); }
-            .pulse-dot, .status-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; display: inline-block; flex: none; }
-            .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 10px; font-size: 0.74rem; font-weight: 600; text-transform: capitalize; background: color-mix(in srgb, var(--primary-text-color) 8%, transparent); color: var(--primary-text-color); }
-            .chip.ok, .chip.healthy, .chip.online { background: color-mix(in srgb, var(--uit-online) 16%, transparent); color: var(--uit-online); }
-            .chip.warning, .chip.degraded, .chip.partial { background: color-mix(in srgb, var(--uit-warning) 18%, transparent); color: var(--uit-warning); }
-            .chip.critical, .chip.offline { background: color-mix(in srgb, var(--uit-offline) 16%, transparent); color: var(--uit-offline); }
-            .hero-banner { padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--card-accent, var(--primary-color)) 8%, transparent); border: 1px solid color-mix(in srgb, var(--card-accent, var(--primary-color)) 20%, transparent); }
-            .hero-left .icon { color: var(--card-accent, var(--primary-color)); }
-            .hero-title { font-size: 0.9rem; }
-            .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 8px; }
-            .kpi-tile { appearance: none; padding: 10px 12px; border-radius: 12px; background: color-mix(in srgb, var(--primary-text-color) 4%, transparent); border: 1px solid var(--uit-line); display: flex; flex-direction: column; gap: 4px; min-width: 0; text-align: left; font: inherit; color: inherit; }
-            .kpi-tile:disabled { cursor: default; opacity: 1; }
-            .kpi-tile.clickable { cursor: pointer; transition: background 150ms ease; }
-            .kpi-tile.clickable:hover { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
-            .kpi-top { gap: 6px; font-size: 0.73rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--secondary-text-color); }
-            .kpi-value { font-size: 1.18rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; text-transform: capitalize; }
-            .kpi-sub { font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .bar-track { width: 100%; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--primary-text-color) 10%, transparent); overflow: hidden; display: flex; }
-            .bar-fill { height: 100%; border-radius: 999px; background: var(--primary-color); transition: width 250ms ease; }
-            .bar-fill.ok { background: var(--uit-online); }
-            .bar-fill.warning { background: var(--uit-warning); }
-            .bar-fill.critical { background: var(--uit-offline); }
-            .bar-fill.secondary { background: #8b5cf6; }
-            .ring-strip { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-            .ring-card, .item-card { padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--primary-text-color) 3.5%, transparent); border: 1px solid var(--uit-line); }
-            .ring-gauge { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; background: conic-gradient(var(--ring-color, var(--uit-online)) calc(var(--pct, 0) * 1%), color-mix(in srgb, var(--primary-text-color) 10%, transparent) 0); position: relative; }
-            .ring-gauge::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--card-background-color, #fff); }
-            .ring-gauge span { position: relative; font-size: 0.7rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-            .list { display: grid; gap: 8px; }
-            .item-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: color-mix(in srgb, var(--primary-color) 12%, transparent); color: var(--primary-color); flex: none; }
-            .item-icon.offline { background: color-mix(in srgb, var(--uit-offline) 12%, transparent); color: var(--uit-offline); }
-            .item-icon.online { background: color-mix(in srgb, var(--uit-online) 12%, transparent); color: var(--uit-online); }
-            .item-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-            .item-name { font-size: 0.88rem; }
-            .item-meta { gap: 6px; }
-            .item-value { font-size: 0.85rem; font-weight: 700; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-            .pill-tabs { display: inline-flex; background: color-mix(in srgb, var(--primary-text-color) 6%, transparent); border-radius: 999px; padding: 2px; gap: 2px; }
-            .pill-tab { border: 0; background: transparent; color: var(--secondary-text-color); font: inherit; font-size: 0.7rem; font-weight: 600; padding: 3px 8px; border-radius: 999px; cursor: pointer; text-transform: uppercase; }
-            .pill-tab[aria-pressed="true"] { background: var(--primary-color); color: var(--text-primary-color, #fff); }
-            .empty-hero { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 18px 12px; border-radius: 14px; background: color-mix(in srgb, var(--uit-online) 7%, transparent); border: 1px dashed color-mix(in srgb, var(--uit-online) 30%, transparent); gap: 6px; }
-            .empty-hero .icon-badge { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--uit-online) 16%, transparent); color: var(--uit-online); }
-            .empty-title { font-size: 0.92rem; font-weight: 600; }
-            button.link { border: 0; background: transparent; color: var(--primary-color); cursor: pointer; padding: 0; text-align: left; font: inherit; font-weight: 600; }
-            button.link:hover { text-decoration: underline; }
-        `]},Ht=class extends X{static properties={hass:{attribute:!1},config:{state:!0}};cardType;sourceCommand;options;optionsRequested=!1;constructor(e,t){super(),this.cardType=e,this.sourceCommand=t,this.config={type:`custom:${e}`},this.options=[]}setConfig(e){this.config={...e}}willUpdate(){this.hass&&!this.optionsRequested&&(this.optionsRequested=!0,this.loadOptions())}async loadOptions(){if(this.hass)try{let e=await this.hass.callWS({type:this.sourceCommand});this.options=this.sourceCommand===`unifi_insights/protect/sources`?e.map(e=>({entryId:e.entry_id,siteId:`*`,label:e.title})):m(e).map(e=>({entryId:e.binding.entry_id,siteId:e.binding.site_id,label:e.label})),this.requestUpdate()}catch{this.options=[],this.requestUpdate()}}applySite(e){let t={...this.config,type:this.config.type||`custom:${this.cardType}`};if(!e)delete t.entry_id,delete t.site_id;else{let n=this.options[Number.parseInt(e,10)];n&&(t.entry_id=n.entryId,t.site_id=n.siteId)}this.config=t,Q(this,`config-changed`,{config:t})}applyTitle(e){let t={...this.config};e.trim()?t.title=e.trim():delete t.title,this.config=t,Q(this,`config-changed`,{config:t})}render(){let e=this.config.entry_id&&this.config.site_id?String(this.options.findIndex(e=>e.entryId===this.config.entry_id&&e.siteId===this.config.site_id)):``;return B`
-            <div class="editor">
-                <label>Site</label>
-                <select @change=${e=>this.applySite(e.target.value)}>
-                    <option value="">Auto</option>
-                    ${this.options.map((t,n)=>{let r=String(n);return B`<option value=${r} ?selected=${r===e}>${t.label}</option>`})}
-                </select>
-                <label>Title</label>
-                <input
-                    .value=${this.config.title??``}
-                    @input=${e=>this.applyTitle(e.target.value)}
-                />
-            </div>
-        `}static styles=S`
-        .editor { display: grid; gap: 8px; }
-        label { font-size: 0.85rem; color: var(--secondary-text-color); }
-        select, input { min-height: 36px; border: 1px solid var(--divider-color); border-radius: 8px; padding: 4px 8px; background: var(--card-background-color); color: var(--primary-text-color); }
-    `};function Ut(e){h(e.tag,e.card),h(e.editorTag,e.editor),window.customCards??=[],window.customCards.some(t=>t.type===e.tag)||window.customCards.push({type:e.tag,name:e.name,description:e.description,preview:!0})}export{Me as $,V as A,ye as B,St as C,s as Ct,Z as D,t as Dt,bt as E,e as Et,me as F,g as G,xe as H,he as I,Oe as J,Te as K,ge as L,ht as M,st as N,X as O,n as Ot,S as P,_ as Q,_e as R,xt as S,o as St,Q as T,ee as Tt,Se as U,be as V,Ce as W,Ae as X,ke as Y,je as Z,Lt as _,u as _t,Ot as a,ae as at,wt as b,a as bt,jt as c,ie as ct,Et as d,m as dt,Ne as et,Nt as f,de as ft,Rt as g,l as gt,Ft as h,le as ht,Dt as i,re as it,B as j,H as k,ne as kt,Mt as l,ce as lt,It as m,fe as mt,Vt as n,Ie as nt,kt as o,oe as ot,Pt as p,ue as pt,Ee as q,Ht as r,h as rt,At as s,se as st,Ut as t,Fe as tt,Tt as u,f as ut,zt as v,d as vt,$ as w,i as wt,Ct as x,r as xt,Bt as y,c as yt,ve as z};
+        `}static styles=Ht};function Wt(e){h(e.tag,e.card),h(e.editorTag,e.editor),window.customCards??=[],window.customCards.some(t=>t.type===e.tag)||window.customCards.push({type:e.tag,name:e.name,description:e.description,preview:!0})}export{Me as $,V as A,ye as B,St as C,s as Ct,Z as D,t as Dt,bt as E,e as Et,me as F,g as G,xe as H,he as I,Oe as J,Te as K,ge as L,ht as M,st as N,X as O,n as Ot,S as P,_ as Q,_e as R,xt as S,o as St,Q as T,ee as Tt,Se as U,be as V,Ce as W,Ae as X,ke as Y,je as Z,Nt as _,u as _t,zt as a,ae as at,Lt as b,a as bt,Dt as c,ie as ct,At as d,m as dt,Ne as et,Ct as f,de as ft,Pt as g,l as gt,Mt as h,le as ht,Bt as i,re as it,B as j,H as k,ne as kt,Ot as l,ce as lt,jt as m,fe as mt,Ut as n,Ie as nt,Tt as o,oe as ot,wt as p,ue as pt,Ee as q,Vt as r,h as rt,Et as s,se as st,Wt as t,Fe as tt,kt as u,f as ut,It as v,d as vt,$ as w,i as wt,Rt as x,r as xt,Ft as y,c as yt,ve as z};

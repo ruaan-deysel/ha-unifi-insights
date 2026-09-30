@@ -13,6 +13,8 @@ from custom_components.unifi_insights.api.protect.models.camera import (
 )
 from custom_components.unifi_insights.dashboard_contract_utils import (
     content_revision,
+    enum_str,
+    is_protect_device_connected,
     utc_iso,
 )
 from custom_components.unifi_insights.internet_activity_snapshot import (
@@ -684,4 +686,7 @@ def test_protect_snapshot_handles_str_enums_and_is_connected_fallback() -> None:
     assert cam1["recording_mode"] == "always"
     assert cam1["is_recording"] is True
     assert cam2["connected"] is True
+    assert enum_str(42) == "42"
+    assert is_protect_device_connected({"is_connected": True}) is True
+    assert is_protect_device_connected({"isConnected": False}) is False
 

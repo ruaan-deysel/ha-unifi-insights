@@ -103,10 +103,11 @@ export class UnifiInsightsPerformanceCard extends BaseDashboardCard {
                 ${devices.slice(0, 6).map((device) => {
                     const name = String(device.name ?? "Device");
                     const kind = String(device.kind ?? "other");
+                    const raw = Number(device.cpu_pct);
                     const cpu =
-                        device.cpu_pct == null
+                        device.cpu_pct == null || !Number.isFinite(raw)
                             ? null
-                            : Math.round(Number(device.cpu_pct));
+                            : Math.min(100, Math.max(0, Math.round(raw)));
                     const mem =
                         device.memory_pct == null
                             ? null

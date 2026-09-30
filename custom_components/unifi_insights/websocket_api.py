@@ -1,3 +1,5 @@
+# Copyright (c) 2026 Ruaan Deysel
+
 """
 WebSocket API exposing the network topology graph to the frontend.
 
@@ -17,10 +19,23 @@ from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util.hass_dict import HassKey
 
 from .const import DOMAIN
 from .helpers import async_get_device_entry
+from .internet_activity_snapshot import (
+    build_internet_activity_snapshot,
+    build_unavailable_internet_activity,
+)
+from .performance import build_performance_snapshot, build_unavailable_performance
+from .protect_snapshot import (
+    build_no_protect_snapshot,
+    build_protect_snapshot,
+    build_unavailable_protect_snapshot,
+)
+from .site_health import build_site_health_snapshot, build_unavailable_site_health
+from .timeline import build_timeline_snapshot, build_unavailable_timeline
 from .topology import build_site_topology, build_unavailable_topology
 from .topology_contract import MAX_CLIENTS_PER_SITE, site_display_name
 from .topology_keys import async_get_node_key
@@ -61,6 +76,17 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_topology_sources)
     websocket_api.async_register_command(hass, ws_topology_get)
     websocket_api.async_register_command(hass, ws_topology_subscribe)
+    websocket_api.async_register_command(hass, ws_site_health_get)
+    websocket_api.async_register_command(hass, ws_site_health_subscribe)
+    websocket_api.async_register_command(hass, ws_internet_activity_get)
+    websocket_api.async_register_command(hass, ws_internet_activity_subscribe)
+    websocket_api.async_register_command(hass, ws_performance_get)
+    websocket_api.async_register_command(hass, ws_performance_subscribe)
+    websocket_api.async_register_command(hass, ws_protect_sources)
+    websocket_api.async_register_command(hass, ws_protect_get)
+    websocket_api.async_register_command(hass, ws_protect_subscribe)
+    websocket_api.async_register_command(hass, ws_timeline_get)
+    websocket_api.async_register_command(hass, ws_timeline_subscribe)
 
 
 def _resolve_entry(hass: HomeAssistant, entry_id: str) -> UnifiInsightsConfigEntry:
@@ -164,6 +190,172 @@ def _same_inputs(old: tuple[object, ...], new: tuple[object, ...]) -> bool:
     """
     return all(
         a is b or (isinstance(a, int) and a == b) for a, b in zip(old, new, strict=True)
+    )
+
+
+def _runtime_snapshot_inputs(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry, site_id: str
+) -> tuple[object, ...]:
+    """Return generic per-site inputs for non-topology snapshots."""
+    runtime = entry.runtime_data
+    data = runtime.coordinator.data
+    sites = data.get("sites")
+    devices = data.get("devices")
+    stats = data.get("stats")
+    clients = data.get("clients")
+    protect = data.get("protect")
+    return (
+        sites,
+        devices.get(site_id) if isinstance(devices, dict) else None,
+        stats.get(site_id) if isinstance(stats, dict) else None,
+        clients.get(site_id) if isinstance(clients, dict) else None,
+        protect,
+        data.get("internet_activity"),
+        data.get("internet_activity_unavailable"),
+        runtime.coordinator.device_available,
+        runtime.coordinator.protect_available,
+        site_id in runtime.config_coordinator.get_site_ids(),
+        len(dr.async_get(hass).devices),
+        len(er.async_get(hass).entities),
+    )
+
+
+def _runtime_protect_inputs(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry
+) -> tuple[object, ...]:
+    """Return inputs that drive Protect snapshot rebuilds."""
+    runtime = entry.runtime_data
+    data = runtime.coordinator.data
+    return (
+        data.get("protect"),
+        runtime.coordinator.protect_available,
+        len(dr.async_get(hass).devices),
+        len(er.async_get(hass).entities),
+    )
+
+
+def _generic_site_payload(
+    hass: HomeAssistant,
+    entry: UnifiInsightsConfigEntry,
+    site_id: str,
+    payload_type: str,
+    options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build one of the site-scoped dashboard payloads."""
+    runtime = entry.runtime_data
+    if site_id not in runtime.config_coordinator.get_site_ids():
+        msg = f"Site {site_id} is not enabled for this UniFi Insights entry"
+        raise _RequestError(ERR_SITE_NOT_SELECTED, msg)
+
+    facade = runtime.coordinator
+    data = facade.data
+    if payload_type == "site_health":
+        return build_site_health_snapshot(
+            data,
+            entry_id=entry.entry_id,
+            site_id=site_id,
+            ha_device_ids=_ha_device_ids(hass, data, site_id, entry.entry_id),
+            devices_available=facade.device_available,
+        )
+    if payload_type == "internet_activity":
+        return build_internet_activity_snapshot(
+            data,
+            entry_id=entry.entry_id,
+            site_id=site_id,
+            entity_registry=er.async_get(hass),
+        )
+    if payload_type == "performance":
+        return build_performance_snapshot(
+            data,
+            entry_id=entry.entry_id,
+            site_id=site_id,
+            ha_device_ids=_ha_device_ids(hass, data, site_id, entry.entry_id),
+            devices_available=facade.device_available,
+        )
+    if payload_type == "timeline":
+        opts = options or {}
+        return build_timeline_snapshot(
+            data,
+            entry_id=entry.entry_id,
+            site_id=site_id,
+            categories=opts.get("categories"),
+            hours=opts.get("hours", 6),
+            max_items=opts.get("max_items", 10),
+        )
+    msg = f"Unsupported payload type: {payload_type}"
+    code = "invalid_format"
+    raise _RequestError(code, msg)
+
+
+def _generic_site_unavailable(
+    entry: UnifiInsightsConfigEntry,
+    site_id: str,
+    payload_type: str,
+    code: str,
+) -> dict[str, Any]:
+    """Build an unavailable payload for one type."""
+    if payload_type == "site_health":
+        return build_unavailable_site_health(entry.entry_id, site_id, code)
+    if payload_type == "internet_activity":
+        return build_unavailable_internet_activity(entry.entry_id, site_id, code)
+    if payload_type == "performance":
+        return build_unavailable_performance(entry.entry_id, site_id, code)
+    if payload_type == "timeline":
+        return build_unavailable_timeline(entry.entry_id, site_id, code)
+    return {
+        "entry_id": entry.entry_id,
+        "site_id": site_id,
+        "status": "unavailable",
+        "issues": [{"code": code, "severity": "error"}],
+        "revision": "",
+    }
+
+
+def _protect_payload(
+    hass: HomeAssistant,
+    entry: UnifiInsightsConfigEntry,
+) -> dict[str, Any]:
+    """Build protect payload for one entry."""
+    runtime = entry.runtime_data
+    data = runtime.coordinator.data
+    protect_data = data.get("protect")
+    if not isinstance(protect_data, dict) or runtime.protect_coordinator is None:
+        return build_no_protect_snapshot(entry.entry_id, entry.title)
+
+    ha_device_ids: dict[str, str] = {}
+    registry = dr.async_get(hass)
+    cameras = (
+        protect_data.get("cameras")
+        if isinstance(protect_data.get("cameras"), dict)
+        else {}
+    )
+    chimes = (
+        protect_data.get("chimes")
+        if isinstance(protect_data.get("chimes"), dict)
+        else {}
+    )
+    for device_id in cameras:
+        device = async_get_device_entry(
+            registry, (DOMAIN, f"protect_camera_{device_id}"), entry.entry_id
+        )
+        if device is not None:
+            ha_device_ids[f"protect_camera_{device_id}"] = device.id
+            ha_device_ids[str(device_id)] = device.id
+    for device_id in chimes:
+        device = async_get_device_entry(
+            registry, (DOMAIN, f"protect_chime_{device_id}"), entry.entry_id
+        )
+        if device is not None:
+            ha_device_ids[f"protect_chime_{device_id}"] = device.id
+            ha_device_ids[str(device_id)] = device.id
+
+    return build_protect_snapshot(
+        data,
+        entry_id=entry.entry_id,
+        entry_title=entry.title,
+        entity_registry=er.async_get(hass),
+        ha_device_ids=ha_device_ids,
+        protect_available=runtime.coordinator.protect_available,
     )
 
 
@@ -351,6 +543,389 @@ def ws_topology_subscribe(
                 msg_id,
                 build_unavailable_topology(
                     entry.entry_id, site_id, site_name, ISSUE_ENTRY_UNLOADED
+                ),
+            )
+        )
+
+    stop_watching = _async_watch_unload(hass, entry, _async_entry_unloaded)
+    connection.subscriptions[msg_id] = _async_unsubscribe
+    connection.send_result(msg_id)
+    connection.send_message(websocket_api.event_message(msg_id, snapshot))
+
+
+def _site_message_schema(message_type: str) -> dict[str | vol.Marker, Any]:
+    return {
+        vol.Required("type"): message_type,
+        vol.Required("entry_id"): str,
+        vol.Required("site_id"): str,
+    }
+
+
+@websocket_api.websocket_command(_site_message_schema("unifi_insights/site_health/get"))
+@callback
+def ws_site_health_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one site's health snapshot."""
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _generic_site_payload(
+            hass, entry, msg["site_id"], "site_health", options=None
+        )
+    except _RequestError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], snapshot)
+
+
+@websocket_api.websocket_command(
+    _site_message_schema("unifi_insights/site_health/subscribe")
+)
+@callback
+def ws_site_health_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Stream one site's health snapshot."""
+    _subscribe_site_payload(hass, connection, msg, payload_type="site_health")
+
+
+@websocket_api.websocket_command(
+    _site_message_schema("unifi_insights/internet_activity/get")
+)
+@callback
+def ws_internet_activity_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one site's internet activity snapshot."""
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _generic_site_payload(
+            hass, entry, msg["site_id"], "internet_activity", options=None
+        )
+    except _RequestError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], snapshot)
+
+
+@websocket_api.websocket_command(
+    _site_message_schema("unifi_insights/internet_activity/subscribe")
+)
+@callback
+def ws_internet_activity_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Stream one site's internet activity snapshot."""
+    _subscribe_site_payload(hass, connection, msg, payload_type="internet_activity")
+
+
+@websocket_api.websocket_command(_site_message_schema("unifi_insights/performance/get"))
+@callback
+def ws_performance_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one site's performance snapshot."""
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _generic_site_payload(
+            hass, entry, msg["site_id"], "performance", options=None
+        )
+    except _RequestError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], snapshot)
+
+
+@websocket_api.websocket_command(
+    _site_message_schema("unifi_insights/performance/subscribe")
+)
+@callback
+def ws_performance_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Stream one site's performance snapshot."""
+    _subscribe_site_payload(hass, connection, msg, payload_type="performance")
+
+
+_TIMELINE_OPTIONS_SCHEMA: dict[str | vol.Marker, Any] = {
+    vol.Optional("max_items", default=10): vol.All(
+        vol.Coerce(int), vol.Range(min=1, max=50)
+    ),
+    vol.Optional("hours", default=6): vol.All(
+        vol.Coerce(int), vol.Range(min=1, max=24)
+    ),
+    vol.Optional("categories", default=["security"]): [str],
+}
+
+_TIMELINE_SCHEMA = {
+    **_site_message_schema("unifi_insights/timeline/get"),
+    **_TIMELINE_OPTIONS_SCHEMA,
+}
+
+
+@websocket_api.websocket_command(_TIMELINE_SCHEMA)
+@callback
+def ws_timeline_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one site's timeline snapshot."""
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _generic_site_payload(
+            hass,
+            entry,
+            msg["site_id"],
+            "timeline",
+            options={
+                "max_items": msg["max_items"],
+                "hours": msg["hours"],
+                "categories": msg["categories"],
+            },
+        )
+    except _RequestError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], snapshot)
+
+
+@websocket_api.websocket_command(
+    {
+        **_site_message_schema("unifi_insights/timeline/subscribe"),
+        **_TIMELINE_OPTIONS_SCHEMA,
+    }
+)
+@callback
+def ws_timeline_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Stream one site's timeline snapshot."""
+    _subscribe_site_payload(
+        hass,
+        connection,
+        msg,
+        payload_type="timeline",
+        options={
+            "max_items": msg["max_items"],
+            "hours": msg["hours"],
+            "categories": msg["categories"],
+        },
+    )
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "unifi_insights/protect/sources"}
+)
+@callback
+def ws_protect_sources(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """List loaded entries that can provide Protect snapshots."""
+    sources = []
+    for entry in hass.config_entries.async_loaded_entries(DOMAIN):
+        runtime = getattr(entry, "runtime_data", None)
+        if runtime is None:
+            continue
+        data = runtime.coordinator.data
+        protect = data.get("protect") if isinstance(data.get("protect"), dict) else {}
+        cameras = (
+            protect.get("cameras") if isinstance(protect.get("cameras"), dict) else {}
+        )
+        sites = [
+            {"id": site_id, "name": site_display_name(data, site_id)}
+            for site_id in runtime.config_coordinator.get_site_ids()
+        ]
+        sources.append(
+            {
+                "entry_id": entry.entry_id,
+                "title": entry.title,
+                "camera_count": len(cameras),
+                "sites": sites,
+            }
+        )
+    connection.send_result(msg["id"], sources)
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): "unifi_insights/protect/get", vol.Required("entry_id"): str}
+)
+@callback
+def ws_protect_get(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return one entry's protect status snapshot."""
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _protect_payload(hass, entry)
+    except _RequestError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], snapshot)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "unifi_insights/protect/subscribe",
+        vol.Required("entry_id"): str,
+    }
+)
+@callback
+def ws_protect_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Stream one entry's protect status snapshot."""
+    msg_id = msg["id"]
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _protect_payload(hass, entry)
+    except _RequestError as err:
+        connection.send_error(msg_id, err.code, str(err))
+        return
+
+    last_revision = snapshot.get("revision", "")
+    last_inputs = _runtime_protect_inputs(hass, entry)
+    removed = False
+
+    @callback
+    def _async_forward() -> None:
+        nonlocal last_inputs, last_revision
+        inputs = _runtime_protect_inputs(hass, entry)
+        if _same_inputs(inputs, last_inputs):
+            return
+        last_inputs = inputs
+        try:
+            update = _protect_payload(hass, entry)
+        except Exception:
+            _LOGGER.exception("Failed to rebuild protect snapshot")
+            return
+        if update.get("revision", "") == last_revision:
+            return
+        last_revision = update.get("revision", "")
+        connection.send_message(websocket_api.event_message(msg_id, update))
+
+    remove_listener = entry.runtime_data.coordinator.async_add_listener(_async_forward)
+
+    @callback
+    def _async_unsubscribe() -> None:
+        nonlocal removed
+        if removed:
+            return
+        removed = True
+        remove_listener()
+        stop_watching()
+
+    @callback
+    def _async_entry_unloaded() -> None:
+        if removed:
+            return
+        _async_unsubscribe()
+        connection.subscriptions.pop(msg_id, None)
+        connection.send_message(
+            websocket_api.event_message(
+                msg_id,
+                build_unavailable_protect_snapshot(
+                    entry.entry_id, entry.title, ISSUE_ENTRY_UNLOADED
+                ),
+            )
+        )
+
+    stop_watching = _async_watch_unload(hass, entry, _async_entry_unloaded)
+    connection.subscriptions[msg_id] = _async_unsubscribe
+    connection.send_result(msg_id)
+    connection.send_message(websocket_api.event_message(msg_id, snapshot))
+
+
+def _subscribe_site_payload(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    *,
+    payload_type: str,
+    options: dict[str, Any] | None = None,
+) -> None:
+    """Subscribe to a site-scoped payload stream with revision dedupe."""
+    msg_id: int = msg["id"]
+    site_id: str = msg["site_id"]
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        snapshot = _generic_site_payload(
+            hass, entry, site_id, payload_type, options=options
+        )
+    except _RequestError as err:
+        connection.send_error(msg_id, err.code, str(err))
+        return
+
+    last_revision = str(snapshot.get("revision", ""))
+    last_inputs = _runtime_snapshot_inputs(hass, entry, site_id)
+    removed = False
+
+    @callback
+    def _async_forward() -> None:
+        nonlocal last_inputs, last_revision
+        inputs = _runtime_snapshot_inputs(hass, entry, site_id)
+        if _same_inputs(inputs, last_inputs):
+            return
+        last_inputs = inputs
+        try:
+            update = _generic_site_payload(
+                hass, entry, site_id, payload_type, options=options
+            )
+        except _RequestError:
+            update = _generic_site_unavailable(
+                entry, site_id, payload_type, ISSUE_SITE_UNAVAILABLE
+            )
+        except Exception:
+            _LOGGER.exception("Failed to rebuild %s snapshot", payload_type)
+            return
+        revision = str(update.get("revision", ""))
+        if revision == last_revision:
+            return
+        last_revision = revision
+        connection.send_message(websocket_api.event_message(msg_id, update))
+
+    remove_listener = entry.runtime_data.coordinator.async_add_listener(_async_forward)
+
+    @callback
+    def _async_unsubscribe() -> None:
+        nonlocal removed
+        if removed:
+            return
+        removed = True
+        remove_listener()
+        stop_watching()
+
+    @callback
+    def _async_entry_unloaded() -> None:
+        if removed:
+            return
+        _async_unsubscribe()
+        connection.subscriptions.pop(msg_id, None)
+        connection.send_message(
+            websocket_api.event_message(
+                msg_id,
+                _generic_site_unavailable(
+                    entry, site_id, payload_type, ISSUE_ENTRY_UNLOADED
                 ),
             )
         )

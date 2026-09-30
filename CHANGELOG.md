@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Five new UniFi Insights dashboard cards in the existing bundled resource (`topology-card.js`), registered in the card picker as:
+  - **UniFi Insights Site Health** (`custom:unifi-insights-site-health-card`)
+  - **UniFi Insights Internet Activity** (`custom:unifi-insights-internet-activity-card`)
+  - **UniFi Insights Device Performance** (`custom:unifi-insights-performance-card`)
+  - **UniFi Insights Protect Status** (`custom:unifi-insights-protect-status-card`)
+  - **UniFi Insights Event Timeline** (`custom:unifi-insights-timeline-card`)
+
+- New dashboard snapshot builders on the integration side:
+  - `site_health.py`
+  - `internet_activity_snapshot.py`
+  - `performance.py`
+  - `protect_snapshot.py`
+  - `timeline.py`
+  - `dashboard_contract_utils.py`
+
+- New WebSocket APIs for dashboard cards, following the existing entry/site validation and subscription lifecycle patterns:
+  - `unifi_insights/site_health/get`
+  - `unifi_insights/site_health/subscribe`
+  - `unifi_insights/internet_activity/get`
+  - `unifi_insights/internet_activity/subscribe`
+  - `unifi_insights/performance/get`
+  - `unifi_insights/performance/subscribe`
+  - `unifi_insights/protect/sources`
+  - `unifi_insights/protect/get`
+  - `unifi_insights/protect/subscribe`
+  - `unifi_insights/timeline/get`
+  - `unifi_insights/timeline/subscribe`
+
 ## [2026.9.10] - 2026-09-28
 
 ### Fixed

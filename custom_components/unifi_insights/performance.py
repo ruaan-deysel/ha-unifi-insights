@@ -22,7 +22,7 @@ def bytes_per_second_to_bits_per_second(value: Any) -> int | None:
         return None
     try:
         return int(float(value) * 8)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -37,7 +37,7 @@ def _metric_rate(stats: dict[str, Any], direction: str) -> int | None:
     try:
         # Known fields are bytes/s for network stats.
         return int(float(raw) * 8)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

@@ -170,7 +170,7 @@ def build_protect_snapshot(
         used_pct = storage.get("used")
         try:
             used = float(used_pct)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             used = None
         if used is not None and used >= NEARLY_FULL_PCT:
             storage_nearly_full = True

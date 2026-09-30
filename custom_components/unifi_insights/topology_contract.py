@@ -252,7 +252,7 @@ def port_poe_watts(device: Mapping[str, Any], port_idx: int) -> float | None:
             power = first_present(port, "poePower", "poe_power")
         try:
             return round(float(power), 1) if power is not None else None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return None
     return None
 

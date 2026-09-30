@@ -94,11 +94,11 @@ def build_internet_activity_snapshot(
         rx = metric.get("rx_rate") or metric.get("rxRate")
         try:
             tx_bps = int(float(tx) * 8) if tx is not None else None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             tx_bps = None
         try:
             rx_bps = int(float(rx) * 8) if rx is not None else None
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             rx_bps = None
         throughput = {"tx_bps": tx_bps, "rx_bps": rx_bps, "source": "gateway_uplink"}
         gateway_online = str(gateway.get("state", "")).upper() in {

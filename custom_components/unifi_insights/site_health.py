@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .dashboard_contract_utils import as_dict, content_revision
+from .dashboard_contract_utils import as_dict, content_revision, enum_str
 from .topology_contract import device_kind, device_state, site_display_name
 
 STATUS_OK = "ok"
@@ -180,7 +180,9 @@ def build_site_health_snapshot(
                 [
                     c
                     for c in clients.values()
-                    if isinstance(c, dict) and str(c.get("type", "")).upper() == "WIRED"
+                    if isinstance(c, dict)
+                    and enum_str(c.get("type") or c.get("connection_type")).upper()
+                    == "WIRED"
                 ]
             ),
             "wireless": len(
@@ -188,7 +190,8 @@ def build_site_health_snapshot(
                     c
                     for c in clients.values()
                     if isinstance(c, dict)
-                    and str(c.get("type", "")).upper() == "WIRELESS"
+                    and enum_str(c.get("type") or c.get("connection_type")).upper()
+                    == "WIRELESS"
                 ]
             ),
         },

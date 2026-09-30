@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .dashboard_contract_utils import as_dict, content_revision
+from .dashboard_contract_utils import as_dict, content_revision, enum_str
 from .performance import bytes_per_second_to_bits_per_second
 from .topology_contract import device_kind, first_present, site_display_name
 
@@ -78,7 +78,7 @@ def build_internet_activity_snapshot(
         tx_bps = bytes_per_second_to_bits_per_second(tx)
         rx_bps = bytes_per_second_to_bits_per_second(rx)
         throughput = {"tx_bps": tx_bps, "rx_bps": rx_bps, "source": "gateway_uplink"}
-        gateway_online = str(gateway.get("state", "")).upper() in {
+        gateway_online = enum_str(gateway.get("state")).upper() in {
             "ONLINE",
             "CONNECTED",
             "UP",

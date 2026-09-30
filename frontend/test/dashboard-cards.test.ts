@@ -253,11 +253,89 @@ describe("dashboard card registration", () => {
         await settle(timelineEl);
         expect(timelineEl.shadowRoot?.textContent).toContain("No events");
         fake.subs[4]?.callback({
-            items: [{ source: { name: "Driveway" }, kind: "motion" }],
+            items: [],
+        } as never);
+        await settle(timelineEl);
+        expect(timelineEl.shadowRoot?.textContent).toContain("All Quiet");
+        fake.subs[4]?.callback({
+            items: [
+                {
+                    source: { name: "Driveway" },
+                    kind: "motion",
+                    severity: "warning",
+                    timestamp: new Date().toISOString(),
+                },
+                {
+                    source: { name: "Front Door" },
+                    kind: "ring",
+                    severity: "info",
+                    timestamp: new Date(Date.now() - 3600_000 * 2).toISOString(),
+                },
+            ],
         } as never);
         await settle(timelineEl);
         expect(timelineEl.shadowRoot?.textContent).toContain("Driveway");
         expect(timelineEl.shadowRoot?.textContent).toContain("motion");
+
+        // Test rich visual fields (window tabs, GB/Mbps formatting, uptime, CPU tones)
+        fake.subs[0]?.callback({
+            site_name: "Main Site",
+            health: { level: "degraded" },
+            gateway: { name: "UDM-Pro", internet: "online", uptime_s: 172800 },
+            devices: {
+                gateway: { online: 1, offline: 0, unknown: 0 },
+                switch: { online: 2, offline: 0, unknown: 0 },
+            },
+            clients: { total: 42, wired: 12, wireless: 30 },
+        } as never);
+        await settle(siteEl);
+        expect(siteEl.shadowRoot?.textContent).toContain("UDM-Pro");
+        expect(siteEl.shadowRoot?.textContent).toContain("2d 0h");
+
+        fake.subs[1]?.callback({
+            throughput: { rx_bps: 45_000_000, tx_bps: 850_000 },
+            windows: {
+                "1h": { download_bytes: 500_000_000, upload_bytes: 100_000_000 },
+                "1d": { download_bytes: 28_812_000_000, upload_bytes: 3_949_000_000 },
+            },
+            entity_ids: {
+                download_1d: "sensor.internet_down_1d",
+                upload_1d: "sensor.internet_up_1d",
+            },
+        } as never);
+        await settle(internetEl);
+        expect(internetEl.shadowRoot?.textContent).toContain("28.8 GB");
+        expect(internetEl.shadowRoot?.textContent).toContain("45.0 Mbps");
+        const tabBtn = Array.from(
+            internetEl.shadowRoot?.querySelectorAll(".pill-tab") ?? [],
+        ).find(
+            (btn) => btn.textContent?.trim() === "1h",
+        ) as HTMLButtonElement | undefined;
+        tabBtn?.click();
+        await settle(internetEl);
+        expect(internetEl.shadowRoot?.textContent).toContain("500 MB");
+        expect(internetEl.shadowRoot?.textContent).toContain("600 MB");
+
+        fake.subs[2]?.callback({
+            devices: [
+                {
+                    name: "UDM-Pro",
+                    kind: "gateway",
+                    cpu_pct: 88,
+                    memory_pct: 72,
+                    clients: 14,
+                },
+                {
+                    name: "Office Switch",
+                    kind: "switch",
+                    cpu_pct: 65,
+                    memory_pct: 50,
+                },
+            ],
+        } as never);
+        await settle(perfEl);
+        expect(perfEl.shadowRoot?.textContent).toContain("88%");
+        expect(perfEl.shadowRoot?.textContent).toContain("RAM 72%");
     });
 
     it("handles subscribe errors, backoff, and entry_unloaded recovery", async () => {

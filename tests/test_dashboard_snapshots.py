@@ -6,6 +6,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from custom_components.unifi_insights.api.protect.models.camera import (
+    CameraState,
+    CameraType,
+    RecordingMode,
+)
 from custom_components.unifi_insights.dashboard_contract_utils import (
     content_revision,
     utc_iso,
@@ -649,3 +654,34 @@ def test_additional_snapshot_branch_coverage() -> None:
         max_items=5,
     )
     assert old_evt_snap["items"] == []
+
+
+def test_protect_snapshot_handles_str_enums_and_is_connected_fallback() -> None:
+    data = _base_data()
+    data["protect"]["cameras"]["cam-1"]["state"] = CameraState.CONNECTED
+    data["protect"]["cameras"]["cam-1"]["type"] = CameraType.UVC_G4_DOORBELL_PRO
+    data["protect"]["cameras"]["cam-1"]["recordingMode"] = RecordingMode.ALWAYS
+    data["protect"]["cameras"]["cam-2"] = {
+        "id": "cam-2",
+        "name": "Driveway",
+        "state": CameraState.UNKNOWN,
+        "isConnected": True,
+    }
+
+    snap = build_protect_snapshot(
+        data,
+        entry_id="entry-1",
+        entry_title="Home",
+        entity_registry=_FakeEntityRegistry(),
+        ha_device_ids={},
+        protect_available=True,
+    )
+    cam1 = next(d for d in snap["devices"] if d["id"] == "cam-1")
+    cam2 = next(d for d in snap["devices"] if d["id"] == "cam-2")
+    assert cam1["connected"] is True
+    assert cam1["kind"] == "doorbell"
+    assert cam1["model"] == "UVC G4 Doorbell Pro"
+    assert cam1["recording_mode"] == "always"
+    assert cam1["is_recording"] is True
+    assert cam2["connected"] is True
+

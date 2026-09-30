@@ -607,8 +607,13 @@ export class UitGraphView extends LitElement {
             }
             .disc {
                 fill: var(--card-background-color, #fff);
-                stroke: var(--uit-line);
+                stroke: color-mix(
+                    in srgb,
+                    var(--primary-color) 40%,
+                    var(--uit-line)
+                );
                 stroke-width: 2;
+                filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.1));
             }
             .selected .disc,
             .on-path .disc {
@@ -618,7 +623,7 @@ export class UitGraphView extends LitElement {
                 stroke-width: 3;
             }
             .glyph path {
-                fill: var(--primary-text-color);
+                fill: var(--primary-color);
             }
             .offline .disc,
             .offline .glyph {
@@ -637,12 +642,13 @@ export class UitGraphView extends LitElement {
             }
             text {
                 font-size: 12px;
+                font-weight: 500;
                 fill: var(--primary-text-color);
                 text-anchor: middle;
                 dominant-baseline: hanging;
             }
             .badge {
-                font-weight: 600;
+                font-weight: 700;
                 text-anchor: start;
             }
             .state-text {
@@ -651,9 +657,13 @@ export class UitGraphView extends LitElement {
             }
             .link {
                 fill: none;
-                stroke: var(--secondary-text-color);
-                stroke-opacity: 0.6;
-                stroke-width: 1.5;
+                stroke: color-mix(
+                    in srgb,
+                    var(--primary-color) 45%,
+                    var(--secondary-text-color)
+                );
+                stroke-opacity: 0.65;
+                stroke-width: 1.75;
             }
             .link.wireless {
                 stroke-dasharray: 2 4;

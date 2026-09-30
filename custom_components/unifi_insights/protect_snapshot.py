@@ -6,7 +6,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from .dashboard_contract_utils import as_dict, content_revision, utc_iso
+from .dashboard_contract_utils import (
+    as_dict,
+    content_revision,
+    enum_str,
+    is_protect_device_connected,
+    utc_iso,
+)
 
 LOW_BATTERY_PCT = 20
 NEARLY_FULL_PCT = 90
@@ -27,15 +33,15 @@ def _site_from_mac(data: dict[str, Any], mac: str | None) -> str | None:
 
 def _is_doorbell_camera(camera_data: dict[str, Any]) -> bool:
     """Check if a camera record represents a doorbell."""
-    camera_type = str(camera_data.get("_camera_type") or "").lower()
+    camera_type = enum_str(camera_data.get("_camera_type")).lower()
     if "doorbell" in camera_type:
         return True
 
-    api_type = str(camera_data.get("type") or "").lower()
+    api_type = enum_str(camera_data.get("type") or camera_data.get("model")).lower()
     if "doorbell" in api_type:
         return True
 
-    name = str(camera_data.get("name") or "").lower()
+    name = enum_str(camera_data.get("name")).lower()
     return "doorbell" in name
 
 
@@ -69,10 +75,10 @@ def build_protect_snapshot(
     for camera_id, camera in cameras.items():
         if not isinstance(camera, dict):
             continue
-        model = str(camera.get("type") or "camera")
+        model = enum_str(camera.get("type") or camera.get("model"), "camera")
         is_doorbell = _is_doorbell_camera(camera)
         kind = "doorbell" if is_doorbell else "camera"
-        connected = str(camera.get("state", "")).upper() == "CONNECTED"
+        connected = is_protect_device_connected(camera)
         device_warnings: list[str] = []
         if not connected:
             device_warnings.append("offline")
@@ -90,7 +96,9 @@ def build_protect_snapshot(
 
         smart_types = camera.get("lastSmartDetectTypes")
         event_type = (
-            smart_types[0] if isinstance(smart_types, list) and smart_types else None
+            enum_str(smart_types[0])
+            if isinstance(smart_types, list) and smart_types
+            else None
         )
         last_event = utc_iso(
             camera.get("lastSmartDetect")
@@ -98,12 +106,21 @@ def build_protect_snapshot(
             or camera.get("lastRingStart")
         )
         recording_settings = as_dict(camera.get("recordingSettings"))
-        recording_mode = recording_settings.get("mode")
+        raw_recording_mode = (
+            recording_settings.get("mode")
+            or camera.get("recordingMode")
+            or camera.get("recording_mode")
+        )
+        recording_mode = (
+            enum_str(raw_recording_mode).lower()
+            if raw_recording_mode is not None
+            else None
+        )
 
         camera_item: dict[str, Any] = {
             "id": str(camera_id),
             "kind": kind,
-            "name": str(camera.get("name") or camera_id),
+            "name": enum_str(camera.get("name"), str(camera_id)),
             "model": model,
             "connected": connected,
             "last_seen_at": utc_iso(camera.get("lastSeen")),
@@ -133,13 +150,13 @@ def build_protect_snapshot(
     for chime_id, chime in chimes.items():
         if not isinstance(chime, dict):
             continue
-        connected = str(chime.get("state", "")).upper() == "CONNECTED"
+        connected = is_protect_device_connected(chime)
         chime_warnings = ["offline"] if not connected else []
         chime_item: dict[str, Any] = {
             "id": str(chime_id),
             "kind": "chime",
-            "name": str(chime.get("name") or chime_id),
-            "model": str(chime.get("type") or "chime"),
+            "name": enum_str(chime.get("name"), str(chime_id)),
+            "model": enum_str(chime.get("type") or chime.get("model"), "chime"),
             "connected": connected,
             "last_seen_at": utc_iso(chime.get("lastSeen")),
             "site_id": None,

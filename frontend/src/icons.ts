@@ -10,13 +10,19 @@ import { html, type TemplateResult } from "lit";
 import type { TopologyNode } from "./contract";
 
 export {
+    mdiAccessPoint,
     mdiChevronDown,
     mdiChevronRight,
     mdiClose,
+    mdiDevices,
     mdiFitToScreenOutline,
+    mdiLanConnect,
     mdiMagnifyMinusOutline,
     mdiMagnifyPlusOutline,
     mdiOpenInNew,
+    mdiRouterNetwork,
+    mdiSwitch,
+    mdiWifi,
 } from "@mdi/js";
 
 export const GROUP_ICON = mdiDevices;

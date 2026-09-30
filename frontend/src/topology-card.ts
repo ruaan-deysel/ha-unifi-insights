@@ -50,6 +50,7 @@ import {
     mdiFitToScreenOutline,
     mdiMagnifyMinusOutline,
     mdiMagnifyPlusOutline,
+    mdiRouterNetwork,
 } from "./icons";
 import {
     makeLocalize,
@@ -511,6 +512,9 @@ export class UnifiInsightsTopologyCard extends LitElement {
             state.render?.site_name ??
             this.snapshot?.site_name ??
             localize("card.name");
+        const nodes = state.render?.nodes ?? [];
+        const devCount = nodes.filter((n) => n.kind !== "client").length;
+        const cliCount = nodes.filter((n) => n.kind === "client").length;
         return html`<ha-card>
             <div
                 class="card ${this.narrow ? "narrow" : ""}"
@@ -521,7 +525,20 @@ export class UnifiInsightsTopologyCard extends LitElement {
                 @uit-close=${this.onClose}
             >
                 <header>
-                    <h2 class="title" title=${title}>${title}</h2>
+                    <div class="header-icon" aria-hidden="true">
+                        ${iconTemplate(mdiRouterNetwork)}
+                    </div>
+                    <div class="header-text">
+                        <h2 class="title" title=${title}>${title}</h2>
+                        ${nodes.length > 0
+                            ? html`<div class="subtitle">
+                                  ${localize("header.summary", {
+                                      devices: devCount,
+                                      clients: cliCount,
+                                  })}
+                              </div>`
+                            : nothing}
+                    </div>
                     ${this.renderSiteSelector(config, localize)}
                 </header>
                 ${model ? this.renderToolbar(localize) : nothing}
@@ -785,27 +802,68 @@ export class UnifiInsightsTopologyCard extends LitElement {
                 display: flex;
                 align-items: center;
                 gap: 12px;
-                padding: 12px 16px 4px;
+                padding: 14px 16px 6px;
             }
-            .title {
+            .header-icon {
+                width: 38px;
+                height: 38px;
+                border-radius: 12px;
+                display: grid;
+                place-items: center;
+                background: color-mix(
+                    in srgb,
+                    var(--primary-color) 15%,
+                    transparent
+                );
+                color: var(--primary-color);
+                flex: none;
+            }
+            .header-text {
                 flex: 1;
                 min-width: 0;
+            }
+            .title {
                 margin: 0;
-                font-size: var(--ha-card-header-font-size, 1.25rem);
-                font-weight: normal;
+                font-size: 1.05rem;
+                font-weight: 600;
+                line-height: 1.25;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            .subtitle {
+                font-size: 0.76rem;
+                color: var(--secondary-text-color);
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
             }
             .toolbar {
-                padding: 4px 12px;
+                padding: 4px 16px 8px;
             }
             details.toolbar > summary {
-                min-height: 44px;
-                display: flex;
+                min-height: 38px;
+                display: inline-flex;
                 align-items: center;
+                gap: 6px;
                 cursor: pointer;
-                padding: 0 4px;
+                padding: 0 14px;
+                border-radius: 999px;
+                border: 1px solid var(--uit-line);
+                background: color-mix(
+                    in srgb,
+                    var(--primary-text-color) 5%,
+                    transparent
+                );
+                font-size: 0.82rem;
+                font-weight: 600;
+                list-style: none;
+            }
+            details.toolbar > summary::-webkit-details-marker {
+                display: none;
+            }
+            details.toolbar[open] > .controls {
+                margin-top: 8px;
             }
             .controls {
                 display: flex;
@@ -824,7 +882,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
             }
             .notices {
                 list-style: none;
-                margin: 4px 12px;
+                margin: 4px 16px;
                 padding: 0;
                 display: flex;
                 flex-direction: column;
@@ -867,6 +925,25 @@ export class UnifiInsightsTopologyCard extends LitElement {
                 display: flex;
                 flex: 1 1 280px;
                 min-height: 0;
+                margin: 4px 12px 12px;
+                border-radius: 14px;
+                border: 1px solid var(--uit-line);
+                background-color: color-mix(
+                    in srgb,
+                    var(--primary-text-color) 2.5%,
+                    transparent
+                );
+                background-image: radial-gradient(
+                    color-mix(
+                        in srgb,
+                        var(--primary-text-color) 12%,
+                        transparent
+                    )
+                    1px,
+                    transparent 1px
+                );
+                background-size: 18px 18px;
+                overflow: hidden;
             }
             .content {
                 position: relative;

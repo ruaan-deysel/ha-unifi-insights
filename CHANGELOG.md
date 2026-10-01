@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Topology card narrow bottom-sheet detail panel now expands up to the full available canvas height (`max-height: calc(100% - 8px)` instead of `60%`) with a sticky header/close button, allowing full 8-row switch and access point details (including **Open device**) to display without unnecessary scrolling in 1-column Lovelace Sections cards. [#186](https://github.com/ruaan-deysel/ha-unifi-insights/issues/186)
 
+### Tests
+
+- Added a real-browser (Playwright/Chromium) regression suite for the topology detail panel (`npm run test:browser`, run in the Frontend CI job). It checks that long switch details stay inside the card and scroll to the **Open device** action in desktop, narrow bottom-sheet, and fixed-height Sections layouts, including after zoom, pan, and shrinking the card into the narrow layout. It also checks that a narrow card with enough room shows the whole detail without scrolling. The suite fails on the v2026.9.9 bundle that had the clipping bug, and the no-scroll check fails on v2026.9.10, where the bottom sheet was still capped at 60% height. [#186](https://github.com/ruaan-deysel/ha-unifi-insights/issues/186)
+
 ## [2026.9.10] - 2026-09-28
 
 ### Fixed

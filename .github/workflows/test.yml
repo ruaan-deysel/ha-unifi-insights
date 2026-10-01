@@ -83,6 +83,20 @@ jobs:
       - name: Build bundle
         run: npm run build
 
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser regression tests
+        run: npm run test:browser
+
+      - name: Upload browser test traces
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-test-results
+          path: frontend/test-results/
+          retention-days: 7
+
       - name: Bundle size budget
         run: npm run size
 

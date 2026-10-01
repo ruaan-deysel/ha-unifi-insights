@@ -136,3 +136,4 @@ uv.lock
 # ============================================================================
 frontend/node_modules/
 frontend/coverage/
+frontend/test-results/

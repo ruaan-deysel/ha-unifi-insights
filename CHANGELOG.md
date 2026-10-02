@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Topology card: when a card is too short for a device's details, they now open in a dialog over the dashboard instead of a cut-off panel that needs scrolling, so every detail and **Open device** are visible at once. Cards with room still show the details beside the graph. [#186](https://github.com/ruaan-deysel/ha-unifi-insights/issues/186)
+
 ## [2026.10.0] - 2026-10-01
 
 ### Added

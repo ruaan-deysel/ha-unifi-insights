@@ -77,6 +77,46 @@ it("closes on request and renders nothing without a selection", async () => {
     expect(empty.shadowRoot!.querySelector("section")).toBeNull();
 });
 
+it("shows details in a modal dialog that closes the panel", async () => {
+    // jsdom has no dialog methods or layout, so stub them and force the mode.
+    const proto = HTMLDialogElement.prototype;
+    proto.showModal = vi.fn(function (this: HTMLDialogElement) {
+        this.open = true;
+    });
+    proto.close = vi.fn(function (this: HTMLDialogElement) {
+        this.open = false;
+        this.dispatchEvent(new Event("close"));
+    });
+    try {
+        const el = await panel("dev:uuid-core");
+        el.modal = true;
+        await el.updateComplete;
+        const dialog = el.shadowRoot!.querySelector("dialog")!;
+        expect(dialog.open).toBe(true);
+        expect(dialog.querySelector("section.panel h3")!.textContent).toBe(
+            "Core 24",
+        );
+        const closed = vi.fn();
+        el.addEventListener("uit-close", closed);
+        dialog.querySelector<HTMLElement>("dl")!.click();
+        expect(closed).not.toHaveBeenCalled();
+        dialog.click();
+        expect(closed).toHaveBeenCalledOnce();
+
+        dialog.open = true;
+        dialog.querySelector<HTMLButtonElement>("button.action")!.click();
+        expect(dialog.open).toBe(false);
+        expect(location.pathname).toBe("/config/devices/device/reg-core");
+
+        el.selectedId = undefined;
+        await el.updateComplete;
+        expect(el.modal).toBe(false);
+    } finally {
+        delete (proto as Partial<HTMLDialogElement>).showModal;
+        delete (proto as Partial<HTMLDialogElement>).close;
+    }
+});
+
 it("constrains .panel as a shrinkable flex child with a sticky header so narrow panels fit or scroll cleanly", () => {
     // jsdom does not compute layout, so verify the CSS contract directly.
     const cssText = UitDetailPanel.styles.map((s) => s.cssText).join("\n");

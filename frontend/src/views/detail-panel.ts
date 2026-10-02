@@ -23,7 +23,10 @@ import {
 
 type Row = [LocalizeKey, string | undefined];
 
-/** Details of the selected device, client or client group; a side panel, or a bottom sheet when narrow. */
+/**
+ * Details of the selected device, client or client group; a side panel, or a
+ * bottom sheet when narrow. Details too long for the card open as a dialog.
+ */
 export class UitDetailPanel extends LitElement {
     static override properties = {
         model: { attribute: false },
@@ -31,6 +34,7 @@ export class UitDetailPanel extends LitElement {
         localize: { attribute: false },
         narrow: { type: Boolean, reflect: true },
         memberQuery: { state: true },
+        modal: { state: true },
     };
 
     declare model?: GraphModel;
@@ -38,15 +42,31 @@ export class UitDetailPanel extends LitElement {
     declare localize?: LocalizeFunc;
     declare narrow: boolean;
     declare memberQuery: string;
+    declare modal: boolean;
 
     constructor() {
         super();
         this.narrow = false;
         this.memberQuery = "";
+        this.modal = false;
     }
 
     protected override willUpdate(changed: PropertyValues<this>): void {
         if (changed.has("selectedId")) this.memberQuery = "";
+        if (this.selectedId === undefined) this.modal = false;
+    }
+
+    protected override updated(): void {
+        const dialog = this.renderRoot.querySelector("dialog");
+        if (dialog) {
+            if (!dialog.open) dialog.showModal();
+            return;
+        }
+        // A card too short for the details (#186) shows them over the
+        // dashboard instead, so nothing is cut off or needs scrolling.
+        const panel = this.renderRoot.querySelector<HTMLElement>(".panel");
+        if (panel && panel.scrollHeight > panel.clientHeight + 1)
+            this.modal = true;
     }
 
     protected override render(): TemplateResult | typeof nothing {
@@ -68,6 +88,22 @@ export class UitDetailPanel extends LitElement {
     }
 
     private shell(title: string, body: TemplateResult): TemplateResult {
+        const panel = this.panel(title, body);
+        if (!this.modal) return panel;
+        return html`<dialog
+            aria-label=${title}
+            @close=${() => fireEvent(this, "uit-close")}
+            @click=${(e: Event) => {
+                // Only a click on the backdrop targets the dialog itself.
+                if (e.target === e.currentTarget)
+                    (e.currentTarget as HTMLDialogElement).close();
+            }}
+        >
+            ${panel}
+        </dialog>`;
+    }
+
+    private panel(title: string, body: TemplateResult): TemplateResult {
         const localize = this.localize!;
         return html`<section class="panel" role="region" aria-label=${title}>
             <header>
@@ -175,10 +211,13 @@ export class UitDetailPanel extends LitElement {
         ${node.ha_device_id
             ? html`<button
                   class="action"
-                  @click=${() =>
+                  @click=${() => {
+                      // Leaving the dashboard must not leave the dialog open.
+                      this.renderRoot.querySelector("dialog")?.close();
                       navigate(
                           `/config/devices/device/${encodeURIComponent(node.ha_device_id!)}`,
-                      )}
+                      );
+                  }}
               >
                   ${iconTemplate(mdiOpenInNew)}${localize("detail.open_device")}
               </button>`
@@ -367,6 +406,25 @@ export class UitDetailPanel extends LitElement {
             }
             .action {
                 margin-top: 8px;
+            }
+            dialog {
+                pointer-events: auto;
+                box-sizing: border-box;
+                width: min(400px, calc(100% - 32px));
+                max-width: none;
+                max-height: calc(100% - 32px);
+                padding: 0;
+                border: none;
+                background: none;
+                color: inherit;
+                overflow: visible;
+            }
+            dialog::backdrop {
+                background: rgba(0, 0, 0, 0.32);
+            }
+            dialog .panel {
+                max-height: calc(100vh - 32px);
+                max-height: calc(100dvh - 32px);
             }
         `,
     ];

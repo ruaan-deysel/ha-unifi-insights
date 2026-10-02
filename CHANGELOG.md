@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tests
+
+- Extended the topology detail-panel browser regression coverage with real touch scrolling, sticky-header containment checks, and an 8-row narrow Sections layout that verifies full switch details and **Open device** remain visible without scrolling. [#186](https://github.com/ruaan-deysel/ha-unifi-insights/issues/186)
+
 ## [2026.10.0] - 2026-10-01
 
 ### Added

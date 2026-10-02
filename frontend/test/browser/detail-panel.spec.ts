@@ -99,10 +99,44 @@ async function expectContained(
         );
 }
 
-async function scrollToAction(page: Page): Promise<void> {
+async function scrollToAction(
+    page: Page,
+    input: "touch" | "wheel" = "wheel",
+): Promise<void> {
     const scrollingPanel = page.locator(panel);
-    await scrollingPanel.hover();
-    await page.mouse.wheel(0, 2000);
+    if (input === "wheel") {
+        await scrollingPanel.hover();
+        await page.mouse.wheel(0, 2000);
+    } else {
+        const box = await scrollingPanel.boundingBox();
+        expect(box).not.toBeNull();
+        const session = await page.context().newCDPSession(page);
+        const x = box!.x + box!.width / 2;
+        const startY = box!.y + box!.height * 0.8;
+        const endY = box!.y + box!.height * 0.2;
+        for (let gesture = 0; gesture < 4; gesture += 1) {
+            await session.send("Input.dispatchTouchEvent", {
+                type: "touchStart",
+                touchPoints: [{ x, y: startY }],
+            });
+            for (let step = 1; step <= 5; step += 1) {
+                await session.send("Input.dispatchTouchEvent", {
+                    type: "touchMove",
+                    touchPoints: [
+                        {
+                            x,
+                            y: startY + ((endY - startY) * step) / 5,
+                        },
+                    ],
+                });
+            }
+            await session.send("Input.dispatchTouchEvent", {
+                type: "touchEnd",
+                touchPoints: [],
+            });
+        }
+        await session.detach();
+    }
     await expect
         .poll(async () => {
             const box = await geometry(scrollingPanel);
@@ -111,7 +145,22 @@ async function scrollToAction(page: Page): Promise<void> {
             );
         })
         .toBeLessThanOrEqual(2);
+    await expectStickyHeaderInView(page);
     await expectActionInView(page);
+}
+
+async function expectStickyHeaderInView(page: Page): Promise<void> {
+    const scrolling = await geometry(page.locator(panel));
+    const header = page.locator(`${panel} > header`);
+    expect(
+        await header.evaluate((element) => getComputedStyle(element).position),
+    ).toBe("sticky");
+    expectWithin(await geometry(header), {
+        left: scrolling.left + scrolling.clientLeft,
+        top: scrolling.top + scrolling.clientTop,
+        right: scrolling.left + scrolling.clientLeft + scrolling.clientWidth,
+        bottom: scrolling.top + scrolling.clientTop + scrolling.clientHeight,
+    });
 }
 
 async function expectActionInView(page: Page): Promise<void> {
@@ -162,7 +211,7 @@ test.describe("topology detail panel overflow", () => {
         await expect(page.locator(panelHost)).toHaveAttribute("narrow", "");
         await expectContained(page);
 
-        await scrollToAction(page);
+        await scrollToAction(page, "touch");
 
         await page.getByRole("button", { name: "Close", exact: true }).click();
         await expect(page.locator(panel)).toBeHidden();
@@ -174,7 +223,7 @@ test.describe("topology detail panel overflow", () => {
         await page.setViewportSize({ width: 390, height: 844 });
         await openFixture(page, { width: 360, height: 320 });
         await expectContained(page);
-        await scrollToAction(page);
+        await scrollToAction(page, "touch");
 
         await page.keyboard.press("Escape");
         await expect(page.locator(panel)).toBeHidden();
@@ -206,6 +255,21 @@ test.describe("topology detail panel overflow", () => {
         });
         await expectContained(page);
         await scrollToAction(page);
+    });
+
+    test("eight-row narrow Sections card shows full details unscrolled", async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await openFixture(page, {
+            width: 500,
+            height: sectionsHeight(8),
+            layout: "grid",
+        });
+        await expect(page.locator(panelHost)).toHaveAttribute("narrow", "");
+        await expectContained(page, { overflows: false });
+        expect((await geometry(page.locator(panel))).scrollTop).toBe(0);
+        await expectActionInView(page);
     });
 });
 

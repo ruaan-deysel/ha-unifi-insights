@@ -91,6 +91,13 @@
                     listeners.delete(type);
                 },
                 subscribeMessage(callback) {
+                    // Lets a test push a live update; same-revision pushes are ignored.
+                    let update = 0;
+                    window.fixtureUpdate = () =>
+                        callback({
+                            ...structuredClone(snapshot),
+                            revision: `${snapshot.revision}-${(update += 1)}`,
+                        });
                     queueMicrotask(() => callback(snapshot));
                     return Promise.resolve(async () => undefined);
                 },

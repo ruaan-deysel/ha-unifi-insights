@@ -44,6 +44,9 @@ export class UitDetailPanel extends LitElement {
     declare memberQuery: string;
     declare modal: boolean;
 
+    /** Whether the current press began on the backdrop rather than inside the dialog. */
+    private pressedBackdrop = false;
+
     constructor() {
         super();
         this.narrow = false;
@@ -51,22 +54,39 @@ export class UitDetailPanel extends LitElement {
         this.modal = false;
     }
 
+    override disconnectedCallback(): void {
+        super.disconnectedCallback();
+        // HA detaches hidden or cached panels. An open dialog would come back
+        // as a clipped box inside the card, so close the details instead.
+        this.renderRoot.querySelector("dialog")?.close();
+    }
+
     protected override willUpdate(changed: PropertyValues<this>): void {
         if (changed.has("selectedId")) this.memberQuery = "";
         if (this.selectedId === undefined) this.modal = false;
     }
 
-    protected override updated(): void {
+    protected override updated(changed: PropertyValues<this>): void {
         const dialog = this.renderRoot.querySelector("dialog");
         if (dialog) {
             if (!dialog.open) dialog.showModal();
             return;
         }
         // A card too short for the details (#186) shows them over the
-        // dashboard instead, so nothing is cut off or needs scrolling.
+        // dashboard instead. Checked only when the panel opens or the card
+        // crosses the narrow breakpoint, so a live update or a resize never
+        // opens a dialog the user didn't ask for.
+        if (!changed.has("selectedId") && !changed.has("narrow")) return;
         const panel = this.renderRoot.querySelector<HTMLElement>(".panel");
         if (panel && panel.scrollHeight > panel.clientHeight + 1)
             this.modal = true;
+    }
+
+    /** Closing the dialog restores focus and then fires `uit-close`. */
+    private close(): void {
+        const dialog = this.renderRoot.querySelector("dialog");
+        if (dialog) dialog.close();
+        else fireEvent(this, "uit-close");
     }
 
     protected override render(): TemplateResult | typeof nothing {
@@ -91,12 +111,24 @@ export class UitDetailPanel extends LitElement {
         const panel = this.panel(title, body);
         if (!this.modal) return panel;
         return html`<dialog
-            aria-label=${title}
+            aria-labelledby="title"
             @close=${() => fireEvent(this, "uit-close")}
+            @keydown=${(e: KeyboardEvent) => {
+                // Close only this dialog. The card's own Escape handling would
+                // skip focus restore and let the key reach an outer dialog.
+                if (e.key !== "Escape") return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.close();
+            }}
+            @pointerdown=${(e: Event) => {
+                this.pressedBackdrop = e.target === e.currentTarget;
+            }}
             @click=${(e: Event) => {
-                // Only a click on the backdrop targets the dialog itself.
-                if (e.target === e.currentTarget)
-                    (e.currentTarget as HTMLDialogElement).close();
+                // Only the backdrop targets the dialog itself. A text selection
+                // dragged out of the panel ends there too, so check the press.
+                if (e.target === e.currentTarget && this.pressedBackdrop)
+                    this.close();
             }}
         >
             ${panel}
@@ -105,14 +137,20 @@ export class UitDetailPanel extends LitElement {
 
     private panel(title: string, body: TemplateResult): TemplateResult {
         const localize = this.localize!;
-        return html`<section class="panel" role="region" aria-label=${title}>
+        // The dialog takes its name from the heading, so the section isn't a
+        // second landmark with the same name.
+        return html`<section
+            class="panel"
+            role=${this.modal ? nothing : "region"}
+            aria-label=${this.modal ? nothing : title}
+        >
             <header>
-                <h3 title=${title}>${title}</h3>
+                <h3 id="title" title=${title}>${title}</h3>
                 <button
                     class="close"
                     aria-label=${localize("detail.close")}
                     title=${localize("detail.close")}
-                    @click=${() => fireEvent(this, "uit-close")}
+                    @click=${() => this.close()}
                 >
                     ${iconTemplate(mdiClose)}
                 </button>

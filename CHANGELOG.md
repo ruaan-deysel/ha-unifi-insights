@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- WiFi devices (`WiFi: <SSID>`) can now be deleted from the device page once no polled site provides that network any more, for example after deselecting its site in the options or deleting the network on the controller. Previously Home Assistant rejected the removal with "Failed to remove device entry, rejected by integration". WiFi networks still served by a polled site, and any network whose site failed to refresh, still can't be removed. [#213](https://github.com/ruaan-deysel/ha-unifi-insights/issues/213)
 - Topology card: when a card is too short for a node's details, they now open in a dialog over the dashboard, sized to fit them, instead of in a panel cut off by the card. The dialog only scrolls if the screen itself is too short. Cards with room still show the details beside the graph. [#186](https://github.com/ruaan-deysel/ha-unifi-insights/issues/186)
 
 ## [2026.10.0] - 2026-10-01

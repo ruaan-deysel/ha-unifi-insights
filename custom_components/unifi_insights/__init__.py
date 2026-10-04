@@ -674,27 +674,54 @@ async def async_remove_config_entry_device(
     device_entry: DeviceEntry,
 ) -> bool:
     """
-    Allow deleting a device that belongs to a site no longer being polled.
+    Allow deleting a device the integration no longer provides.
 
     Deselecting a site in options stops it being polled, so its devices can
     never come back and would otherwise sit unavailable with no way to remove
-    them. Everything else is refused: devices of polled sites are live, and
-    Protect, client and WiFi devices are not site-scoped.
+    them. WiFi devices carry no site id, so they are allowed once no polled
+    site serves that network any more. Everything else is refused: devices of
+    polled sites are live, and Protect and client devices are not site-scoped.
     """
     runtime_data = getattr(entry, "runtime_data", None)
     if runtime_data is None:
         return False
 
     config_coordinator = runtime_data.config_coordinator
-    deselected = set(config_coordinator.available_sites) - set(
-        config_coordinator.get_site_ids()
-    )
+    polled = config_coordinator.get_site_ids()
+    deselected = set(config_coordinator.available_sites) - set(polled)
     return any(
         domain == DOMAIN
-        and any(
-            _is_site_scoped_identifier(identifier, site_id) for site_id in deselected
+        and (
+            any(
+                _is_site_scoped_identifier(identifier, site_id)
+                for site_id in deselected
+            )
+            or _is_stale_wifi_identifier(identifier, config_coordinator, polled)
         )
         for domain, identifier in device_entry.identifiers
+    )
+
+
+def _is_stale_wifi_identifier(
+    identifier: str, config_coordinator: UnifiConfigCoordinator, polled: list[str]
+) -> bool:
+    """
+    Return True if a ``wifi_{id}`` device is served by no polled site.
+
+    The WiFi device id has no site in it, so the only proof it is gone is that
+    every polled site's WiFi list was fetched and none of them has the id. A
+    failed fetch keeps the previous data, so it is refused rather than trusted.
+    """
+    if not identifier.startswith("wifi_"):
+        return False
+    wifi_id = identifier.removeprefix("wifi_")
+    if not config_coordinator.last_update_success:
+        return False
+    wifi_by_site = config_coordinator.data.get("wifi", {})
+    return all(
+        config_coordinator.wifi_available(site_id)
+        and wifi_id not in wifi_by_site.get(site_id, {})
+        for site_id in polled
     )
 
 
@@ -706,7 +733,8 @@ def _is_site_scoped_identifier(identifier: str, site_id: str) -> bool:
     devices (``{site}_{device}``), the per-site firewall, route and VPN
     devices, and the ``site_{site}`` device that holds a gateway-less site's
     client count. A loose suffix check would also match a Protect or WiFi id that
-    merely ends in the site id.
+    merely ends in the site id; WiFi devices are handled by
+    ``_is_stale_wifi_identifier`` instead.
     """
     return identifier.startswith(f"{site_id}_") or identifier in {
         f"firewall_policies_{site_id}",

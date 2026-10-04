@@ -1,6 +1,6 @@
 """Tests for the UniFi Insights integration initialization."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.unifi_insights import (
     SETUP_PROBE_RETRIES,
@@ -506,7 +507,7 @@ def _entry_with_sites(
     available: dict[str, str],
     polled: list[str],
     wifi: dict[str, dict[str, dict]] | None = None,
-    wifi_failed: set[str] = frozenset(),
+    wifi_failed: frozenset[str] | set[str] = frozenset(),
     *,
     last_update_success: bool = True,
 ) -> MagicMock:
@@ -562,6 +563,8 @@ async def test_remove_config_entry_device_only_for_deselected_sites(
         (["default", "site2"], set(), True, True),
         # A failed WiFi fetch keeps old data, so absence proves nothing.
         (["default"], {"default"}, True, False),
+        # No site is polled, so none can serve the network.
+        ([], set(), True, True),
         # A failed refresh proves nothing either, even with no polled sites.
         ([], set(), False, False),
     ],
@@ -628,8 +631,11 @@ async def _setup(hass: HomeAssistant, entry: MockConfigEntry) -> None:
 
 
 async def _remove_device_via_ui(
-    hass: HomeAssistant, hass_ws_client, entry: MockConfigEntry, identifier: str
-) -> dict:
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    entry: MockConfigEntry,
+    identifier: str,
+) -> dict[str, Any]:
     """Register a device for the entry and remove it the way the UI does."""
     assert await async_setup_component(hass, "config", {})
     device = dr.async_get(hass).async_get_or_create(
@@ -642,40 +648,57 @@ async def _remove_device_via_ui(
             "device_id": device.id,
         }
     )
-    return await client.receive_json()
+    response: dict[str, Any] = await client.receive_json()
+    return response
 
 
 @pytest.mark.usefixtures(
     "mock_protect_client", "mock_local_auth", "enable_custom_integrations"
 )
-async def test_remove_wifi_device_of_deselected_site(
+async def test_remove_wifi_device_after_its_site_is_deselected(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_network_client: MagicMock,
-    hass_ws_client,
+    hass_ws_client: WebSocketGenerator,
 ) -> None:
-    """A WiFi device left behind by a deselected site can be removed (#213)."""
+    """A site's WiFi device can be removed once the site is deselected (#213)."""
     mock_network_client.sites.get_all.return_value = [
         {"id": "default", "name": "Default"},
         {"id": "branch", "name": "Branch"},
     ]
-    mock_network_client.wifi.get_all.return_value = [
-        {"id": "wifi-main", "name": "Main"}
-    ]
-    mock_config_entry.add_to_hass(hass)
+    wifi_by_site = {
+        "default": [{"id": "wifi-main", "name": "Main"}],
+        "branch": [{"id": "wifi-branch", "name": "Branch"}],
+    }
+    mock_network_client.wifi.get_all.side_effect = lambda site_id: wifi_by_site[site_id]
+    await _setup(hass, mock_config_entry)
+    coordinator = mock_config_entry.runtime_data.config_coordinator
+    assert "wifi-branch" in coordinator.get_wifi_networks("branch")
+
+    # While the branch site is polled its network is live.
+    response = await _remove_device_via_ui(
+        hass, hass_ws_client, mock_config_entry, "wifi_wifi-branch"
+    )
+    assert not response["success"]
+
     hass.config_entries.async_update_entry(
         mock_config_entry, options={CONF_SITE_IDS: ["default"]}
     )
-    await _setup(hass, mock_config_entry)
+    await hass.async_block_till_done()
     coordinator = mock_config_entry.runtime_data.config_coordinator
     assert coordinator.get_site_ids() == ["default"]
-    assert set(coordinator.available_sites) == {"default", "branch"}
 
     response = await _remove_device_via_ui(
         hass, hass_ws_client, mock_config_entry, "wifi_wifi-branch"
     )
 
     assert response["success"], response
+    assert not any(
+        (DOMAIN, "wifi_wifi-branch") in device.identifiers
+        for device in dr.async_entries_for_config_entry(
+            dr.async_get(hass), mock_config_entry.entry_id
+        )
+    )
 
 
 @pytest.mark.usefixtures(
@@ -685,7 +708,7 @@ async def test_remove_wifi_device_refused_while_polled_site_provides_it(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_network_client: MagicMock,
-    hass_ws_client,
+    hass_ws_client: WebSocketGenerator,
 ) -> None:
     """A WiFi network a polled site still serves is live, so removal is refused."""
     mock_network_client.sites.get_all.return_value = [

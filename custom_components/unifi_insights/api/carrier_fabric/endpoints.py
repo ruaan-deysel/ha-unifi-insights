@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -23,6 +24,15 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def _validate_subscriber_uuid(subscriber_id: str) -> None:
+    """Validate that subscriber_id conforms to UUID format."""
+    try:
+        uuid.UUID(str(subscriber_id))
+    except (ValueError, TypeError, AttributeError) as err:
+        msg = f"Invalid subscriber ID format (UUID required): {subscriber_id!r}"
+        raise ValueError(msg) from err
+
+
 class ServicePlansEndpoint:
     """Endpoint for managing Carrier Fabric service plans."""
 
@@ -35,18 +45,22 @@ class ServicePlansEndpoint:
         List all service plans.
 
         Returns:
-            List of service plans (unpaginated). Malformed items are skipped,
-            and unexpected response envelopes return an empty list.
+            List of service plans (unpaginated). Malformed items are skipped.
+
+        Raises:
+            UniFiResponseError: If the response envelope is invalid.
 
         """
         path = f"{CARRIER_FABRIC_PATH}/service-plans"
         response = await self._client._get(path)
         if not isinstance(response, dict):
-            return []
+            msg = f"{path} returned unexpected response"
+            raise UniFiResponseError(msg, status_code=200)
 
         data = response.get("data")
         if not isinstance(data, list):
-            return []
+            msg = f"{path} returned malformed data"
+            raise UniFiResponseError(msg, status_code=200)
 
         plans: list[ServicePlan] = []
         for item in data:
@@ -122,10 +136,21 @@ class SubscribersEndpoint:
             List of valid subscribers, deduped by ID.
 
         Raises:
-            UniFiResponseError: If a pagination cursor is repeated or if
-                the page count exceeds ``CARRIER_FABRIC_MAX_PAGES``.
+            ValueError: If limit is not an int in 1..500.
+            UniFiResponseError: If the envelope is malformed, a pagination
+                cursor is repeated, or the page count exceeds
+                ``CARRIER_FABRIC_MAX_PAGES``.
 
         """
+        if limit is not None and (
+            type(limit) is not int or not (1 <= limit <= CARRIER_FABRIC_MAX_PAGE_SIZE)
+        ):
+            msg = (
+                f"limit must be an integer between 1 and "
+                f"{CARRIER_FABRIC_MAX_PAGE_SIZE}, got {limit}"
+            )
+            raise ValueError(msg)
+
         path = f"{CARRIER_FABRIC_PATH}/subscribers"
         base_params: dict[str, Any] = {}
         if sort is not None:
@@ -145,10 +170,12 @@ class SubscribersEndpoint:
 
             response = await self._client._get(path, params=params or None)
             if not isinstance(response, dict):
-                return []
+                msg = f"{path} returned unexpected response"
+                raise UniFiResponseError(msg, status_code=200)
             data = response.get("data")
             if not isinstance(data, list):
-                return []
+                msg = f"{path} returned malformed data"
+                raise UniFiResponseError(msg, status_code=200)
 
             seen_ids: set[str] = set()
             single_page_items: list[Subscriber] = []
@@ -179,11 +206,13 @@ class SubscribersEndpoint:
 
             response = await self._client._get(path, params=page_params)
             if not isinstance(response, dict):
-                return subscribers
+                msg = f"{path} returned unexpected response"
+                raise UniFiResponseError(msg, status_code=200)
 
             data = response.get("data")
             if not isinstance(data, list):
-                return subscribers
+                msg = f"{path} returned malformed data"
+                raise UniFiResponseError(msg, status_code=200)
 
             for item in data:
                 if not isinstance(item, dict):
@@ -199,10 +228,17 @@ class SubscribersEndpoint:
 
             meta = response.get("meta")
             if not isinstance(meta, dict):
-                return subscribers
+                msg = f"{path} returned malformed meta"
+                raise UniFiResponseError(msg, status_code=200)
 
             next_cursor = meta.get("nextCursor")
             has_more = meta.get("hasMore")
+
+            if has_more is True and (
+                not next_cursor or not isinstance(next_cursor, str)
+            ):
+                msg = f"{path} indicated hasMore=True but nextCursor is missing"
+                raise UniFiResponseError(msg, status_code=200)
 
             should_continue = (
                 has_more is True
@@ -233,10 +269,12 @@ class SubscribersEndpoint:
             The subscriber model.
 
         Raises:
+            ValueError: If the subscriber ID is not a valid UUID.
             UniFiNotFoundError: If the subscriber is not found.
             UniFiResponseError: If the response envelope is invalid.
 
         """
+        _validate_subscriber_uuid(subscriber_id)
         path = f"{CARRIER_FABRIC_PATH}/subscribers/{subscriber_id}"
         response = await self._client._get(path)
         if isinstance(response, dict):
@@ -260,9 +298,11 @@ class SubscribersEndpoint:
             The updated subscriber model.
 
         Raises:
+            ValueError: If the subscriber ID is not a valid UUID.
             UniFiResponseError: If the operation fails or response is invalid.
 
         """
+        _validate_subscriber_uuid(subscriber_id)
         path = f"{CARRIER_FABRIC_PATH}/subscribers/{subscriber_id}/suspend"
         json_data = {"reason": reason} if reason is not None else None
         response = await self._client._post(path, json_data=json_data)
@@ -284,9 +324,11 @@ class SubscribersEndpoint:
             The updated subscriber model.
 
         Raises:
+            ValueError: If the subscriber ID is not a valid UUID.
             UniFiResponseError: If the operation fails or response is invalid.
 
         """
+        _validate_subscriber_uuid(subscriber_id)
         path = f"{CARRIER_FABRIC_PATH}/subscribers/{subscriber_id}/resume"
         response = await self._client._post(path)
         if isinstance(response, dict):

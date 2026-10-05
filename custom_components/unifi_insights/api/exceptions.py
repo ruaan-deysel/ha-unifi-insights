@@ -44,7 +44,6 @@ class UniFiAuthenticationError(UniFiError):
         super().__init__(message, *args)
         self.status_code = status_code
         self.api_error_code = api_error_code
-        self.error_code = api_error_code
 
 
 class UniFiConnectionError(UniFiError):
@@ -76,7 +75,6 @@ class UniFiResponseError(UniFiError):
         self.status_code = status_code
         self.response_body = response_body
         self.api_error_code = api_error_code
-        self.error_code = api_error_code
 
     def __str__(self) -> str:
         """Return safe string representation with status only."""

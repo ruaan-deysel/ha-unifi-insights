@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any, Self
 from unittest.mock import MagicMock
 
@@ -26,6 +27,10 @@ from custom_components.unifi_insights.api.exceptions import (
     UniFiRateLimitError,
     UniFiResponseError,
 )
+
+VALID_SUB_ID_1 = "11111111-1111-1111-1111-111111111111"
+VALID_SUB_ID_2 = "22222222-2222-2222-2222-222222222222"
+VALID_PLAN_ID_1 = "33333333-3333-3333-3333-333333333333"
 
 
 class _Response:
@@ -93,11 +98,11 @@ async def test_subscribers_multi_page_cursor_pagination() -> None:
     session = _Session(
         [
             {
-                "data": [{"id": "sub-1", "name": "Alice"}],
+                "data": [{"id": VALID_SUB_ID_1, "name": "Alice"}],
                 "meta": {"hasMore": True, "nextCursor": "cur-2"},
             },
             {
-                "data": [{"id": "sub-2", "name": "Bob"}],
+                "data": [{"id": VALID_SUB_ID_2, "name": "Bob"}],
                 "meta": {"hasMore": False, "nextCursor": None},
             },
         ]
@@ -107,9 +112,9 @@ async def test_subscribers_multi_page_cursor_pagination() -> None:
     subscribers = await client.subscribers.get_all()
 
     assert len(subscribers) == 2
-    assert subscribers[0].id == "sub-1"
+    assert subscribers[0].id == VALID_SUB_ID_1
     assert subscribers[0].name == "Alice"
-    assert subscribers[1].id == "sub-2"
+    assert subscribers[1].id == VALID_SUB_ID_2
     assert subscribers[1].name == "Bob"
 
     assert len(session.requests) == 2
@@ -123,7 +128,7 @@ async def test_subscribers_single_page_explicit_limit() -> None:
     session = _Session(
         [
             {
-                "data": [{"id": "sub-1"}],
+                "data": [{"id": VALID_SUB_ID_1}],
                 "meta": {"hasMore": True, "nextCursor": "cur-2"},
             }
         ]
@@ -133,7 +138,7 @@ async def test_subscribers_single_page_explicit_limit() -> None:
     subscribers = await client.subscribers.get_all(limit=1)
 
     assert len(subscribers) == 1
-    assert subscribers[0].id == "sub-1"
+    assert subscribers[0].id == VALID_SUB_ID_1
     assert len(session.requests) == 1
     assert session.requests[0]["params"] == {"limit": 1}
 
@@ -143,7 +148,7 @@ async def test_subscribers_single_page_explicit_cursor() -> None:
     session = _Session(
         [
             {
-                "data": [{"id": "sub-9"}],
+                "data": [{"id": VALID_SUB_ID_1}],
                 "meta": {"hasMore": True, "nextCursor": "cur-10"},
             }
         ]
@@ -153,7 +158,7 @@ async def test_subscribers_single_page_explicit_cursor() -> None:
     subscribers = await client.subscribers.get_all(cursor="page-9")
 
     assert len(subscribers) == 1
-    assert subscribers[0].id == "sub-9"
+    assert subscribers[0].id == VALID_SUB_ID_1
     assert len(session.requests) == 1
     assert session.requests[0]["params"] == {"cursor": "page-9"}
 
@@ -163,7 +168,7 @@ async def test_subscribers_query_filters() -> None:
     session = _Session(
         [
             {
-                "data": [{"id": "sub-1"}],
+                "data": [{"id": VALID_SUB_ID_1}],
             }
         ]
     )
@@ -191,11 +196,11 @@ async def test_subscribers_repeated_cursor_raises_response_error() -> None:
     session = _Session(
         [
             {
-                "data": [{"id": "sub-1"}],
+                "data": [{"id": VALID_SUB_ID_1}],
                 "meta": {"hasMore": True, "nextCursor": "loop-token"},
             },
             {
-                "data": [{"id": "sub-2"}],
+                "data": [{"id": VALID_SUB_ID_2}],
                 "meta": {"hasMore": True, "nextCursor": "loop-token"},
             },
         ]
@@ -211,7 +216,7 @@ async def test_subscribers_max_pages_cap_raises_response_error() -> None:
     """Exceeding CARRIER_FABRIC_MAX_PAGES raises UniFiResponseError."""
     pages = [
         {
-            "data": [{"id": f"sub-{i}"}],
+            "data": [{"id": str(uuid.uuid4())}],
             "meta": {"hasMore": True, "nextCursor": f"cur-{i + 1}"},
         }
         for i in range(CARRIER_FABRIC_MAX_PAGES)
@@ -229,18 +234,25 @@ async def test_subscribers_deduplicates_by_id() -> None:
     session = _Session(
         [
             {
-                "data": [{"id": "sub-1"}, {"id": "sub-2"}],
+                "data": [{"id": VALID_SUB_ID_1}, {"id": VALID_SUB_ID_2}],
                 "meta": {"hasMore": True, "nextCursor": "cur-2"},
             },
             {
-                "data": [{"id": "sub-2"}, {"id": "sub-3"}],
+                "data": [
+                    {"id": VALID_SUB_ID_2},
+                    {"id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
+                ],
                 "meta": {"hasMore": False, "nextCursor": None},
             },
         ]
     )
 
     subscribers = await _client(session).subscribers.get_all()
-    assert [s.id for s in subscribers] == ["sub-1", "sub-2", "sub-3"]
+    assert [s.id for s in subscribers] == [
+        VALID_SUB_ID_1,
+        VALID_SUB_ID_2,
+        "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+    ]
 
 
 async def test_subscribers_skips_invalid_items() -> None:
@@ -249,12 +261,12 @@ async def test_subscribers_skips_invalid_items() -> None:
         [
             {
                 "data": [
-                    {"id": "sub-1", "name": "Valid 1"},
+                    {"id": VALID_SUB_ID_1, "name": "Valid 1"},
                     {"name": "missing_id"},
                     [1, 2, 3],
                     {"unexpected": "shape"},
                     12345,
-                    {"id": "sub-2", "name": "Valid 2"},
+                    {"id": VALID_SUB_ID_2, "name": "Valid 2"},
                 ],
                 "meta": {"hasMore": False},
             }
@@ -263,8 +275,8 @@ async def test_subscribers_skips_invalid_items() -> None:
 
     subscribers = await _client(session).subscribers.get_all()
     assert len(subscribers) == 2
-    assert subscribers[0].id == "sub-1"
-    assert subscribers[1].id == "sub-2"
+    assert subscribers[0].id == VALID_SUB_ID_1
+    assert subscribers[1].id == VALID_SUB_ID_2
 
 
 async def test_service_plans_get_all_unpaginated() -> None:
@@ -274,7 +286,7 @@ async def test_service_plans_get_all_unpaginated() -> None:
             {
                 "data": [
                     {
-                        "id": "plan-1",
+                        "id": VALID_PLAN_ID_1,
                         "orgId": "org-1",
                         "name": "Gigabit",
                         "status": "active",
@@ -282,7 +294,7 @@ async def test_service_plans_get_all_unpaginated() -> None:
                         "uploadMbps": 500.0,
                     },
                     {
-                        "id": "plan-2",
+                        "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
                         "name": "Standard",
                         "downloadMbps": 100,
                     },
@@ -293,7 +305,7 @@ async def test_service_plans_get_all_unpaginated() -> None:
 
     plans = await _client(session).service_plans.get_all()
     assert len(plans) == 2
-    assert plans[0].id == "plan-1"
+    assert plans[0].id == VALID_PLAN_ID_1
     assert plans[0].org_id == "org-1"
     assert plans[0].orgId == "org-1"
     assert plans[0].name == "Gigabit"
@@ -301,7 +313,7 @@ async def test_service_plans_get_all_unpaginated() -> None:
     assert plans[0].downloadMbps == 1000.0
     assert plans[0].upload_mbps == 500.0
     assert plans[0].uploadMbps == 500.0
-    assert plans[1].id == "plan-2"
+    assert plans[1].id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert plans[1].download_mbps == 100.0
 
 
@@ -311,10 +323,10 @@ async def test_service_plans_skips_invalid_items() -> None:
         [
             {
                 "data": [
-                    {"id": "plan-1"},
+                    {"id": VALID_PLAN_ID_1},
                     {"name": "missing-id"},
                     "invalid-type",
-                    {"id": "plan-2"},
+                    {"id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"},
                 ]
             }
         ]
@@ -322,7 +334,10 @@ async def test_service_plans_skips_invalid_items() -> None:
 
     plans = await _client(session).service_plans.get_all()
     assert len(plans) == 2
-    assert [p.id for p in plans] == ["plan-1", "plan-2"]
+    assert [p.id for p in plans] == [
+        VALID_PLAN_ID_1,
+        "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -335,20 +350,146 @@ async def test_service_plans_skips_invalid_items() -> None:
         {"data": 123},
     ],
 )
-async def test_unexpected_response_shape_returns_empty_list(
+async def test_unexpected_response_shape_raises_response_error(
     payload: Any,
 ) -> None:
-    """Non-dict and malformed data envelopes return empty lists."""
-    client = _client(_Session([payload, payload, payload]))
-    assert await client.subscribers.get_all() == []
-    assert await client.subscribers.get_all(limit=1) == []
-    assert await client.service_plans.get_all() == []
+    """Non-dict and malformed data envelopes raise UniFiResponseError."""
+    client = _client(_Session([payload]))
+    with pytest.raises(UniFiResponseError):
+        await client.subscribers.get_all()
+
+    client2 = _client(_Session([payload]))
+    with pytest.raises(UniFiResponseError):
+        await client2.subscribers.get_all(limit=1)
+
+    client3 = _client(_Session([payload]))
+    with pytest.raises(UniFiResponseError):
+        await client3.service_plans.get_all()
+
+
+async def test_empty_data_envelope_returns_empty_list() -> None:
+    """A well-formed {'data': []} returns an empty list without raising."""
+    client1 = _client(_Session([{"data": [], "meta": {"hasMore": False}}]))
+    assert await client1.subscribers.get_all() == []
+
+    client2 = _client(_Session([{"data": []}]))
+    assert await client2.subscribers.get_all(limit=1) == []
+
+    client3 = _client(_Session([{"data": []}]))
+    assert await client3.service_plans.get_all() == []
+
+
+@pytest.mark.parametrize(
+    "bad_page_2",
+    [
+        [1, 2, 3],
+        {"unexpected": "shape"},
+        {"data": "not-a-list"},
+        {"data": [{"id": VALID_SUB_ID_2}], "meta": "not-a-dict"},
+        {"data": [{"id": VALID_SUB_ID_2}], "meta": None},
+    ],
+)
+async def test_subscribers_pagination_malformed_envelope_on_subsequent_page_raises(
+    bad_page_2: Any,
+) -> None:
+    """Malformed envelope, data not list, or meta not dict after page 1.
+
+    Should raise UniFiResponseError.
+    """
+    session = _Session(
+        [
+            {
+                "data": [{"id": VALID_SUB_ID_1}],
+                "meta": {"hasMore": True, "nextCursor": "cur-2"},
+            },
+            bad_page_2,
+        ]
+    )
+    client = _client(session)
+    with pytest.raises(UniFiResponseError):
+        await client.subscribers.get_all()
+
+
+@pytest.mark.parametrize(
+    "bad_cursor",
+    [None, "", 123, []],
+)
+async def test_subscribers_pagination_has_more_without_cursor_raises(
+    bad_cursor: Any,
+) -> None:
+    """hasMore is True with missing/empty/non-string nextCursor.
+
+    Should raise UniFiResponseError.
+    """
+    session = _Session(
+        [
+            {
+                "data": [{"id": VALID_SUB_ID_1}],
+                "meta": {"hasMore": True, "nextCursor": bad_cursor},
+            }
+        ]
+    )
+    client = _client(session)
+    with pytest.raises(UniFiResponseError) as err:
+        await client.subscribers.get_all()
+    assert "hasMore=True but nextCursor is missing" in err.value.message
+
+
+async def test_subscribers_pagination_has_more_absent_continues_while_next_cursor() -> (
+    None
+):
+    """Pagination continues while nextCursor is string when hasMore omitted."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": VALID_SUB_ID_1}],
+                "meta": {"nextCursor": "cur-2"},
+            },
+            {
+                "data": [{"id": VALID_SUB_ID_2}],
+                "meta": {"nextCursor": None},
+            },
+        ]
+    )
+    client = _client(session)
+    subs = await client.subscribers.get_all()
+    assert len(subs) == 2
+
+
+@pytest.mark.parametrize("bad_limit", [0, 501, -1, 1000, True, "50"])
+async def test_subscribers_limit_bounds_validation(bad_limit: Any) -> None:
+    """Limit must be an integer between 1 and 500, failing before HTTP call."""
+    session = _Session([])
+    client = _client(session)
+    with pytest.raises(ValueError, match="limit must be an integer between 1 and 500"):
+        await client.subscribers.get_all(limit=bad_limit)
+    assert len(session.requests) == 0
+
+
+@pytest.mark.parametrize(
+    "bad_uuid", ["not-a-uuid", "sub-1", "", "12345", "11111111-1111-1111-1111"]
+)
+async def test_subscribers_endpoint_uuid_validation(bad_uuid: str) -> None:
+    """Subscribers get/suspend/resume validate UUID format before building path."""
+    session = _Session([])
+    client = _client(session)
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.get(bad_uuid)
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.suspend(bad_uuid)
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.resume(bad_uuid)
+
+    assert len(session.requests) == 0
 
 
 def test_models_omitted_and_null_fields() -> None:
     """Subscriber and ServicePlan allow optional fields and default suspended."""
-    sub = Subscriber.model_validate({"id": "sub-1"})
-    assert sub.id == "sub-1"
+    sub = Subscriber.model_validate({"id": VALID_SUB_ID_1})
+    assert sub.id == VALID_SUB_ID_1
     assert sub.suspended is False
     assert sub.org_id is None
     assert sub.orgId is None
@@ -360,18 +501,22 @@ def test_models_omitted_and_null_fields() -> None:
     assert sub.state is None
 
     # Null suspended explicitly coerced to False
-    sub_null = Subscriber.model_validate({"id": "sub-2", "suspended": None})
+    sub_null = Subscriber.model_validate({"id": VALID_SUB_ID_2, "suspended": None})
     assert sub_null.suspended is False
 
     # Snake-case field validation works alongside camelCase
     sub_snake = Subscriber.model_validate(
-        {"id": "sub-3", "org_id": "org-3", "subscriber_number": "SN3"}
+        {
+            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "org_id": "org-3",
+            "subscriber_number": "SN3",
+        }
     )
     assert sub_snake.org_id == "org-3"
     assert sub_snake.subscriber_number == "SN3"
 
-    plan = ServicePlan.model_validate({"id": "plan-1"})
-    assert plan.id == "plan-1"
+    plan = ServicePlan.model_validate({"id": VALID_PLAN_ID_1})
+    assert plan.id == VALID_PLAN_ID_1
     assert plan.name is None
     assert plan.status is None
     assert plan.download_mbps is None
@@ -385,10 +530,10 @@ def test_models_omitted_and_null_fields() -> None:
 
 def test_models_unknown_state_and_status() -> None:
     """State and status fields are strings, allowing future backend enum additions."""
-    sub = Subscriber.model_validate({"id": "sub-1", "state": "quantum_active"})
+    sub = Subscriber.model_validate({"id": VALID_SUB_ID_1, "state": "quantum_active"})
     assert sub.state == "quantum_active"
 
-    plan = ServicePlan.model_validate({"id": "plan-1", "status": "experimental"})
+    plan = ServicePlan.model_validate({"id": VALID_PLAN_ID_1, "status": "experimental"})
     assert plan.status == "experimental"
 
 
@@ -396,24 +541,24 @@ async def test_get_single_subscriber_and_plan() -> None:
     """Fetching individual subscriber and service plan returns models."""
     session = _Session(
         [
-            {"data": {"id": "sub-1", "name": "Single Sub"}},
-            {"data": {"id": "plan-1", "name": "Single Plan"}},
+            {"data": {"id": VALID_SUB_ID_1, "name": "Single Sub"}},
+            {"data": {"id": VALID_PLAN_ID_1, "name": "Single Plan"}},
             {"data": "bad-shape"},
             {"data": "bad-shape"},
         ]
     )
 
     client = _client(session)
-    sub = await client.subscribers.get("sub-1")
-    assert sub.id == "sub-1"
+    sub = await client.subscribers.get(VALID_SUB_ID_1)
+    assert sub.id == VALID_SUB_ID_1
     assert sub.name == "Single Sub"
 
-    plan = await client.service_plans.get("plan-1")
-    assert plan.id == "plan-1"
+    plan = await client.service_plans.get(VALID_PLAN_ID_1)
+    assert plan.id == VALID_PLAN_ID_1
     assert plan.name == "Single Plan"
 
     with pytest.raises(UniFiResponseError):
-        await client.subscribers.get("sub-bad")
+        await client.subscribers.get(VALID_SUB_ID_1)
 
     with pytest.raises(UniFiResponseError):
         await client.service_plans.get("plan-bad")
@@ -423,31 +568,37 @@ async def test_suspend_with_and_without_reason() -> None:
     """Suspend endpoint sends reason in JSON body only when provided."""
     session = _Session(
         [
-            {"data": {"id": "sub-1", "suspended": True, "suspendReason": "nonpayment"}},
-            {"data": {"id": "sub-2", "suspended": True}},
+            {
+                "data": {
+                    "id": VALID_SUB_ID_1,
+                    "suspended": True,
+                    "suspendReason": "nonpayment",
+                }
+            },
+            {"data": {"id": VALID_SUB_ID_2, "suspended": True}},
         ]
     )
 
     client = _client(session)
 
     # 1. With reason
-    sub1 = await client.subscribers.suspend("sub-1", reason="nonpayment")
+    sub1 = await client.subscribers.suspend(VALID_SUB_ID_1, reason="nonpayment")
     assert sub1.suspended is True
     assert sub1.suspend_reason == "nonpayment"
     assert session.requests[0]["method"] == "POST"
     assert (
         session.requests[0]["url"]
-        == "https://api.ui.com/v1/carrier/subscribers/sub-1/suspend"
+        == f"https://api.ui.com/v1/carrier/subscribers/{VALID_SUB_ID_1}/suspend"
     )
     assert session.requests[0]["json"] == {"reason": "nonpayment"}
 
     # 2. Without reason
-    sub2 = await client.subscribers.suspend("sub-2")
+    sub2 = await client.subscribers.suspend(VALID_SUB_ID_2)
     assert sub2.suspended is True
     assert session.requests[1]["method"] == "POST"
     assert (
         session.requests[1]["url"]
-        == "https://api.ui.com/v1/carrier/subscribers/sub-2/suspend"
+        == f"https://api.ui.com/v1/carrier/subscribers/{VALID_SUB_ID_2}/suspend"
     )
     assert session.requests[1]["json"] is None
 
@@ -456,17 +607,17 @@ async def test_resume() -> None:
     """Resume endpoint sends POST without JSON body."""
     session = _Session(
         [
-            {"data": {"id": "sub-1", "suspended": False}},
+            {"data": {"id": VALID_SUB_ID_1, "suspended": False}},
         ]
     )
 
     client = _client(session)
-    sub = await client.subscribers.resume("sub-1")
+    sub = await client.subscribers.resume(VALID_SUB_ID_1)
     assert sub.suspended is False
     assert session.requests[0]["method"] == "POST"
     assert (
         session.requests[0]["url"]
-        == "https://api.ui.com/v1/carrier/subscribers/sub-1/resume"
+        == f"https://api.ui.com/v1/carrier/subscribers/{VALID_SUB_ID_1}/resume"
     )
     assert session.requests[0]["json"] is None
 
@@ -493,7 +644,6 @@ async def test_error_code_extraction_403_insufficient_scope() -> None:
 
     assert err.value.status_code == 403
     assert err.value.api_error_code == "insufficient_scope"
-    assert err.value.error_code == "insufficient_scope"
 
 
 async def test_error_code_extraction_503_write_conflict_retryable() -> None:
@@ -514,11 +664,10 @@ async def test_error_code_extraction_503_write_conflict_retryable() -> None:
     )
 
     with pytest.raises(UniFiResponseError) as err:
-        await _client(session).subscribers.suspend("sub-1")
+        await _client(session).subscribers.suspend(VALID_SUB_ID_1)
 
     assert err.value.status_code == 503
     assert err.value.api_error_code == "write_conflict_retryable"
-    assert err.value.error_code == "write_conflict_retryable"
 
 
 async def test_error_code_extraction_404_subscriber_not_found() -> None:
@@ -538,7 +687,7 @@ async def test_error_code_extraction_404_subscriber_not_found() -> None:
     )
 
     with pytest.raises(UniFiNotFoundError) as err:
-        await _client(session).subscribers.get("sub-missing")
+        await _client(session).subscribers.get(VALID_SUB_ID_1)
 
     assert err.value.status_code == 404
     assert err.value.api_error_code == "subscriber_not_found"
@@ -577,7 +726,7 @@ async def test_carrier_fabric_response_bodies_not_logged(
 
     response = MagicMock(status=500, method="GET")
     response.url.path = "/v1/carrier/subscribers"
-    response.text = MagicMock(return_value='{"name": "Secret Customer"}')
+    response.headers = {}
     response.text = pytest.importorskip("unittest.mock").AsyncMock(
         return_value='{"name": "Secret Customer"}'
     )
@@ -585,7 +734,7 @@ async def test_carrier_fabric_response_bodies_not_logged(
     with (
         caplog.at_level(
             logging.DEBUG,
-            logger="custom_components.unifi_insights.api.carrier_fabric.client",
+            logger="custom_components.unifi_insights.api",
         ),
         pytest.raises(UniFiResponseError),
     ):
@@ -595,9 +744,27 @@ async def test_carrier_fabric_response_bodies_not_logged(
     assert "[Carrier Fabric response omitted]" in caplog.text
 
 
+async def test_body_still_readable_after_base_class() -> None:
+    """Verify response body is readable after base class raises auth error."""
+    client = _client(_Session([]))
+    response = MagicMock(status=401, method="GET")
+    response.url.path = "/v1/carrier/service-plans"
+    response.headers = {}
+    response.text = pytest.importorskip("unittest.mock").AsyncMock(
+        return_value=json.dumps({"error": {"code": "invalid_credentials"}})
+    )
+
+    with pytest.raises(UniFiAuthenticationError) as err:
+        await client._handle_response(response)
+
+    assert err.value.status_code == 401
+    assert err.value.api_error_code == "invalid_credentials"
+    assert response.text.call_count >= 2
+
+
 async def test_validate_connection() -> None:
     """validate_connection verifies credentials via service plans."""
-    session = _Session([{"data": [{"id": "plan-1"}]}])
+    session = _Session([{"data": [{"id": VALID_PLAN_ID_1}]}])
     client = _client(session)
     assert await client.validate_connection() is True
     assert session.requests[0]["url"] == "https://api.ui.com/v1/carrier/service-plans"

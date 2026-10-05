@@ -72,6 +72,10 @@ DEFAULT_RATE_LIMIT_RETRY_AFTER: Final[int] = 60
 # and its requests do not draw from the Protect allowance.
 PROTECT_RATE_LIMIT_REQUESTS: Final[int] = 10
 PROTECT_RATE_LIMIT_WINDOW: Final[float] = 1.0
+# The cloud Mobility API allows 100 requests per minute per API key, shared by
+# every Mobility endpoint, and answers a 429 `rate_limit` beyond that.
+MOBILITY_RATE_LIMIT_REQUESTS: Final[int] = 100
+MOBILITY_RATE_LIMIT_WINDOW: Final[float] = 60.0
 # Added to the window on the client side so request-arrival jitter cannot
 # land an 11th request inside one of the server's fixed windows.
 RATE_LIMIT_WINDOW_MARGIN: Final[float] = 0.1

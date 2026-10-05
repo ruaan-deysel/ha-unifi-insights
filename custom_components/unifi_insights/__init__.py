@@ -51,7 +51,11 @@ from .coordinators import (
     UnifiInsightsSiteManagerCoordinator,
     UnifiProtectCoordinator,
 )
-from .coordinators.mobility import ACCESS_UNKNOWN, async_setup_mobility
+from .coordinators.mobility import (
+    ACCESS_UNKNOWN,
+    async_hand_over_mobility,
+    async_setup_mobility,
+)
 from .coordinators.site_manager import (
     async_acquire_site_manager,
     async_release_site_manager,
@@ -676,6 +680,11 @@ async def async_unload_entry(
                 hass, data.site_manager_fingerprint, entry.entry_id
             )
 
+        # A disabled owner will not come back to poll Mobility; a reload or a
+        # Home Assistant restart will, so those keep it.
+        if data.mobility_coordinator and entry.disabled_by is not None:
+            async_hand_over_mobility(hass, entry)
+
     return unload_ok
 
 
@@ -789,6 +798,7 @@ async def async_remove_entry(
     """Forget per-entry setup state when an entry is deleted."""
     _clear_setup_probe_attempts(hass, entry.entry_id)
     await async_remove_node_key(hass, entry.entry_id)
+    async_hand_over_mobility(hass, entry)
 
 
 async def async_reload_entry(

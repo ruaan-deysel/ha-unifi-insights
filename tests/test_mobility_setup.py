@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntryDisabler, ConfigEntryState
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights import async_remove_config_entry_device
@@ -159,3 +160,95 @@ async def test_mobility_devices_are_removable_from_a_non_owner_entry(
     assert await async_remove_config_entry_device(
         hass, second, _device(f"mobility_{OFFICE_ROUTER_ID}")
     )
+
+
+def _mobility_owners(hass: HomeAssistant) -> dict[str, list[str]]:
+    """Map each Mobility unique id to the entries its registry rows belong to."""
+    owners: dict[str, list[str]] = {}
+    for entity in er.async_get(hass).entities.values():
+        if entity.platform == DOMAIN and entity.unique_id.startswith("mobility_"):
+            owners.setdefault(entity.unique_id, []).append(entity.config_entry_id or "")
+    return owners
+
+
+async def test_re_enabled_older_entry_does_not_duplicate_mobility(
+    hass: HomeAssistant,
+    mock_mobility_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The entry already polling Mobility keeps it when an older one comes back."""
+    _serve_spec_examples(mock_mobility_client)
+    older = _remote_entry("01A", "console-a")
+    older.disabled_by = ConfigEntryDisabler.USER
+    newer = _remote_entry("01B", "console-b")
+    older.add_to_hass(hass)
+    await _setup(hass, newer)
+    assert newer.runtime_data.mobility_coordinator is not None
+
+    await hass.config_entries.async_set_disabled_by(older.entry_id, None)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert older.state is ConfigEntryState.LOADED
+    assert older.runtime_data.mobility_coordinator is None
+    assert newer.runtime_data.mobility_coordinator is not None
+    assert "does not generate unique IDs" not in caplog.text
+    assert mock_mobility_client.list_workspaces.await_count == 1
+
+
+@pytest.mark.parametrize("leave", ["disable", "remove"])
+async def test_mobility_moves_to_the_next_entry_when_the_owner_leaves(
+    hass: HomeAssistant,
+    mock_mobility_client: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+    leave: str,
+) -> None:
+    """Disabling or deleting the owner hands Mobility to the next entry."""
+    _serve_spec_examples(mock_mobility_client)
+    owner = _remote_entry("01A", "console-a")
+    successor = _remote_entry("01B", "console-b")
+    successor.add_to_hass(hass)
+    await _setup(hass, owner)
+    owned = _mobility_owners(hass)
+    assert owned
+    assert {tuple(entries) for entries in owned.values()} == {(owner.entry_id,)}
+
+    if leave == "disable":
+        await hass.config_entries.async_set_disabled_by(
+            owner.entry_id, ConfigEntryDisabler.USER
+        )
+    else:
+        await hass.config_entries.async_remove(owner.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert successor.state is ConfigEntryState.LOADED
+    assert successor.runtime_data.mobility_coordinator is not None
+    moved = _mobility_owners(hass)
+    assert set(moved) == set(owned)
+    assert {tuple(entries) for entries in moved.values()} == {(successor.entry_id,)}
+    registry = er.async_get(hass)
+    router_clients = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"mobility_{OFFICE_ROUTER_ID}_clients"
+    )
+    assert router_clients is not None
+    assert registry.async_get(router_clients).disabled_by is None
+    assert hass.states.get(router_clients).state == "5"
+    assert "does not generate unique IDs" not in caplog.text
+
+
+async def test_owner_reload_keeps_mobility_and_leaves_siblings_alone(
+    hass: HomeAssistant, mock_mobility_client: MagicMock
+) -> None:
+    """Reloading the owner (an options change) does not reload other entries."""
+    _serve_spec_examples(mock_mobility_client)
+    owner = _remote_entry("01A", "console-a")
+    sibling = _remote_entry("01B", "console-b")
+    sibling.add_to_hass(hass)
+    await _setup(hass, owner)
+    sibling_data = sibling.runtime_data
+
+    assert await hass.config_entries.async_reload(owner.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert owner.runtime_data.mobility_coordinator is not None
+    assert sibling.runtime_data is sibling_data
+    assert sibling.runtime_data.mobility_coordinator is None

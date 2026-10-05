@@ -135,9 +135,11 @@ Mobility: it is only offered by the UniFi cloud.
   creates no Mobility entities, does not ask you to re-authenticate, and checks
   again every hour. Accounts without routers are also checked hourly, so a new
   router can take up to an hour to appear (reload the entry to pick it up now).
-- If several remote entries use the same API key, only the oldest enabled entry
-  creates the Mobility devices, so they are not duplicated. If that entry is not
-  loaded, Mobility is not polled until it is.
+- If several remote entries use the same API key, only one of them polls
+  Mobility and creates its devices, so they are not duplicated: the oldest
+  enabled entry when Home Assistant starts. If that entry is disabled or
+  deleted, the next one takes over. If it is enabled but cannot load (for
+  example, its console is offline), Mobility is not polled until it does.
 - Mobility is read-only: router names, LAN, and Wi-Fi settings cannot be
   changed from Home Assistant, and the per-router client list is not read.
 

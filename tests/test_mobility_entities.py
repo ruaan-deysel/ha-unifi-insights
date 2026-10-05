@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, EntityCategory
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -26,6 +27,10 @@ from custom_components.unifi_insights.mobility_entity import (
     ROUTER_SENSORS,
     UnifiMobilitySensor,
     async_setup_mobility_binary_sensors,
+)
+from custom_components.unifi_insights.services import (
+    _resolve_network_client_id,
+    _resolve_network_device_id,
 )
 from tests.fixtures.mobility_responses import (
     BRANCH_ROUTER_ID,
@@ -437,3 +442,24 @@ async def test_inactive_workspace_makes_its_sensors_unavailable(
 
     online = f"mobility_workspace_{WORKSPACE_ID}_online_devices"
     assert _state(hass, "sensor", online).state == STATE_UNAVAILABLE
+
+
+async def test_network_actions_reject_mobility_targets(
+    hass: HomeAssistant, mock_mobility_client: MagicMock
+) -> None:
+    """A router entity or device is never mistaken for a Network device or client."""
+    _serve(mock_mobility_client)
+    entry = await _setup(hass)
+    router = _device(hass, entry.entry_id, f"mobility_{OFFICE_ROUTER_ID}")
+    assert router is not None
+    sensor = _entity_id(hass, "sensor", _router("state"))
+    tracker = _entity_id(hass, "device_tracker", _router("location"))
+    assert sensor is not None
+    assert tracker is not None
+
+    for target in (sensor, router.id):
+        with pytest.raises(ServiceValidationError, match="UniFi Mobility"):
+            _resolve_network_device_id(hass, target, None, [entry])
+    for target in (tracker, router.id):
+        with pytest.raises(ServiceValidationError, match="UniFi Mobility"):
+            _resolve_network_client_id(hass, target, [entry])

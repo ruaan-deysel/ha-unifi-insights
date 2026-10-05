@@ -33,6 +33,7 @@ from .const import (
     LIGHT_MODE_ALWAYS,
     LIGHT_MODE_MOTION,
     LIGHT_MODE_OFF,
+    MOBILITY_DEVICE_PREFIX,
     SERVICE_AUTHORIZE_GUEST,
     SERVICE_CREATE_LIVEVIEW,
     SERVICE_DELETE_VOUCHER,
@@ -171,6 +172,27 @@ def _entry_has_client(entry: Any, site_id: str | None, client_id: str) -> bool:
         isinstance(cls, dict) and _client_records_match(cls, client_id)
         for cls in clients.values()
     )
+
+
+def _raise_for_mobility_target(
+    target: str, ent_entry: er.RegistryEntry | None, dev_entry: Any
+) -> None:
+    """
+    Refuse UniFi Mobility routers as Network device or client targets.
+
+    Their unique ids and device identifiers would otherwise parse into a router
+    UUID and a made-up site or client id, and reach the Network API.
+    """
+    identifiers = [
+        identifier
+        for domain, identifier in getattr(dev_entry, "identifiers", None) or ()
+        if domain == DOMAIN
+    ]
+    if ent_entry is not None and ent_entry.unique_id:
+        identifiers.append(ent_entry.unique_id)
+    if any(identifier.startswith(MOBILITY_DEVICE_PREFIX) for identifier in identifiers):
+        msg = f"Target '{target}' is a UniFi Mobility router, which this action does not support"
+        raise ServiceValidationError(msg)
 
 
 def _coord_section(entry: Any, key: str) -> dict[str, Any] | None:
@@ -328,6 +350,7 @@ def _resolve_network_device_id(
 
     if dev_entry is None and dev_reg is not None:
         dev_entry = dev_reg.async_get(device_id)
+    _raise_for_mobility_target(device_id, ent_entry, dev_entry)
 
     if dev_entry is not None or ent_entry is not None:
         if ent_entry is not None and ent_entry.unique_id:
@@ -581,6 +604,7 @@ def _resolve_network_client_id(
 
     if dev_entry is None and dev_reg is not None:
         dev_entry = dev_reg.async_get(client_id)
+    _raise_for_mobility_target(client_id, ent_entry, dev_entry)
 
     if dev_entry is not None or ent_entry is not None:
         if ent_entry is not None and ent_entry.unique_id:

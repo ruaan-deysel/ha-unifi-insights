@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from homeassistant.config_entries import SOURCE_IGNORE, ConfigEntryDisabler
+from homeassistant.core import CoreState
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.api import (
@@ -25,6 +26,9 @@ from custom_components.unifi_insights.const import (
 )
 from custom_components.unifi_insights.coordinators.mobility import (
     UnifiInsightsMobilityCoordinator,
+    _key_fingerprint,
+    _owners,
+    async_hand_over_mobility,
     async_setup_mobility,
     is_mobility_owner,
 )
@@ -129,6 +133,34 @@ async def test_access_denied_is_quiet_and_idle(
     assert not hass.config_entries.flow.async_progress_by_handler(DOMAIN)
 
 
+@pytest.mark.parametrize("status", [400, 404])
+async def test_workspace_list_client_errors_mean_no_access(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture, status: int
+) -> None:
+    """An account that answers 4xx instead of 403 is treated as having no access."""
+    client = mobility_client_mock()
+    client.list_workspaces.side_effect = UniFiResponseError(
+        "bad_request", status_code=status
+    )
+    coordinator = _coordinator(hass, client)
+    caplog.set_level(logging.DEBUG, logger=_LOGGER_NAME)
+
+    await coordinator.async_refresh()
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["access"] == "denied"
+    assert coordinator.update_interval == SCAN_INTERVAL_MOBILITY_IDLE
+    notices = [
+        record
+        for record in caplog.records
+        if record.levelno >= logging.INFO
+        and record.name.startswith("custom_components.unifi_insights")
+    ]
+    assert len(notices) == 1
+    assert notices[0].levelno == logging.INFO
+
+
 async def test_access_regained_restores_the_normal_interval(
     hass: HomeAssistant,
 ) -> None:
@@ -187,9 +219,16 @@ async def test_forbidden_workspace_is_skipped(hass: HomeAssistant) -> None:
     assert data["devices"] == {}
 
 
-@pytest.mark.parametrize("status", [404, 500])
+@pytest.mark.parametrize(
+    "error",
+    [
+        UniFiResponseError("device not found", status_code=404),
+        UniFiResponseError("upstream_error", status_code=500),
+        UniFiAuthenticationError("forbidden", status_code=403),
+    ],
+)
 async def test_device_detail_failure_keeps_the_summary(
-    hass: HomeAssistant, status: int
+    hass: HomeAssistant, error: Exception
 ) -> None:
     """One router's detail failing leaves its summary fields in place."""
     client = mobility_client_mock()
@@ -197,8 +236,7 @@ async def test_device_detail_failure_keeps_the_summary(
 
     async def get_device(workspace_id: str, device_id: str) -> dict[str, Any]:
         if device_id == BRANCH_ROUTER_ID:
-            msg = "upstream_error"
-            raise UniFiResponseError(msg, status_code=status)
+            raise error
         return await detail(workspace_id, device_id)
 
     client.get_device.side_effect = get_device
@@ -218,6 +256,8 @@ async def test_device_detail_failure_keeps_the_summary(
     ("method", "error"),
     [
         ("list_workspaces", UniFiConnectionError("offline")),
+        ("list_workspaces", UniFiResponseError("server_error", status_code=500)),
+        ("list_workspaces", UniFiRateLimitError("rate_limit", status_code=429)),
         ("list_devices", UniFiResponseError("server_error", status_code=500)),
         ("get_device", UniFiRateLimitError("rate_limit", status_code=429)),
     ],
@@ -346,3 +386,40 @@ async def test_setup_refreshes_in_the_background(hass: HomeAssistant) -> None:
     assert coordinator.config_entry is entry
     client.list_workspaces.assert_awaited_once()
     assert set(coordinator.data["devices"]) == {OFFICE_ROUTER_ID, BRANCH_ROUTER_ID}
+
+
+async def test_hand_over_only_when_no_entry_is_left_polling(
+    hass: HomeAssistant,
+) -> None:
+    """Hand-over reloads a successor only when Mobility would otherwise stop."""
+    owner = _remote_entry("01A")
+    sibling = _remote_entry("01B")
+    other_key = _remote_entry("01C", api_key="other-key")
+    local = MockConfigEntry(
+        domain=DOMAIN,
+        data={"connection_type": "local", "api_key": "cloud-key", "host": "x"},
+        entry_id="01D",
+    )
+    for entry in (owner, sibling, other_key, local):
+        entry.add_to_hass(hass)
+
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        # The owner still polls, so a sibling leaving changes nothing.
+        _owners(hass)[_key_fingerprint("cloud-key")] = owner.entry_id
+        async_hand_over_mobility(hass, sibling)
+        # Local entries never poll Mobility.
+        async_hand_over_mobility(hass, local)
+        # The last entry on a key has nobody to hand over to.
+        async_hand_over_mobility(hass, other_key)
+        # The successor is not loaded, so its own setup takes Mobility.
+        async_hand_over_mobility(hass, owner)
+        # Stopping Home Assistant unloads every entry; that is no hand-over.
+        _owners(hass)[_key_fingerprint("cloud-key")] = owner.entry_id
+        hass.set_state(CoreState.stopping)
+        try:
+            async_hand_over_mobility(hass, owner)
+        finally:
+            hass.set_state(CoreState.running)
+
+    reload.assert_not_called()
+    assert _owners(hass) == {_key_fingerprint("cloud-key"): owner.entry_id}

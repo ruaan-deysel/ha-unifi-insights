@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import math
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_API_KEY
 from homeassistant.core import callback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -40,6 +44,8 @@ _LOGGER = logging.getLogger(__name__)
 # Polling uses at most half of the key's 100 requests per minute on average,
 # leaving the rest for anything else that uses the same key.
 _REQUESTS_PER_MINUTE_BUDGET = 50
+# Entry id that currently polls Mobility, per API key fingerprint.
+_OWNERS = "mobility_owners"
 ACCESS_UNKNOWN = "unknown"
 ACCESS_GRANTED = "granted"
 ACCESS_DENIED = "denied"
@@ -48,6 +54,24 @@ ACCESS_DENIED = "denied"
 def _empty_snapshot(access: str = ACCESS_UNKNOWN) -> dict[str, Any]:
     """Return a snapshot without workspaces or devices."""
     return {"access": access, "workspaces": {}, "devices": {}, "updated_at": None}
+
+
+def _means_no_access(err: UniFiError) -> bool:
+    """
+    Return True if a workspace-list error says the key has no Mobility.
+
+    The documented answer is 403, but any other client error (400, 404) is
+    just as permanent for an account that has never used Mobility. Rate
+    limiting and server errors are outages, not an answer.
+    """
+    if isinstance(err, UniFiAuthenticationError):
+        return True
+    status = err.status_code if isinstance(err, UniFiResponseError) else None
+    return (
+        not isinstance(err, UniFiRateLimitError)
+        and isinstance(status, int)
+        and HTTPStatus.BAD_REQUEST <= status < HTTPStatus.INTERNAL_SERVER_ERROR
+    )
 
 
 class UnifiInsightsMobilityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -87,14 +111,16 @@ class UnifiInsightsMobilityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = datetime.now(UTC).isoformat()
         try:
             workspace_rows = await self.client.list_workspaces()
-        except UniFiAuthenticationError as err:
+        except UniFiError as err:
+            if not _means_no_access(err):
+                raise
             # Most cloud keys have no Mobility scope. That is not a broken
             # entry, so it never starts reauth; it is only re-checked hourly.
             if self.data.get("access") != ACCESS_DENIED:
                 _LOGGER.info(
                     "UniFi Mobility is not available to this API key (status %s), "
                     "checking again in an hour",
-                    err.status_code,
+                    getattr(err, "status_code", None),
                 )
             self.update_interval = SCAN_INTERVAL_MOBILITY_IDLE
             return {**_empty_snapshot(ACCESS_DENIED), "updated_at": now}
@@ -160,9 +186,10 @@ class UnifiInsightsMobilityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             detail = await self.client.get_device(workspace_id, device_id)
         except UniFiRateLimitError:
             raise
-        except UniFiResponseError as err:
+        except (UniFiAuthenticationError, UniFiResponseError) as err:
             # A router removed between the two calls answers 404; an upstream
-            # error for one router should not hide every other router.
+            # error, or a router this key may no longer read, should not hide
+            # every other router.
             _LOGGER.debug(
                 "Mobility device detail unavailable (status %s)", err.status_code
             )
@@ -176,25 +203,93 @@ class UnifiInsightsMobilityCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
 
+def _key_fingerprint(api_key: str) -> str:
+    """Return a stable, non-reversible key for the ownership registry."""
+    return hmac.new(
+        b"unifi_insights_mobility_owner", api_key.encode(), sha256
+    ).hexdigest()
+
+
+def _owners(hass: HomeAssistant) -> dict[str, str]:
+    """Return the registry of entries currently polling Mobility."""
+    owners: dict[str, str] = hass.data.setdefault(DOMAIN, {}).setdefault(_OWNERS, {})
+    return owners
+
+
+def _owner_candidates(
+    hass: HomeAssistant, api_key: Any, *, exclude: str | None = None
+) -> list[ConfigEntry]:
+    """Return enabled remote entries using the key, oldest first."""
+    return sorted(
+        (
+            candidate
+            for candidate in hass.config_entries.async_entries(
+                DOMAIN, include_ignore=False, include_disabled=False
+            )
+            if candidate.entry_id != exclude
+            and candidate.data.get(CONF_CONNECTION_TYPE) == CONNECTION_TYPE_REMOTE
+            and candidate.data.get(CONF_API_KEY) == api_key
+        ),
+        key=lambda candidate: candidate.entry_id,
+    )
+
+
 def is_mobility_owner(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """
-    Return True if this entry polls Mobility for its API key.
+    Return True if this entry should poll Mobility for its API key.
 
     Mobility is account-wide, so remote entries sharing a key would create the
-    same entities. The oldest enabled remote entry with the key owns them.
+    same entities. An entry already polling keeps Mobility until it unloads;
+    otherwise the oldest enabled remote entry with the key takes it, which
+    keeps the choice the same across restarts.
     """
     if entry.data.get(CONF_CONNECTION_TYPE) != CONNECTION_TYPE_REMOTE:
         return False
     api_key = entry.data.get(CONF_API_KEY)
-    candidates = [
-        candidate.entry_id
-        for candidate in hass.config_entries.async_entries(
-            DOMAIN, include_ignore=False, include_disabled=False
-        )
-        if candidate.data.get(CONF_CONNECTION_TYPE) == CONNECTION_TYPE_REMOTE
-        and candidate.data.get(CONF_API_KEY) == api_key
-    ]
-    return bool(candidates) and min(candidates) == entry.entry_id
+    holder = _owners(hass).get(_key_fingerprint(str(api_key)))
+    if holder is not None and holder != entry.entry_id:
+        return False
+    candidates = _owner_candidates(hass, api_key)
+    return bool(candidates) and candidates[0].entry_id == entry.entry_id
+
+
+@callback
+def _async_release_ownership(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Let another entry take Mobility once this one stops polling it."""
+    fingerprint = _key_fingerprint(str(entry.data.get(CONF_API_KEY)))
+    owners = _owners(hass)
+    if owners.get(fingerprint) == entry.entry_id:
+        del owners[fingerprint]
+
+
+@callback
+def async_hand_over_mobility(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """
+    Start Mobility on the next entry when its owner is disabled or deleted.
+
+    A reload or Home Assistant stopping is not a hand-over: the owner comes
+    back and keeps Mobility, so no other entry is reloaded for it.
+    """
+    if hass.is_stopping or entry.data.get(CONF_CONNECTION_TYPE) != (
+        CONNECTION_TYPE_REMOTE
+    ):
+        return
+    _async_release_ownership(hass, entry)
+    if _key_fingerprint(str(entry.data.get(CONF_API_KEY))) in _owners(hass):
+        # Another entry already polls Mobility for this key.
+        return
+    candidates = _owner_candidates(
+        hass, entry.data.get(CONF_API_KEY), exclude=entry.entry_id
+    )
+    if not candidates:
+        return
+    successor = candidates[0]
+    if (
+        successor.state is ConfigEntryState.LOADED
+        and successor.runtime_data.mobility_coordinator is None
+    ):
+        _LOGGER.debug("Handing UniFi Mobility over to another entry")
+        hass.config_entries.async_schedule_reload(successor.entry_id)
 
 
 @callback
@@ -206,6 +301,8 @@ def async_setup_mobility(
         _LOGGER.debug("UniFi Mobility is polled by another entry with this API key")
         return None
 
+    _owners(hass)[_key_fingerprint(str(entry.data[CONF_API_KEY]))] = entry.entry_id
+    entry.async_on_unload(lambda: _async_release_ownership(hass, entry))
     client = UniFiMobilityClient(
         auth=ApiKeyAuth(api_key=entry.data[CONF_API_KEY]), session=session, timeout=30
     )

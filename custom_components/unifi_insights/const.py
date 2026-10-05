@@ -72,6 +72,23 @@ SCAN_INTERVAL_MOBILITY_IDLE = timedelta(hours=1)
 # `mobility_workspace_{uuid}`. Router ids are UUIDs, so they never collide.
 MOBILITY_DEVICE_PREFIX: Final = "mobility_"
 MOBILITY_WORKSPACE_PREFIX: Final = "mobility_workspace_"
+# Published Mobility API enums, shared by entities and diagnostics.
+MOBILITY_WORKSPACE_STATUSES: Final = ("ACTIVE", "PENDING", "INACTIVE", "DECLINED")
+MOBILITY_MODELS: Final = ("UMR", "UMR Industrial", "UMR Ultra")
+MOBILITY_ROUTER_STATES: Final = (
+    "CONNECTED",
+    "DISCONNECTED",
+    "ADOPTING",
+    "ADOPTING_TIMEOUT",
+    "DOWNLOADING",
+    "UPGRADING",
+    "RESTARTING",
+    "FACTORY_RESET",
+    "GETTING_READY",
+    "RESTORING",
+    "NULL",
+    "DELETING",
+)
 # Site Manager response sections shared by the coordinator and diagnostics.
 SITE_MANAGER_COLLECTIONS: Final = (
     "hosts",

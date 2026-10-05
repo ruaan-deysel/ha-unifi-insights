@@ -12,13 +12,25 @@ from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 
 from .api import __version__ as api_version
-from .const import CONF_CONSOLE_ID, ISP_WAN_NUMBERS, SITE_MANAGER_COLLECTIONS
+from .const import (
+    CONF_CONNECTION_TYPE,
+    CONF_CONSOLE_ID,
+    CONNECTION_TYPE_REMOTE,
+    ISP_WAN_NUMBERS,
+    MOBILITY_MODELS,
+    MOBILITY_ROUTER_STATES,
+    MOBILITY_WORKSPACE_STATUSES,
+    SITE_MANAGER_COLLECTIONS,
+)
 from .innerspace_transforms import build_innerspace_diagnostics_summary
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from homeassistant.core import HomeAssistant
 
     from . import UnifiInsightsConfigEntry
+    from .coordinators.mobility import UnifiInsightsMobilityCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_HOST_SITE_COUNTS = 20
@@ -354,6 +366,61 @@ def _site_manager_summary(
     }
 
 
+def _count_known(values: Iterable[Any], known: tuple[str, ...]) -> dict[str, int]:
+    """Count enum values, folding anything unpublished into "other"."""
+    counts: dict[str, int] = {}
+    for value in values:
+        bucket = value if value in known else "other"
+        counts[bucket] = counts.get(bucket, 0) + 1
+    return counts
+
+
+def _mobility_summary(coordinator: UnifiInsightsMobilityCoordinator) -> dict[str, Any]:
+    """
+    Describe Mobility health with counts only.
+
+    Workspace and router names, ids, MACs, IP addresses, the carrier, Wi-Fi
+    and VPN names and GPS positions all identify the account or its owner,
+    so none of the snapshot's values leave except published enum values.
+    """
+    snapshot = coordinator.data
+    workspaces = snapshot["workspaces"].values()
+    devices = snapshot["devices"].values()
+    interval = coordinator.update_interval
+    return {
+        "owner": True,
+        "access": snapshot["access"],
+        "last_update_success": coordinator.last_update_success,
+        "last_error_type": coordinator.last_error_type,
+        "update_interval_seconds": (
+            int(interval.total_seconds()) if interval is not None else None
+        ),
+        "updated_at": snapshot["updated_at"],
+        "workspaces": {
+            "total": len(workspaces),
+            "by_status": _count_known(
+                (workspace.get("status") for workspace in workspaces),
+                MOBILITY_WORKSPACE_STATUSES,
+            ),
+        },
+        "devices": {
+            "total": len(devices),
+            "by_state": _count_known(
+                (device.get("state") for device in devices), MOBILITY_ROUTER_STATES
+            ),
+            "by_model": _count_known(
+                (device.get("model") for device in devices), MOBILITY_MODELS
+            ),
+            "with_location": sum(
+                1 for device in devices if isinstance(device.get("location"), dict)
+            ),
+            "detail_unavailable": sum(
+                1 for device in devices if not device.get("detail_available")
+            ),
+        },
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: UnifiInsightsConfigEntry
 ) -> dict[str, Any]:
@@ -413,6 +480,11 @@ async def async_get_config_entry_diagnostics(
             data.site_manager_coordinator.data,
             entry.data.get(CONF_CONSOLE_ID, ""),
         )
+    if data.mobility_coordinator:
+        diagnostics_data["mobility"] = _mobility_summary(data.mobility_coordinator)
+    elif entry.data.get(CONF_CONNECTION_TYPE) == CONNECTION_TYPE_REMOTE:
+        # Another remote entry with the same cloud key polls Mobility.
+        diagnostics_data["mobility"] = {"owner": False}
 
     # Last pass over the assembled payload: no MAC address leaves this
     # integration, whatever key the controller sent it under.

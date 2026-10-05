@@ -34,6 +34,7 @@ from .const import (
     DOMAIN,
     MANUFACTURER,
     MOBILITY_DEVICE_PREFIX,
+    MOBILITY_ROUTER_STATES,
     MOBILITY_WORKSPACE_PREFIX,
 )
 from .coordinators.mobility import UnifiInsightsMobilityCoordinator
@@ -55,19 +56,7 @@ _CONNECTED = "CONNECTED"
 _HAS_VIA_DEVICE_ID = "via_device_id" in DeviceInfo.__optional_keys__
 # Enum sensor options: the API's values, lower-cased. "NULL" and empty
 # strings are not options; they mean the value is unknown.
-_ROUTER_STATES = [
-    "connected",
-    "disconnected",
-    "adopting",
-    "adopting_timeout",
-    "downloading",
-    "upgrading",
-    "restarting",
-    "factory_reset",
-    "getting_ready",
-    "restoring",
-    "deleting",
-]
+_ROUTER_STATES = [state.lower() for state in MOBILITY_ROUTER_STATES if state != "NULL"]
 _WAN_SOURCES = ["lte", "wan", "wifiwan"]
 _LTE_SIGNALS = ["no_signal", "poor", "fair", "strong"]
 _VPN_STATES = ["connecting", "connected", "disconnected", "failed"]

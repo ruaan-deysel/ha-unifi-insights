@@ -29,11 +29,14 @@ class ConnectionType(str, Enum):
 NETWORK_API_BASE_URL: Final[str] = "https://api.ui.com"
 PROTECT_API_BASE_URL: Final[str] = "https://api.ui.com"
 INNERSPACE_API_BASE_URL: Final[str] = "https://api.ui.com"
+CARRIER_FABRIC_API_BASE_URL: Final[str] = "https://api.ui.com"
+CARRIER_FABRIC_BASE_URL: Final[str] = CARRIER_FABRIC_API_BASE_URL
 
 # API Versions
 NETWORK_API_VERSION: Final[str] = "v1"
 PROTECT_API_VERSION: Final[str] = "v1"
 INNERSPACE_API_VERSION: Final[str] = "v1"
+CARRIER_FABRIC_API_VERSION: Final[str] = "v1"
 
 # Network Integration API path prefix (used for both local and remote)
 NETWORK_INTEGRATION_PATH: Final[str] = "/proxy/network/integration/v1"
@@ -57,6 +60,14 @@ PROTECT_INTEGRATION_PATH: Final[str] = "/proxy/protect/integration/v1"
 
 # InnerSpace Integration API path prefix (used for both local and remote)
 INNERSPACE_INTEGRATION_PATH: Final[str] = "/proxy/innerspace/integration/v1"
+
+# Carrier Fabric API path prefix
+CARRIER_FABRIC_PATH: Final[str] = "/v1/carrier"
+
+# Carrier Fabric pagination
+CARRIER_FABRIC_DEFAULT_PAGE_SIZE: Final[int] = 50
+CARRIER_FABRIC_MAX_PAGE_SIZE: Final[int] = 500
+CARRIER_FABRIC_MAX_PAGES: Final[int] = 200
 
 # Default timeouts (in seconds)
 DEFAULT_TIMEOUT: Final[int] = 30

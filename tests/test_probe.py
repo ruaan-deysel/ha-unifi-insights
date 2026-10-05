@@ -25,6 +25,7 @@ from custom_components.unifi_insights.api.network import UniFiNetworkClient
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from custom_components.unifi_insights.probe import (
     ProbeStatus,
+    async_probe_carrier_fabric,
     async_probe_innerspace,
     async_probe_network,
     async_probe_protect,
@@ -369,3 +370,143 @@ async def test_probe_absent_application_html_logs_no_warning(
         for m in debug_messages
     )
     assert any(probe_log in m and "200" in m for m in debug_messages)
+
+
+@pytest.mark.parametrize(
+    (
+        "plans",
+        "subscribers",
+        "expected_status",
+        "expected_org_id",
+        "expected_missing_scope",
+    ),
+    [
+        (
+            [MagicMock(org_id="org-plan", id="p1")],
+            [MagicMock(org_id="org-sub", id="s1")],
+            ProbeStatus.AVAILABLE,
+            "org-plan",
+            False,
+        ),
+        (
+            [],
+            [MagicMock(org_id="org-sub", id="s1")],
+            ProbeStatus.AVAILABLE,
+            "org-sub",
+            False,
+        ),
+        (
+            [MagicMock(org_id=None, id="p1")],
+            [MagicMock(org_id=None, id="s1")],
+            ProbeStatus.AVAILABLE,
+            None,
+            False,
+        ),
+        (
+            [],
+            [],
+            ProbeStatus.EMPTY,
+            None,
+            False,
+        ),
+        (
+            UniFiAuthenticationError("Unauthorized", status_code=401),
+            [],
+            ProbeStatus.AUTH_FAILED,
+            None,
+            False,
+        ),
+        (
+            UniFiAuthenticationError(
+                "Forbidden", status_code=403, api_error_code="insufficient_scope"
+            ),
+            [],
+            ProbeStatus.AUTH_FAILED,
+            None,
+            True,
+        ),
+        (
+            [MagicMock(org_id="org-plan", id="p1")],
+            UniFiAuthenticationError(
+                "Forbidden", status_code=403, api_error_code="insufficient_scope"
+            ),
+            ProbeStatus.AUTH_FAILED,
+            "org-plan",
+            True,
+        ),
+        (
+            [MagicMock(org_id="org-plan", id="p1")],
+            UniFiAuthenticationError("Unauthorized", status_code=401),
+            ProbeStatus.AUTH_FAILED,
+            "org-plan",
+            False,
+        ),
+        (
+            UniFiRateLimitError("Rate limited", status_code=429),
+            [],
+            ProbeStatus.UNREACHABLE,
+            None,
+            False,
+        ),
+        (
+            UniFiTimeoutError("Timed out"),
+            [],
+            ProbeStatus.UNREACHABLE,
+            None,
+            False,
+        ),
+        (
+            UniFiResponseError("Server error", status_code=500),
+            [],
+            ProbeStatus.UNREACHABLE,
+            None,
+            False,
+        ),
+        (
+            ValueError("Unexpected fault"),
+            [],
+            ProbeStatus.ERROR,
+            None,
+            False,
+        ),
+    ],
+    ids=[
+        "plans-with-org-id",
+        "fallback-to-subscriber-org-id",
+        "no-org-id-available",
+        "both-empty",
+        "plans-401-auth-failed",
+        "plans-403-missing-scope",
+        "subscribers-403-missing-scope",
+        "subscribers-401-auth-failed",
+        "rate-limit-unreachable",
+        "timeout-unreachable",
+        "500-unreachable",
+        "unexpected-error",
+    ],
+)
+async def test_probe_carrier_fabric_statuses(
+    plans: object,
+    subscribers: object,
+    expected_status: ProbeStatus,
+    expected_org_id: str | None,
+    *,
+    expected_missing_scope: bool,
+) -> None:
+    """Carrier Fabric probe classifies available, empty, auth, and network errors."""
+    client = MagicMock()
+    if isinstance(plans, Exception):
+        client.service_plans.get_all = AsyncMock(side_effect=plans)
+    else:
+        client.service_plans.get_all = AsyncMock(return_value=plans)
+
+    if isinstance(subscribers, Exception):
+        client.subscribers.get_all = AsyncMock(side_effect=subscribers)
+    else:
+        client.subscribers.get_all = AsyncMock(return_value=subscribers)
+
+    result = await async_probe_carrier_fabric(client)
+
+    assert result.status is expected_status
+    assert result.org_id == expected_org_id
+    assert result.missing_scope is expected_missing_scope

@@ -52,6 +52,7 @@ from .exceptions import (
     UniFiValidationError,
 )
 
+from .carrier_fabric import UniFiCarrierFabricClient
 from .innerspace import UniFiInnerSpaceClient
 
 __all__ = [
@@ -64,6 +65,7 @@ __all__ = [
     # Connection types
     "ConnectionType",
     # Clients
+    "UniFiCarrierFabricClient",
     "UniFiInnerSpaceClient",
     # Exceptions
     "UniFiAuthenticationError",

@@ -1,0 +1,603 @@
+# Copyright 2026 UniFi Insights contributors
+"""Tests for the UniFi Carrier Fabric API client and models."""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Self
+from unittest.mock import MagicMock
+
+import pytest
+
+from custom_components.unifi_insights.api.auth import ApiKeyAuth
+from custom_components.unifi_insights.api.carrier_fabric import (
+    CarrierFabricMeta,
+    ServicePlan,
+    Subscriber,
+    UniFiCarrierFabricClient,
+)
+from custom_components.unifi_insights.api.const import (
+    CARRIER_FABRIC_MAX_PAGES,
+)
+from custom_components.unifi_insights.api.exceptions import (
+    UniFiAuthenticationError,
+    UniFiNotFoundError,
+    UniFiRateLimitError,
+    UniFiResponseError,
+)
+
+
+class _Response:
+    """Minimal aiohttp response replacement for transport tests."""
+
+    def __init__(
+        self,
+        body: dict[str, Any] | list[Any] | str,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        """Store a JSON response body or text."""
+        self.status = status
+        self._body = body
+        self.headers = headers or {}
+        self.method = "GET"
+        self.url = MagicMock()
+        self.url.path = "/v1/carrier"
+
+    async def __aenter__(self) -> Self:
+        """Enter the async response context."""
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        """Exit the async response context."""
+
+    async def text(self) -> str:
+        """Return string representation of response body."""
+        if isinstance(self._body, str):
+            return self._body
+        return json.dumps(self._body)
+
+    async def json(self) -> Any:
+        """Return parsed JSON body."""
+        if isinstance(self._body, str):
+            return json.loads(self._body)
+        return self._body
+
+
+class _Session:
+    """Queued response transport recording requests made by the client."""
+
+    closed = False
+
+    def __init__(self, responses: list[_Response | dict[str, Any] | str]) -> None:
+        """Initialize queued responses."""
+        self._responses = iter(
+            [r if isinstance(r, _Response) else _Response(r) for r in responses]
+        )
+        self.requests: list[dict[str, Any]] = []
+
+    def request(self, method: str, url: object, **kwargs: Any) -> _Response:
+        """Record a request and return next configured response."""
+        self.requests.append({"method": method, "url": str(url), **kwargs})
+        return next(self._responses)
+
+
+def _client(session: _Session) -> UniFiCarrierFabricClient:
+    """Create a Carrier Fabric client using a recording transport."""
+    return UniFiCarrierFabricClient(ApiKeyAuth("test-carrier-key"), session=session)  # type: ignore[arg-type]
+
+
+async def test_subscribers_multi_page_cursor_pagination() -> None:
+    """Subscriber get_all iterates cursor pages until hasMore is false."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": "sub-1", "name": "Alice"}],
+                "meta": {"hasMore": True, "nextCursor": "cur-2"},
+            },
+            {
+                "data": [{"id": "sub-2", "name": "Bob"}],
+                "meta": {"hasMore": False, "nextCursor": None},
+            },
+        ]
+    )
+
+    client = _client(session)
+    subscribers = await client.subscribers.get_all()
+
+    assert len(subscribers) == 2
+    assert subscribers[0].id == "sub-1"
+    assert subscribers[0].name == "Alice"
+    assert subscribers[1].id == "sub-2"
+    assert subscribers[1].name == "Bob"
+
+    assert len(session.requests) == 2
+    assert session.requests[0]["params"] == {"limit": 500}
+    assert session.requests[1]["params"] == {"limit": 500, "cursor": "cur-2"}
+    assert session.requests[0]["headers"]["X-API-Key"] == "test-carrier-key"
+
+
+async def test_subscribers_single_page_explicit_limit() -> None:
+    """Passing an explicit limit fetches only a single page."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": "sub-1"}],
+                "meta": {"hasMore": True, "nextCursor": "cur-2"},
+            }
+        ]
+    )
+
+    client = _client(session)
+    subscribers = await client.subscribers.get_all(limit=1)
+
+    assert len(subscribers) == 1
+    assert subscribers[0].id == "sub-1"
+    assert len(session.requests) == 1
+    assert session.requests[0]["params"] == {"limit": 1}
+
+
+async def test_subscribers_single_page_explicit_cursor() -> None:
+    """Passing an explicit cursor fetches only a single page."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": "sub-9"}],
+                "meta": {"hasMore": True, "nextCursor": "cur-10"},
+            }
+        ]
+    )
+
+    client = _client(session)
+    subscribers = await client.subscribers.get_all(cursor="page-9")
+
+    assert len(subscribers) == 1
+    assert subscribers[0].id == "sub-9"
+    assert len(session.requests) == 1
+    assert session.requests[0]["params"] == {"cursor": "page-9"}
+
+
+async def test_subscribers_query_filters() -> None:
+    """Filter parameters are correctly passed to query params."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": "sub-1"}],
+            }
+        ]
+    )
+
+    client = _client(session)
+    await client.subscribers.get_all(
+        limit=10,
+        cursor="cur-x",
+        sort="-name",
+        plan_id="plan-1",
+        suspended=True,
+    )
+
+    assert session.requests[0]["params"] == {
+        "limit": 10,
+        "cursor": "cur-x",
+        "sort": "-name",
+        "planId": "plan-1",
+        "suspended": "true",
+    }
+
+
+async def test_subscribers_repeated_cursor_raises_response_error() -> None:
+    """A repeated pagination cursor raises UniFiResponseError."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": "sub-1"}],
+                "meta": {"hasMore": True, "nextCursor": "loop-token"},
+            },
+            {
+                "data": [{"id": "sub-2"}],
+                "meta": {"hasMore": True, "nextCursor": "loop-token"},
+            },
+        ]
+    )
+
+    with pytest.raises(UniFiResponseError) as err:
+        await _client(session).subscribers.get_all()
+
+    assert "repeated pagination cursor" in err.value.message
+
+
+async def test_subscribers_max_pages_cap_raises_response_error() -> None:
+    """Exceeding CARRIER_FABRIC_MAX_PAGES raises UniFiResponseError."""
+    pages = [
+        {
+            "data": [{"id": f"sub-{i}"}],
+            "meta": {"hasMore": True, "nextCursor": f"cur-{i + 1}"},
+        }
+        for i in range(CARRIER_FABRIC_MAX_PAGES)
+    ]
+    session = _Session(pages)
+
+    with pytest.raises(UniFiResponseError) as err:
+        await _client(session).subscribers.get_all()
+
+    assert f"exceeded maximum pages ({CARRIER_FABRIC_MAX_PAGES})" in err.value.message
+
+
+async def test_subscribers_deduplicates_by_id() -> None:
+    """Subscribers with duplicate IDs across pages are deduplicated."""
+    session = _Session(
+        [
+            {
+                "data": [{"id": "sub-1"}, {"id": "sub-2"}],
+                "meta": {"hasMore": True, "nextCursor": "cur-2"},
+            },
+            {
+                "data": [{"id": "sub-2"}, {"id": "sub-3"}],
+                "meta": {"hasMore": False, "nextCursor": None},
+            },
+        ]
+    )
+
+    subscribers = await _client(session).subscribers.get_all()
+    assert [s.id for s in subscribers] == ["sub-1", "sub-2", "sub-3"]
+
+
+async def test_subscribers_skips_invalid_items() -> None:
+    """Items failing schema validation are skipped without failing the list."""
+    session = _Session(
+        [
+            {
+                "data": [
+                    {"id": "sub-1", "name": "Valid 1"},
+                    {"name": "missing_id"},
+                    [1, 2, 3],
+                    {"unexpected": "shape"},
+                    12345,
+                    {"id": "sub-2", "name": "Valid 2"},
+                ],
+                "meta": {"hasMore": False},
+            }
+        ]
+    )
+
+    subscribers = await _client(session).subscribers.get_all()
+    assert len(subscribers) == 2
+    assert subscribers[0].id == "sub-1"
+    assert subscribers[1].id == "sub-2"
+
+
+async def test_service_plans_get_all_unpaginated() -> None:
+    """Service plans endpoint returns unpaginated list of plans."""
+    session = _Session(
+        [
+            {
+                "data": [
+                    {
+                        "id": "plan-1",
+                        "orgId": "org-1",
+                        "name": "Gigabit",
+                        "status": "active",
+                        "downloadMbps": 1000.0,
+                        "uploadMbps": 500.0,
+                    },
+                    {
+                        "id": "plan-2",
+                        "name": "Standard",
+                        "downloadMbps": 100,
+                    },
+                ]
+            }
+        ]
+    )
+
+    plans = await _client(session).service_plans.get_all()
+    assert len(plans) == 2
+    assert plans[0].id == "plan-1"
+    assert plans[0].org_id == "org-1"
+    assert plans[0].orgId == "org-1"
+    assert plans[0].name == "Gigabit"
+    assert plans[0].download_mbps == 1000.0
+    assert plans[0].downloadMbps == 1000.0
+    assert plans[0].upload_mbps == 500.0
+    assert plans[0].uploadMbps == 500.0
+    assert plans[1].id == "plan-2"
+    assert plans[1].download_mbps == 100.0
+
+
+async def test_service_plans_skips_invalid_items() -> None:
+    """Service plans list skips invalid items."""
+    session = _Session(
+        [
+            {
+                "data": [
+                    {"id": "plan-1"},
+                    {"name": "missing-id"},
+                    "invalid-type",
+                    {"id": "plan-2"},
+                ]
+            }
+        ]
+    )
+
+    plans = await _client(session).service_plans.get_all()
+    assert len(plans) == 2
+    assert [p.id for p in plans] == ["plan-1", "plan-2"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [1, 2, 3],
+        {"unexpected": "shape"},
+        {"data": "not-a-list"},
+        {"data": None},
+        {"data": 123},
+    ],
+)
+async def test_unexpected_response_shape_returns_empty_list(
+    payload: Any,
+) -> None:
+    """Non-dict and malformed data envelopes return empty lists."""
+    client = _client(_Session([payload, payload, payload]))
+    assert await client.subscribers.get_all() == []
+    assert await client.subscribers.get_all(limit=1) == []
+    assert await client.service_plans.get_all() == []
+
+
+def test_models_omitted_and_null_fields() -> None:
+    """Subscriber and ServicePlan allow optional fields and default suspended."""
+    sub = Subscriber.model_validate({"id": "sub-1"})
+    assert sub.id == "sub-1"
+    assert sub.suspended is False
+    assert sub.org_id is None
+    assert sub.orgId is None
+    assert sub.name is None
+    assert sub.email is None
+    assert sub.notes is None
+    assert sub.plan_id is None
+    assert sub.host_id is None
+    assert sub.state is None
+
+    # Null suspended explicitly coerced to False
+    sub_null = Subscriber.model_validate({"id": "sub-2", "suspended": None})
+    assert sub_null.suspended is False
+
+    # Snake-case field validation works alongside camelCase
+    sub_snake = Subscriber.model_validate(
+        {"id": "sub-3", "org_id": "org-3", "subscriber_number": "SN3"}
+    )
+    assert sub_snake.org_id == "org-3"
+    assert sub_snake.subscriber_number == "SN3"
+
+    plan = ServicePlan.model_validate({"id": "plan-1"})
+    assert plan.id == "plan-1"
+    assert plan.name is None
+    assert plan.status is None
+    assert plan.download_mbps is None
+    assert plan.upload_mbps is None
+    assert plan.archived_at is None
+
+    meta = CarrierFabricMeta.model_validate({"nextCursor": "c1", "hasMore": True})
+    assert meta.next_cursor == "c1"
+    assert meta.has_more is True
+
+
+def test_models_unknown_state_and_status() -> None:
+    """State and status fields are strings, allowing future backend enum additions."""
+    sub = Subscriber.model_validate({"id": "sub-1", "state": "quantum_active"})
+    assert sub.state == "quantum_active"
+
+    plan = ServicePlan.model_validate({"id": "plan-1", "status": "experimental"})
+    assert plan.status == "experimental"
+
+
+async def test_get_single_subscriber_and_plan() -> None:
+    """Fetching individual subscriber and service plan returns models."""
+    session = _Session(
+        [
+            {"data": {"id": "sub-1", "name": "Single Sub"}},
+            {"data": {"id": "plan-1", "name": "Single Plan"}},
+            {"data": "bad-shape"},
+            {"data": "bad-shape"},
+        ]
+    )
+
+    client = _client(session)
+    sub = await client.subscribers.get("sub-1")
+    assert sub.id == "sub-1"
+    assert sub.name == "Single Sub"
+
+    plan = await client.service_plans.get("plan-1")
+    assert plan.id == "plan-1"
+    assert plan.name == "Single Plan"
+
+    with pytest.raises(UniFiResponseError):
+        await client.subscribers.get("sub-bad")
+
+    with pytest.raises(UniFiResponseError):
+        await client.service_plans.get("plan-bad")
+
+
+async def test_suspend_with_and_without_reason() -> None:
+    """Suspend endpoint sends reason in JSON body only when provided."""
+    session = _Session(
+        [
+            {"data": {"id": "sub-1", "suspended": True, "suspendReason": "nonpayment"}},
+            {"data": {"id": "sub-2", "suspended": True}},
+        ]
+    )
+
+    client = _client(session)
+
+    # 1. With reason
+    sub1 = await client.subscribers.suspend("sub-1", reason="nonpayment")
+    assert sub1.suspended is True
+    assert sub1.suspend_reason == "nonpayment"
+    assert session.requests[0]["method"] == "POST"
+    assert (
+        session.requests[0]["url"]
+        == "https://api.ui.com/v1/carrier/subscribers/sub-1/suspend"
+    )
+    assert session.requests[0]["json"] == {"reason": "nonpayment"}
+
+    # 2. Without reason
+    sub2 = await client.subscribers.suspend("sub-2")
+    assert sub2.suspended is True
+    assert session.requests[1]["method"] == "POST"
+    assert (
+        session.requests[1]["url"]
+        == "https://api.ui.com/v1/carrier/subscribers/sub-2/suspend"
+    )
+    assert session.requests[1]["json"] is None
+
+
+async def test_resume() -> None:
+    """Resume endpoint sends POST without JSON body."""
+    session = _Session(
+        [
+            {"data": {"id": "sub-1", "suspended": False}},
+        ]
+    )
+
+    client = _client(session)
+    sub = await client.subscribers.resume("sub-1")
+    assert sub.suspended is False
+    assert session.requests[0]["method"] == "POST"
+    assert (
+        session.requests[0]["url"]
+        == "https://api.ui.com/v1/carrier/subscribers/sub-1/resume"
+    )
+    assert session.requests[0]["json"] is None
+
+
+async def test_error_code_extraction_403_insufficient_scope() -> None:
+    """403 insufficient_scope sets api_error_code on UniFiAuthenticationError."""
+    session = _Session(
+        [
+            _Response(
+                {
+                    "error": {
+                        "code": "insufficient_scope",
+                        "message": "Missing required scope",
+                    },
+                    "traceId": "trace-403",
+                },
+                status=403,
+            )
+        ]
+    )
+
+    with pytest.raises(UniFiAuthenticationError) as err:
+        await _client(session).service_plans.get_all()
+
+    assert err.value.status_code == 403
+    assert err.value.api_error_code == "insufficient_scope"
+    assert err.value.error_code == "insufficient_scope"
+
+
+async def test_error_code_extraction_503_write_conflict_retryable() -> None:
+    """503 write_conflict_retryable sets api_error_code on UniFiResponseError."""
+    session = _Session(
+        [
+            _Response(
+                {
+                    "error": {
+                        "code": "write_conflict_retryable",
+                        "message": "Write collision occurred",
+                    },
+                    "traceId": "trace-503",
+                },
+                status=503,
+            )
+        ]
+    )
+
+    with pytest.raises(UniFiResponseError) as err:
+        await _client(session).subscribers.suspend("sub-1")
+
+    assert err.value.status_code == 503
+    assert err.value.api_error_code == "write_conflict_retryable"
+    assert err.value.error_code == "write_conflict_retryable"
+
+
+async def test_error_code_extraction_404_subscriber_not_found() -> None:
+    """404 subscriber_not_found sets api_error_code on UniFiNotFoundError."""
+    session = _Session(
+        [
+            _Response(
+                {
+                    "error": {
+                        "code": "subscriber_not_found",
+                        "message": "Subscriber does not exist",
+                    }
+                },
+                status=404,
+            )
+        ]
+    )
+
+    with pytest.raises(UniFiNotFoundError) as err:
+        await _client(session).subscribers.get("sub-missing")
+
+    assert err.value.status_code == 404
+    assert err.value.api_error_code == "subscriber_not_found"
+
+
+async def test_error_code_extraction_429_rate_limit() -> None:
+    """429 response extracts rate limit error code and retry after."""
+    session = _Session(
+        [
+            _Response(
+                {"error": {"code": "too_many_requests"}},
+                status=429,
+                headers={"Retry-After": "10"},
+            )
+        ]
+    )
+
+    with pytest.raises(UniFiRateLimitError) as err:
+        await _client(session).service_plans.get_all()
+
+    assert err.value.status_code == 429
+    assert err.value.api_error_code == "too_many_requests"
+    assert err.value.retry_after == 10
+
+
+async def test_carrier_fabric_response_bodies_not_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Subscriber and plan response bodies stay private in transport logs."""
+    client = _client(_Session([]))
+    assert (
+        client._response_log_text('{"name": "Secret"}', limit=500)
+        == "[Carrier Fabric response omitted]"
+    )
+    assert client._response_log_text("", limit=500) == "empty"
+
+    response = MagicMock(status=500, method="GET")
+    response.url.path = "/v1/carrier/subscribers"
+    response.text = MagicMock(return_value='{"name": "Secret Customer"}')
+    response.text = pytest.importorskip("unittest.mock").AsyncMock(
+        return_value='{"name": "Secret Customer"}'
+    )
+
+    with (
+        caplog.at_level(
+            logging.DEBUG,
+            logger="custom_components.unifi_insights.api.carrier_fabric.client",
+        ),
+        pytest.raises(UniFiResponseError),
+    ):
+        await client._handle_response(response)
+
+    assert "Secret Customer" not in caplog.text
+    assert "[Carrier Fabric response omitted]" in caplog.text
+
+
+async def test_validate_connection() -> None:
+    """validate_connection verifies credentials via service plans."""
+    session = _Session([{"data": [{"id": "plan-1"}]}])
+    client = _client(session)
+    assert await client.validate_connection() is True
+    assert session.requests[0]["url"] == "https://api.ui.com/v1/carrier/service-plans"

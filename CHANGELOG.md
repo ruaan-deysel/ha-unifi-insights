@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Optional subscriber tracking with state and service plan sensors per subscriber device.
   - Guarded `carrier_suspend_subscriber` and `carrier_resume_subscriber` service actions with scope validation and write-conflict retry.
   - Diagnostics support with allowlisted fields only; subscriber names and subscriber numbers are redacted.
+- UniFi Protect 7.3.70 alarm hubs, Thread gateways and keypad fobs. All of these are read-only, because the Protect API only lets integrations rename these devices.
+  - **Tamper Detection** binary sensor for each alarm hub. It shows `unknown` until the hub reports a tamper status, never a false "clear". It also shows who and when for the last tamper event.
+  - **Thread Network** problem binary sensor, plus **Thread Role** and **Thread Joined Devices** diagnostic sensors, for link stations and alarm hubs that run a Thread network. Gateways without Thread get no Thread entities.
+  - **Keypad Beep**, **Keypad Beep Volume** and **Arm Control** diagnostic entities for fobs with a PIN keypad. These are disabled by default.
+  - Older Protect versions that lack these endpoints are checked once an hour instead of on every poll, and logged once.
+  - Diagnostics redact the tamper user name and the Thread network name and IDs.
 
 ## [2026.10.1] - 2026-10-04
 

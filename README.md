@@ -59,6 +59,7 @@ This project overlaps with and complements Home Assistant's official integration
 - Chime control: volume, ringtone selection, and repeat settings
 - Protect sensor readings: temperature, humidity, light level, battery
 - NVR storage monitoring (when available)
+- Alarm hub tamper detection, Thread network status for Thread gateways, and read-only keypad fob settings (Protect 7.3.70 or newer)
 - Motion, ring, and smart detection events
 
 ### UniFi Mobility
@@ -177,6 +178,10 @@ After setup, open the integration's options flow (**Settings** → **Devices & S
 | Light Level                      | Protect sensor ambient light (lux)        |
 | Battery                          | Protect sensor battery level (%)          |
 | Storage Used / Total / Available | NVR storage metrics (GB, when available)  |
+| Thread Role                      | Gateway's role in its Thread network      |
+| Thread Joined Devices            | Devices joined to the Thread network      |
+| Keypad Beep Volume               | Keypad beep volume (%), off by default    |
+| Arm Control                      | Fob can arm/disarm, off by default        |
 
 ### Binary sensors
 
@@ -195,6 +200,9 @@ After setup, open the integration's options flow (**Settings** → **Devices & S
 | Door / Window     | Protect sensor open/close state                                                     |
 | Tamper            | Protect sensor tamper detection                                                     |
 | Leak              | Protect sensor water leak detection                                                 |
+| Tamper Detection  | Alarm hub tamper state, with who and when for the last tamper event                 |
+| Thread Network    | On when a gateway's Thread network reports an error                                 |
+| Keypad Beep       | Whether a keypad fob beeps on keypress (disabled by default)                        |
 | Recording         | Camera actively recording                                                           |
 
 ### Switches

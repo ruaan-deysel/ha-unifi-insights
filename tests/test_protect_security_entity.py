@@ -156,6 +156,17 @@ class TestDiscovery:
         assert again == []
         assert _keys(later) == {("alarm_hub", "alarm_hub_1", "thread_network_problem")}
 
+    def test_sensor_discovery_is_incremental(self, hass: HomeAssistant) -> None:
+        """Sensors already added are not added again on the next update."""
+        coordinator = _full_coordinator(hass)
+        known: set[tuple[Any, ...]] = set()
+
+        first = discover_protect_security_sensors(coordinator, known)
+        again = discover_protect_security_sensors(coordinator, known)
+
+        assert len(first) == 4
+        assert again == []
+
     def test_nothing_without_protect_client_or_collections(
         self, hass: HomeAssistant
     ) -> None:

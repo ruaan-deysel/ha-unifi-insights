@@ -224,26 +224,22 @@ def _arm_control_attributes(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-@dataclass
-class UnifiProtectSecurityBinarySensorEntityDescription(  # type: ignore[misc]
-    BinarySensorEntityDescription
-):
+@dataclass(frozen=True, kw_only=True)
+class UnifiProtectSecurityBinarySensorEntityDescription(BinarySensorEntityDescription):
     """Describes a binary sensor of a Protect security device."""
 
-    device_types: tuple[str, ...] = ()
-    value_fn: Callable[[dict[str, Any]], bool | None] = _tamper_state
+    device_types: tuple[str, ...]
+    value_fn: Callable[[dict[str, Any]], bool | None]
     supported_fn: Callable[[dict[str, Any]], bool] = _always
     attributes_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
 
-@dataclass
-class UnifiProtectSecuritySensorEntityDescription(  # type: ignore[misc]
-    SensorEntityDescription
-):
+@dataclass(frozen=True, kw_only=True)
+class UnifiProtectSecuritySensorEntityDescription(SensorEntityDescription):
     """Describes a sensor of a Protect security device."""
 
-    device_types: tuple[str, ...] = ()
-    value_fn: Callable[[dict[str, Any]], StateType] = _thread_role
+    device_types: tuple[str, ...]
+    value_fn: Callable[[dict[str, Any]], StateType]
     supported_fn: Callable[[dict[str, Any]], bool] = _always
     attributes_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 

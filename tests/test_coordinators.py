@@ -7695,6 +7695,21 @@ class TestProtectSecurityDeviceFamilies:
         assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
         assert hub["_lastTamperAt"] == 1759628100000
 
+    def test_tamper_event_without_metadata_records_time_only(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A frame missing metadata changes no status and names no user."""
+        self._seed_hub(coordinator)
+        event = copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        event["metadata"] = None
+
+        coordinator._handle_event_update("alarmHubDeviceTamper", event)
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+        assert hub["_lastTamperUser"] is None
+        assert hub["_lastTamperAt"] == 1759628100000
+
     def test_tamper_event_for_unknown_device_is_ignored(
         self, coordinator: UnifiProtectCoordinator
     ) -> None:

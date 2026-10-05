@@ -313,7 +313,11 @@ async def _async_setup_carrier_fabric_entry(
     if probe_res.status is ProbeStatus.AUTH_FAILED:
         msg = f"Carrier Fabric authentication failed: {probe_res.error}"
         raise ConfigEntryAuthFailed(msg) from probe_res.error
-    if probe_res.status in (ProbeStatus.UNREACHABLE, ProbeStatus.ERROR):
+    if probe_res.status in (
+        ProbeStatus.UNREACHABLE,
+        ProbeStatus.ERROR,
+        ProbeStatus.UNSUPPORTED,
+    ):
         msg = f"Carrier Fabric API unreachable: {probe_res.error}"
         raise ConfigEntryNotReady(msg) from probe_res.error
 
@@ -681,7 +685,10 @@ async def async_unload_entry(
     _LOGGER.debug("Unloading UniFi Insights config entry")
     _clear_setup_probe_attempts(hass, entry.entry_id)
 
-    if isinstance(entry.runtime_data, CarrierFabricData):
+    if (
+        entry.data.get(CONF_CONNECTION_TYPE) == CONNECTION_TYPE_CARRIER_FABRIC
+        or isinstance(entry.runtime_data, CarrierFabricData)
+    ):
         return await hass.config_entries.async_unload_platforms(
             entry, CARRIER_FABRIC_PLATFORMS
         )

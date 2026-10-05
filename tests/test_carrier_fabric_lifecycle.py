@@ -10,8 +10,10 @@ from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights import (
+    CARRIER_FABRIC_PLATFORMS,
     CarrierFabricData,
     async_remove_config_entry_device,
+    async_unload_entry,
 )
 from custom_components.unifi_insights.const import (
     CONF_CARRIER_ORG_ID,
@@ -253,3 +255,41 @@ async def test_carrier_fabric_device_removal(hass, carrier_entry):
         identifiers={(DOMAIN, "some_unknown_device_id")},
     )
     assert not await async_remove_config_entry_device(hass, carrier_entry, other_device)
+
+
+async def test_carrier_fabric_setup_probe_unsupported(hass, carrier_entry):
+    """Test setup raises ConfigEntryNotReady when probe reports UNSUPPORTED."""
+    mock_client = MagicMock()
+    mock_client.close = AsyncMock()
+
+    with (
+        patch(
+            "custom_components.unifi_insights.UniFiCarrierFabricClient",
+            return_value=mock_client,
+        ),
+        patch(
+            "custom_components.unifi_insights.async_probe_carrier_fabric",
+            return_value=ProbeResult(
+                status=ProbeStatus.UNSUPPORTED,
+                error=Exception("Unsupported API endpoint"),
+            ),
+        ),
+    ):
+        await hass.config_entries.async_setup(carrier_entry.entry_id)
+        await hass.async_block_till_done()
+
+        assert carrier_entry.state == ConfigEntryState.SETUP_RETRY
+
+
+async def test_carrier_fabric_unload_with_connection_type_in_entry_data(
+    hass, carrier_entry
+):
+    """Test unload uses CARRIER_FABRIC_PLATFORMS even when runtime_data is None (B3)."""
+    carrier_entry.runtime_data = None
+    with patch(
+        "homeassistant.config_entries.ConfigEntries.async_unload_platforms",
+        new_callable=AsyncMock,
+        return_value=True,
+    ) as mock_unload:
+        assert await async_unload_entry(hass, carrier_entry)
+        mock_unload.assert_called_once_with(carrier_entry, CARRIER_FABRIC_PLATFORMS)

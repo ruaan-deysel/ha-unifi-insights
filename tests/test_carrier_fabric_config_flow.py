@@ -239,7 +239,7 @@ async def test_carrier_fabric_reauth_success(hass):
     ):
         result = await entry.start_reauth_flow(hass)
         assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "reauth_confirm"
+        assert result["step_id"] == "reauth_carrier_fabric"
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -334,7 +334,7 @@ async def test_carrier_fabric_reconfigure_success(hass):
     ):
         result = await entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "reconfigure"
+        assert result["step_id"] == "reconfigure_carrier_fabric"
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -413,3 +413,151 @@ async def test_carrier_fabric_options_flow(hass):
         CONF_TRACK_SUBSCRIBERS: True,
         CONF_CARRIER_ACTIONS: True,
     }
+
+
+@pytest.mark.parametrize(
+    ("probe_status", "missing_scope", "expected_errors"),
+    [
+        (ProbeStatus.AUTH_FAILED, False, {CONF_API_KEY: "invalid_auth"}),
+        (ProbeStatus.AUTH_FAILED, True, {"base": "carrier_missing_scope"}),
+        (ProbeStatus.UNREACHABLE, False, {"base": "cannot_connect"}),
+        (ProbeStatus.ERROR, False, {"base": "unknown"}),
+    ],
+)
+async def test_carrier_fabric_reauth_error_branches(
+    hass, probe_status, missing_scope, expected_errors
+):
+    """Test Carrier Fabric reauth error branches redisplay form with proper errors."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="carrier_org_reauth_err",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "old_key",
+            CONF_CARRIER_ORG_ID: "org_reauth_err",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.unifi_insights.config_flow.async_probe_carrier_fabric",
+        return_value=ProbeResult(
+            status=probe_status,
+            missing_scope=missing_scope,
+            error=Exception("Probe failed"),
+        ),
+    ):
+        result = await entry.start_reauth_flow(hass)
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reauth_carrier_fabric"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "failed_key"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reauth_carrier_fabric"
+    assert result["errors"] == expected_errors
+
+
+async def test_carrier_fabric_reauth_unexpected_exception(hass):
+    """Test unexpected exception in Carrier Fabric reauth shows unknown error."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="carrier_org_reauth_err2",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "old_key",
+            CONF_CARRIER_ORG_ID: "org_reauth_err2",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.unifi_insights.config_flow.async_probe_carrier_fabric",
+        side_effect=RuntimeError("Unexpected probe crash"),
+    ):
+        result = await entry.start_reauth_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "crashing_key"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reauth_carrier_fabric"
+    assert result["errors"] == {"base": "unknown"}
+
+
+@pytest.mark.parametrize(
+    ("probe_status", "missing_scope", "expected_errors"),
+    [
+        (ProbeStatus.AUTH_FAILED, False, {CONF_API_KEY: "invalid_auth"}),
+        (ProbeStatus.AUTH_FAILED, True, {"base": "carrier_missing_scope"}),
+        (ProbeStatus.UNREACHABLE, False, {"base": "cannot_connect"}),
+        (ProbeStatus.ERROR, False, {"base": "unknown"}),
+    ],
+)
+async def test_carrier_fabric_reconfigure_error_branches(
+    hass, probe_status, missing_scope, expected_errors
+):
+    """Test Carrier Fabric reconfigure error branches redisplay form."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="carrier_org_reconfig_err",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "old_key",
+            CONF_CARRIER_ORG_ID: "org_reconfig_err",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.unifi_insights.config_flow.async_probe_carrier_fabric",
+        return_value=ProbeResult(
+            status=probe_status,
+            missing_scope=missing_scope,
+            error=Exception("Probe failed"),
+        ),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure_carrier_fabric"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "failed_key"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_carrier_fabric"
+    assert result["errors"] == expected_errors
+
+
+async def test_carrier_fabric_reconfigure_unexpected_exception(hass):
+    """Test unexpected exception in Carrier Fabric reconfigure shows unknown error."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="carrier_org_reconfig_err2",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "old_key",
+            CONF_CARRIER_ORG_ID: "org_reconfig_err2",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.unifi_insights.config_flow.async_probe_carrier_fabric",
+        side_effect=RuntimeError("Unexpected probe crash"),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "crashing_key"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "reconfigure_carrier_fabric"
+    assert result["errors"] == {"base": "unknown"}

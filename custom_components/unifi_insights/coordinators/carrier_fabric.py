@@ -237,54 +237,30 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
         """Suspend a subscriber with retry on write conflict."""
         self._validate_subscriber_uuid(subscriber_id)
         try:
-            try:
-                await self.client.subscribers.suspend(subscriber_id, reason=reason)
-            except Exception as err:
-                if getattr(err, "api_error_code", None) == "write_conflict_retryable":
-                    _LOGGER.debug(
-                        "Write conflict suspending subscriber %s, retrying once",
-                        subscriber_id,
-                    )
-                    await self.client.subscribers.suspend(subscriber_id, reason=reason)
-                else:
-                    raise
+            await self.client.subscribers.suspend(subscriber_id, reason=reason)
         except Exception as err:
-            status = getattr(err, "status_code", None)
-            api_code = getattr(err, "api_error_code", None)
-            if status == HTTP_STATUS_FORBIDDEN or api_code == "insufficient_scope":
-                msg = (
-                    f"Failed to suspend subscriber {subscriber_id}: "
-                    "Carrier Fabric API key missing required scope 'suspend:service'"
+            if getattr(err, "api_error_code", None) == "write_conflict_retryable":
+                _LOGGER.debug(
+                    "Write conflict suspending subscriber %s, retrying once",
+                    subscriber_id,
                 )
-                raise HomeAssistantError(msg) from err
-            msg = f"Failed to suspend subscriber {subscriber_id}: {err}"
-            raise HomeAssistantError(msg) from err
+                await self.client.subscribers.suspend(subscriber_id, reason=reason)
+            else:
+                raise
         await self.async_request_refresh()
 
     async def async_resume_subscriber(self, subscriber_id: str) -> None:
         """Resume a subscriber with retry on write conflict."""
         self._validate_subscriber_uuid(subscriber_id)
         try:
-            try:
-                await self.client.subscribers.resume(subscriber_id)
-            except Exception as err:
-                if getattr(err, "api_error_code", None) == "write_conflict_retryable":
-                    _LOGGER.debug(
-                        "Write conflict resuming subscriber %s, retrying once",
-                        subscriber_id,
-                    )
-                    await self.client.subscribers.resume(subscriber_id)
-                else:
-                    raise
+            await self.client.subscribers.resume(subscriber_id)
         except Exception as err:
-            status = getattr(err, "status_code", None)
-            api_code = getattr(err, "api_error_code", None)
-            if status == HTTP_STATUS_FORBIDDEN or api_code == "insufficient_scope":
-                msg = (
-                    f"Failed to resume subscriber {subscriber_id}: "
-                    "Carrier Fabric API key missing required scope 'resume:service'"
+            if getattr(err, "api_error_code", None) == "write_conflict_retryable":
+                _LOGGER.debug(
+                    "Write conflict resuming subscriber %s, retrying once",
+                    subscriber_id,
                 )
-                raise HomeAssistantError(msg) from err
-            msg = f"Failed to resume subscriber {subscriber_id}: {err}"
-            raise HomeAssistantError(msg) from err
+                await self.client.subscribers.resume(subscriber_id)
+            else:
+                raise
         await self.async_request_refresh()

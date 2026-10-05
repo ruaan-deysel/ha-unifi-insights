@@ -80,6 +80,26 @@
         "data_description": {
           "api_key": "An API key with Carrier Fabric ISP permissions (type ISP)."
         }
+      },
+      "reauth_carrier_fabric": {
+        "title": "Reauthenticate",
+        "description": "Enter your Carrier Fabric ISP API key to re-authenticate. A Carrier Fabric ISP API key (type ISP) is required; console or Site Manager API keys will not work.",
+        "data": {
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "api_key": "An API key with Carrier Fabric ISP permissions (type ISP)."
+        }
+      },
+      "reconfigure_carrier_fabric": {
+        "title": "Reconfigure UniFi Carrier Fabric",
+        "description": "Update your UniFi Carrier Fabric configuration. A Carrier Fabric ISP API key (type ISP) is required; console or Site Manager API keys will not work.",
+        "data": {
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "api_key": "An API key with Carrier Fabric ISP permissions (type ISP)."
+        }
       }
     },
     "error": {

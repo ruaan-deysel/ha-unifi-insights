@@ -1,6 +1,7 @@
 # Copyright 2026 UniFi Insights contributors
 """Tests for UniFi Carrier Fabric coordinator."""
 
+from typing import NamedTuple
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,9 +10,14 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.api import (
+    UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiResponseError,
     UniFiTimeoutError,
+)
+from custom_components.unifi_insights.api.carrier_fabric.models import (
+    ServicePlan,
+    Subscriber,
 )
 from custom_components.unifi_insights.const import (
     CONF_CARRIER_ORG_ID,
@@ -56,102 +62,135 @@ async def test_coordinator_data_ingestion_and_allowlist(
     hass, mock_carrier_entry, mock_carrier_client
 ):
     """Test data ingestion with allowlisting, deduplication, and summary aggregation."""
-    # Raw plans from API containing extra/sensitive fields
+    # Real ServicePlan model instances from API containing extra/sensitive fields
     raw_plans = [
-        {
-            "id": "plan_gold",
-            "orgId": "org_123",
-            "name": "Gigabit Gold",
-            "status": "active",
-            "downloadMbps": 1000,
-            "uploadMbps": 1000,
-            "archivedAt": None,
-            "createdAt": "2024-01-01T00:00:00Z",
-            "updatedAt": "2024-01-02T00:00:00Z",
-            # Extra fields that MUST NOT leak into coordinator data:
-            "internalBillingCode": "BILL_999",
-            "adminNotes": "Confidential margin details",
-        },
+        ServicePlan.model_validate(
+            {
+                "id": "plan_gold",
+                "orgId": "org_123",
+                "name": "Gigabit Gold",
+                "status": "active",
+                "downloadMbps": 1000,
+                "uploadMbps": 1000,
+                "archivedAt": None,
+                "createdAt": "2024-01-01T00:00:00Z",
+                "updatedAt": "2024-01-02T00:00:00Z",
+                # Extra fields that MUST NOT leak into coordinator data:
+                "internalBillingCode": "BILL_999",
+                "adminNotes": "Confidential margin details",
+            }
+        ),
         # Duplicate plan
-        {
-            "id": "plan_gold",
-            "orgId": "org_123",
-            "name": "Gigabit Gold Duplicate",
-            "status": "active",
-            "downloadMbps": 1000,
-            "uploadMbps": 1000,
-        },
+        ServicePlan.model_validate(
+            {
+                "id": "plan_gold",
+                "orgId": "org_123",
+                "name": "Gigabit Gold Duplicate",
+                "status": "active",
+                "downloadMbps": 1000,
+                "uploadMbps": 1000,
+            }
+        ),
         # Archived plan
-        {
-            "id": "plan_archived",
-            "orgId": "org_123",
-            "name": "Legacy 100M",
-            "status": "archived",
-            "downloadMbps": 100,
-            "uploadMbps": 20,
-        },
+        ServicePlan.model_validate(
+            {
+                "id": "plan_archived",
+                "orgId": "org_123",
+                "name": "Legacy 100M",
+                "status": "archived",
+                "downloadMbps": 100,
+                "uploadMbps": 20,
+            }
+        ),
         # Invalid item without id - must be skipped
         {"name": "No ID Plan"},
         "not a dict plan",
     ]
 
-    # Raw subscribers containing sensitive fields
+    # Real Subscriber model instances containing sensitive fields
     raw_subscribers = [
-        {
-            "id": "sub_1",
-            "orgId": "org_123",
-            "name": "Alice Smith",
-            "subscriberNumber": "SUB-001",
-            "planId": "plan_gold",
-            "state": "installed",
-            "suspended": False,
-            "suspendedAt": None,
-            "activatedAt": "2024-01-05T00:00:00Z",
-            "createdAt": "2024-01-05T00:00:00Z",
-            "updatedAt": "2024-01-05T00:00:00Z",
-            # Sensitive fields that MUST NEVER leak:
-            "email": "alice@example.com",
-            "phone": "+15551234567",
-            "serviceAddress": "123 Main St, Anytown",
-            "notes": "Gate code is 1234",
-            "hostId": "host_xyz",
-            "metadata": {"creditCardLast4": "4242"},
-            "suspendReason": None,
-        },
-        {
-            "id": "sub_2",
-            "orgId": "org_123",
-            "name": "Bob Jones",
-            "subscriberNumber": "SUB-002",
-            "planId": "plan_gold",
-            "state": "suspended",
-            "suspended": True,
-            "suspendedAt": "2024-02-01T00:00:00Z",
-            "activatedAt": "2024-01-06T00:00:00Z",
-            "createdAt": "2024-01-06T00:00:00Z",
-            "updatedAt": "2024-02-01T00:00:00Z",
-            "email": "bob@example.com",
-            "suspendReason": "Non-payment",
-        },
-        {
-            "id": "sub_3",
-            "orgId": "org_123",
-            "name": "Charlie Brown",
-            "subscriberNumber": "SUB-003",
-            "planId": None,  # unassigned
-            "state": "pending_assignment",
-            "suspended": False,
-            "suspendedAt": None,
-            "activatedAt": None,
-            "createdAt": "2024-02-01T00:00:00Z",
-            "updatedAt": "2024-02-01T00:00:00Z",
-            "email": "charlie@example.com",
-        },
+        Subscriber.model_validate(
+            {
+                "id": "sub_1",
+                "orgId": "org_123",
+                "name": "Alice Smith",
+                "subscriberNumber": "SUB-001",
+                "planId": "plan_gold",
+                "state": "installed",
+                "suspended": False,
+                "suspendedAt": None,
+                "activatedAt": "2024-01-05T00:00:00Z",
+                "createdAt": "2024-01-05T00:00:00Z",
+                "updatedAt": "2024-01-05T00:00:00Z",
+                # Sensitive fields that MUST NEVER leak:
+                "email": "alice@example.com",
+                "phone": "+15551234567",
+                "serviceAddress": "123 Main St, Anytown",
+                "notes": "Gate code is 1234",
+                "hostId": "host_xyz",
+                "metadata": {"creditCardLast4": "4242"},
+                "suspendReason": None,
+            }
+        ),
+        Subscriber.model_validate(
+            {
+                "id": "sub_2",
+                "orgId": "org_123",
+                "name": "Bob Jones",
+                "subscriberNumber": "SUB-002",
+                "planId": "plan_gold",
+                "state": "suspended",
+                "suspended": True,
+                "suspendedAt": "2024-02-01T00:00:00Z",
+                "activatedAt": "2024-01-06T00:00:00Z",
+                "createdAt": "2024-01-06T00:00:00Z",
+                "updatedAt": "2024-02-01T00:00:00Z",
+                "email": "bob@example.com",
+                "suspendReason": "Non-payment",
+            }
+        ),
+        Subscriber.model_validate(
+            {
+                "id": "sub_3",
+                "orgId": "org_123",
+                "name": "Charlie Brown",
+                "subscriberNumber": "SUB-003",
+                "planId": None,  # unassigned
+                "state": "pending_assignment",
+                "suspended": False,
+                "suspendedAt": None,
+                "activatedAt": None,
+                "createdAt": "2024-02-01T00:00:00Z",
+                "updatedAt": "2024-02-01T00:00:00Z",
+                "email": "charlie@example.com",
+            }
+        ),
+        # Subscriber with unrecognized state:
+        Subscriber.model_validate(
+            {
+                "id": "sub_4",
+                "orgId": "org_123",
+                "name": "Dana White",
+                "state": "unrecognized_future_state",
+                "planId": "plan_gold",
+            }
+        ),
+        # Subscriber with state=None:
+        Subscriber.model_validate(
+            {
+                "id": "sub_5",
+                "orgId": "org_123",
+                "name": "Eve Adams",
+                "state": None,
+            }
+        ),
         # Duplicate subscriber sub_1
-        {
-            "id": "sub_1",
-            "name": "Alice Duplicate",
-        },
+        Subscriber.model_validate(
+            {
+                "id": "sub_1",
+                "name": "Alice Duplicate",
+            }
+        ),
         # Invalid item without id
         {"name": "No ID Subscriber"},
         12345,
@@ -175,10 +214,12 @@ async def test_coordinator_data_ingestion_and_allowlist(
 
     # Verify subscribers allowlisting & deduplication
     subs = data["subscribers"]
-    assert len(subs) == 3
+    assert len(subs) == 5
     assert "sub_1" in subs
     assert "sub_2" in subs
     assert "sub_3" in subs
+    assert "sub_4" in subs
+    assert "sub_5" in subs
 
     sub_1 = subs["sub_1"]
     assert sub_1["id"] == "sub_1"
@@ -197,20 +238,20 @@ async def test_coordinator_data_ingestion_and_allowlist(
 
     # Verify summary aggregation
     summary = data["summary"]
-    assert summary["total_subscribers"] == 3
+    assert summary["total_subscribers"] == 5
     assert summary["suspended_subscribers"] == 1
     assert summary["subscribers_by_state"] == {
         "installed": 1,
         "suspended": 1,
         "pending_assignment": 1,
         "provisioned": 0,
-        "unknown": 0,
+        "unknown": 2,
     }
     assert summary["active_service_plans"] == 1  # Only plan_gold is active
     assert summary["subscribers_by_plan"] == {
-        "plan_gold": 2,
+        "plan_gold": 3,
     }
-    assert summary["unassigned_subscribers"] == 1
+    assert summary["unassigned_subscribers"] == 2
 
 
 async def test_coordinator_refresh_auth_failed_401(
@@ -338,18 +379,82 @@ async def test_coordinator_suspend_retry_on_write_conflict(
     coord.async_request_refresh.assert_called_once()
 
 
-async def test_coordinator_suspend_failure_raises_ha_error(
-    hass, mock_carrier_entry, mock_carrier_client
+class ErrorCase(NamedTuple):
+    """Error case specification for typed error tests."""
+
+    error_to_raise: Exception
+    expected_exc_type: type[Exception]
+    expected_status: int | None
+    expected_api_code: str | None
+
+
+ERROR_CASES = [
+    ErrorCase(
+        error_to_raise=UniFiAuthenticationError(
+            status_code=403,
+            message="Forbidden",
+            api_error_code="insufficient_scope",
+        ),
+        expected_exc_type=UniFiAuthenticationError,
+        expected_status=403,
+        expected_api_code="insufficient_scope",
+    ),
+    ErrorCase(
+        error_to_raise=UniFiAuthenticationError(
+            status_code=401,
+            message="Unauthorized",
+        ),
+        expected_exc_type=UniFiAuthenticationError,
+        expected_status=401,
+        expected_api_code=None,
+    ),
+    ErrorCase(
+        error_to_raise=UniFiResponseError(
+            status_code=500,
+            message="Internal Server Error",
+        ),
+        expected_exc_type=UniFiResponseError,
+        expected_status=500,
+        expected_api_code=None,
+    ),
+]
+
+
+@pytest.mark.parametrize("case", ERROR_CASES)
+async def test_coordinator_suspend_typed_errors_propagate(
+    hass, mock_carrier_entry, mock_carrier_client, case: ErrorCase
 ):
-    """Test suspend failure raises HomeAssistantError."""
+    """Test suspend lets typed client errors propagate without wrapping."""
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
-    mock_carrier_client.subscribers.suspend.side_effect = UniFiResponseError(
-        status_code=400, message="Bad Request"
-    )
+    mock_carrier_client.subscribers.suspend.side_effect = case.error_to_raise
 
     valid_id = "11111111-2222-3333-4444-555555555555"
-    with pytest.raises(HomeAssistantError, match="Failed to suspend subscriber"):
+    with pytest.raises(case.expected_exc_type) as exc_info:
         await coord.async_suspend_subscriber(valid_id)
+
+    assert getattr(exc_info.value, "status_code", None) == case.expected_status
+    assert getattr(exc_info.value, "api_error_code", None) == case.expected_api_code
+
+
+async def test_coordinator_suspend_write_conflict_retry_exhausted_propagates(
+    hass, mock_carrier_entry, mock_carrier_client
+):
+    """Test suspend retries 503 write conflict once, then propagates typed error."""
+    coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
+    conflict = UniFiResponseError(
+        status_code=503,
+        message="Service Unavailable",
+        api_error_code="write_conflict_retryable",
+    )
+    mock_carrier_client.subscribers.suspend.side_effect = [conflict, conflict]
+
+    valid_id = "11111111-2222-3333-4444-555555555555"
+    with pytest.raises(UniFiResponseError) as exc_info:
+        await coord.async_suspend_subscriber(valid_id)
+
+    assert mock_carrier_client.subscribers.suspend.call_count == 2
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.api_error_code == "write_conflict_retryable"
 
 
 async def test_coordinator_resume_invalid_uuid(
@@ -376,23 +481,41 @@ async def test_coordinator_resume_success(
     coord.async_request_refresh.assert_called_once()
 
 
-async def test_coordinator_resume_retry_exhausted(
+@pytest.mark.parametrize("case", ERROR_CASES)
+async def test_coordinator_resume_typed_errors_propagate(
+    hass, mock_carrier_entry, mock_carrier_client, case: ErrorCase
+):
+    """Test resume lets typed client errors propagate without wrapping."""
+    coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
+    mock_carrier_client.subscribers.resume.side_effect = case.error_to_raise
+
+    valid_id = "11111111-2222-3333-4444-555555555555"
+    with pytest.raises(case.expected_exc_type) as exc_info:
+        await coord.async_resume_subscriber(valid_id)
+
+    assert getattr(exc_info.value, "status_code", None) == case.expected_status
+    assert getattr(exc_info.value, "api_error_code", None) == case.expected_api_code
+
+
+async def test_coordinator_resume_write_conflict_retry_exhausted_propagates(
     hass, mock_carrier_entry, mock_carrier_client
 ):
-    """Test resume retries once and raises HomeAssistantError if retry also fails."""
+    """Test resume retries 503 write conflict once, then propagates typed error."""
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
     conflict = UniFiResponseError(
-        status_code=409,
-        message="Conflict",
+        status_code=503,
+        message="Service Unavailable",
         api_error_code="write_conflict_retryable",
     )
     mock_carrier_client.subscribers.resume.side_effect = [conflict, conflict]
 
     valid_id = "11111111-2222-3333-4444-555555555555"
-    with pytest.raises(HomeAssistantError, match="Failed to resume subscriber"):
+    with pytest.raises(UniFiResponseError) as exc_info:
         await coord.async_resume_subscriber(valid_id)
 
     assert mock_carrier_client.subscribers.resume.call_count == 2
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.api_error_code == "write_conflict_retryable"
 
 
 async def test_coordinator_refresh_unexpected_exception(hass, mock_carrier_client):

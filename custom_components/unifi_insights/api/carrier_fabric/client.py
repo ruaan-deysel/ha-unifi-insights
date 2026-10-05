@@ -34,7 +34,7 @@ def _extract_api_error_code(response_text: str | None) -> str | None:
         return None
     try:
         data = json.loads(response_text)
-    except ValueError, TypeError:
+    except (ValueError, TypeError):
         return None
 
     if isinstance(data, dict):

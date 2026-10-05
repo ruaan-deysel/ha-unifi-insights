@@ -668,7 +668,75 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
         """Handle reauthorization if the API key becomes invalid."""
         _ = entry_data
+        reauth_entry = self._get_reauth_entry()
+        if (
+            reauth_entry.data.get(CONF_CONNECTION_TYPE)
+            == CONNECTION_TYPE_CARRIER_FABRIC
+        ):
+            return await self.async_step_reauth_carrier_fabric()
         return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_carrier_fabric(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Dialog that informs the user that Carrier Fabric reauth is required."""
+        errors: dict[str, str] = {}
+        reauth_entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            api_key = user_input[CONF_API_KEY].strip()
+            try:
+                auth = ApiKeyAuth(api_key=api_key)
+                client = UniFiCarrierFabricClient(
+                    auth=auth,
+                    session=async_get_clientsession(self.hass),
+                    timeout=30,
+                )
+                probe_res = await async_probe_with_client(
+                    client, async_probe_carrier_fabric
+                )
+                if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
+                    stored_org_id = reauth_entry.data.get(CONF_CARRIER_ORG_ID)
+                    new_org_id = probe_res.org_id
+                    if (
+                        stored_org_id is not None
+                        and new_org_id is not None
+                        and stored_org_id != new_org_id
+                    ):
+                        return self.async_abort(reason="carrier_org_mismatch")
+
+                    new_data = {
+                        **reauth_entry.data,
+                        CONF_API_KEY: api_key,
+                    }
+                    if stored_org_id is None and new_org_id is not None:
+                        new_data[CONF_CARRIER_ORG_ID] = new_org_id
+
+                    return self.async_update_reload_and_abort(
+                        reauth_entry,
+                        data=new_data,
+                    )
+
+                if probe_res.missing_scope:
+                    errors["base"] = "carrier_missing_scope"
+                elif probe_res.status is ProbeStatus.AUTH_FAILED:
+                    errors[CONF_API_KEY] = "invalid_auth"
+                elif probe_res.status is ProbeStatus.UNREACHABLE:
+                    errors["base"] = "cannot_connect"
+                else:
+                    errors["base"] = "unknown"
+
+            except AbortFlow:
+                raise
+            except Exception:
+                _LOGGER.exception("Unexpected exception in Carrier Fabric reauth")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reauth_carrier_fabric",
+            data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+            errors=errors,
+        )
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -679,62 +747,6 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
         connection_type = reauth_entry.data.get(
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL
         )
-
-        if connection_type == CONNECTION_TYPE_CARRIER_FABRIC:
-            if user_input is not None:
-                api_key = user_input[CONF_API_KEY].strip()
-                try:
-                    auth = ApiKeyAuth(api_key=api_key)
-                    client = UniFiCarrierFabricClient(
-                        auth=auth,
-                        session=async_get_clientsession(self.hass),
-                        timeout=30,
-                    )
-                    probe_res = await async_probe_with_client(
-                        client, async_probe_carrier_fabric
-                    )
-                    if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
-                        stored_org_id = reauth_entry.data.get(CONF_CARRIER_ORG_ID)
-                        new_org_id = probe_res.org_id
-                        if (
-                            stored_org_id is not None
-                            and new_org_id is not None
-                            and stored_org_id != new_org_id
-                        ):
-                            return self.async_abort(reason="carrier_org_mismatch")
-
-                        new_data = {
-                            **reauth_entry.data,
-                            CONF_API_KEY: api_key,
-                        }
-                        if stored_org_id is None and new_org_id is not None:
-                            new_data[CONF_CARRIER_ORG_ID] = new_org_id
-
-                        return self.async_update_reload_and_abort(
-                            reauth_entry,
-                            data=new_data,
-                        )
-
-                    if probe_res.missing_scope:
-                        errors["base"] = "carrier_missing_scope"
-                    elif probe_res.status is ProbeStatus.AUTH_FAILED:
-                        errors[CONF_API_KEY] = "invalid_auth"
-                    elif probe_res.status is ProbeStatus.UNREACHABLE:
-                        errors["base"] = "cannot_connect"
-                    else:
-                        errors["base"] = "unknown"
-
-                except AbortFlow:
-                    raise
-                except Exception:
-                    _LOGGER.exception("Unexpected exception in Carrier Fabric reauth")
-                    errors["base"] = "unknown"
-
-            return self.async_show_form(
-                step_id="reauth_confirm",
-                data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
-                errors=errors,
-            )
 
         if user_input is not None:
             try:
@@ -824,72 +836,82 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_reconfigure_carrier_fabric(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Carrier Fabric reconfiguration of the integration."""
+        errors: dict[str, str] = {}
+        entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            api_key = user_input[CONF_API_KEY].strip()
+            try:
+                auth = ApiKeyAuth(api_key=api_key)
+                client = UniFiCarrierFabricClient(
+                    auth=auth,
+                    session=async_get_clientsession(self.hass),
+                    timeout=30,
+                )
+                probe_res = await async_probe_with_client(
+                    client, async_probe_carrier_fabric
+                )
+                if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
+                    stored_org_id = entry.data.get(CONF_CARRIER_ORG_ID)
+                    new_org_id = probe_res.org_id
+                    if (
+                        stored_org_id is not None
+                        and new_org_id is not None
+                        and stored_org_id != new_org_id
+                    ):
+                        return self.async_abort(reason="carrier_org_mismatch")
+
+                    new_data = {
+                        **entry.data,
+                        CONF_API_KEY: api_key,
+                    }
+                    if stored_org_id is None and new_org_id is not None:
+                        new_data[CONF_CARRIER_ORG_ID] = new_org_id
+
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data=new_data,
+                        reason="reconfigure_successful",
+                    )
+
+                if probe_res.missing_scope:
+                    errors["base"] = "carrier_missing_scope"
+                elif probe_res.status is ProbeStatus.AUTH_FAILED:
+                    errors[CONF_API_KEY] = "invalid_auth"
+                elif probe_res.status is ProbeStatus.UNREACHABLE:
+                    errors["base"] = "cannot_connect"
+                else:
+                    errors["base"] = "unknown"
+
+            except AbortFlow:
+                raise
+            except Exception:
+                _LOGGER.exception(
+                    "Unexpected exception in Carrier Fabric reconfigure"
+                )
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="reconfigure_carrier_fabric",
+            data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+            errors=errors,
+        )
+
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Handle reconfiguration of the integration."""
-        errors = {}
         entry = self._get_reconfigure_entry()
         connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL)
 
         if connection_type == CONNECTION_TYPE_CARRIER_FABRIC:
-            if user_input is not None:
-                api_key = user_input[CONF_API_KEY].strip()
-                try:
-                    auth = ApiKeyAuth(api_key=api_key)
-                    client = UniFiCarrierFabricClient(
-                        auth=auth,
-                        session=async_get_clientsession(self.hass),
-                        timeout=30,
-                    )
-                    probe_res = await async_probe_with_client(
-                        client, async_probe_carrier_fabric
-                    )
-                    if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
-                        stored_org_id = entry.data.get(CONF_CARRIER_ORG_ID)
-                        new_org_id = probe_res.org_id
-                        if (
-                            stored_org_id is not None
-                            and new_org_id is not None
-                            and stored_org_id != new_org_id
-                        ):
-                            return self.async_abort(reason="carrier_org_mismatch")
+            return await self.async_step_reconfigure_carrier_fabric(user_input)
 
-                        new_data = {
-                            **entry.data,
-                            CONF_API_KEY: api_key,
-                        }
-                        if stored_org_id is None and new_org_id is not None:
-                            new_data[CONF_CARRIER_ORG_ID] = new_org_id
-
-                        return self.async_update_reload_and_abort(
-                            entry,
-                            data=new_data,
-                            reason="reconfigure_successful",
-                        )
-
-                    if probe_res.missing_scope:
-                        errors["base"] = "carrier_missing_scope"
-                    elif probe_res.status is ProbeStatus.AUTH_FAILED:
-                        errors[CONF_API_KEY] = "invalid_auth"
-                    elif probe_res.status is ProbeStatus.UNREACHABLE:
-                        errors["base"] = "cannot_connect"
-                    else:
-                        errors["base"] = "unknown"
-
-                except AbortFlow:
-                    raise
-                except Exception:
-                    _LOGGER.exception(
-                        "Unexpected exception in Carrier Fabric reconfigure"
-                    )
-                    errors["base"] = "unknown"
-
-            return self.async_show_form(
-                step_id="reconfigure",
-                data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
-                errors=errors,
-            )
+        errors = {}
 
         if user_input is not None:
             try:

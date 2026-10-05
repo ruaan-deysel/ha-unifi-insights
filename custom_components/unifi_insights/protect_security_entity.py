@@ -138,9 +138,13 @@ def _keypad_beep(data: dict[str, Any]) -> bool | None:
 def _keypad_volume(data: dict[str, Any]) -> int | None:
     """Return the keypress beep volume, 0-100 % per spec."""
     value = (_nested(data, "keypadSettings") or {}).get("beepVolume")
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value if 0 <= value <= _MAX_BEEP_VOLUME else None
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= _MAX_BEEP_VOLUME
+    ):
+        return value
+    return None
 
 
 def _thread_role(data: dict[str, Any]) -> str | None:
@@ -151,18 +155,19 @@ def _thread_role(data: dict[str, Any]) -> str | None:
     newer firmware adds reads as unknown until the integration learns it.
     """
     role = (_thread_network(data) or {}).get("role")
-    if role is None or role in THREAD_ROLES:
+    if isinstance(role, str) and role in THREAD_ROLES:
         return role
-    _LOGGER.debug("Unrecognized Thread role %r; reporting unknown", role)
+    if role is not None:
+        _LOGGER.debug("Unrecognized Thread role %r; reporting unknown", role)
     return None
 
 
 def _thread_joined_devices(data: dict[str, Any]) -> int | None:
     """Return how many devices have joined the Thread network."""
     value = (_thread_network(data) or {}).get("joinedDeviceCount")
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        return None
-    return value
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
 
 
 def _arm_control(data: dict[str, Any]) -> str | None:

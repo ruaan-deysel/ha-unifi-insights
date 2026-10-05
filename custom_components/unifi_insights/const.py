@@ -43,6 +43,8 @@ GATEWAY_MODEL_PREFIXES: Final = (
 )
 CONNECTION_TYPE_LOCAL: Final = "local"
 CONNECTION_TYPE_REMOTE: Final = "remote"
+CONNECTION_TYPE_CARRIER_FABRIC: Final = "carrier_fabric"
+CONF_CARRIER_ORG_ID: Final = "carrier_org_id"
 
 # Options
 CONF_TRACK_CLIENTS: Final = "track_clients"  # Deprecated, kept for migration
@@ -50,10 +52,14 @@ CONF_TRACK_WIFI_CLIENTS: Final = "track_wifi_clients"
 CONF_TRACK_WIRED_CLIENTS: Final = "track_wired_clients"
 CONF_CLIENT_CONTROL: Final = "client_control"
 CONF_SITE_IDS: Final = "site_ids"  # Empty/absent means every site
+CONF_TRACK_SUBSCRIBERS: Final = "track_subscribers"
+CONF_CARRIER_ACTIONS: Final = "carrier_actions"
 DEFAULT_TRACK_CLIENTS: Final = False
 DEFAULT_TRACK_WIFI_CLIENTS: Final = False
 DEFAULT_TRACK_WIRED_CLIENTS: Final = False
 DEFAULT_CLIENT_CONTROL: Final = True
+DEFAULT_TRACK_SUBSCRIBERS: Final = False
+DEFAULT_CARRIER_ACTIONS: Final = False
 
 DEFAULT_API_HOST = "https://192.168.10.1"
 
@@ -64,6 +70,7 @@ SCAN_INTERVAL_DEVICE = timedelta(seconds=30)
 SCAN_INTERVAL_CONFIG = timedelta(minutes=5)
 SCAN_INTERVAL_INNERSPACE = timedelta(minutes=5)
 SCAN_INTERVAL_SITE_MANAGER = timedelta(minutes=10)
+CARRIER_FABRIC_SCAN_INTERVAL = timedelta(minutes=5)
 # Site Manager response sections shared by the coordinator and diagnostics.
 SITE_MANAGER_COLLECTIONS: Final = (
     "hosts",

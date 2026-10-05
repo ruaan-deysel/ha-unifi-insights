@@ -21,7 +21,7 @@
         },
         "data_description": {
           "host": "The URL of your UniFi device (e.g., https://192.168.1.1)",
-          "api_key": "API key from your UniFi Controller (Settings → Control Plane → API Keys)",
+          "api_key": "API key from your UniFi Controller (Settings \u2192 Control Plane \u2192 API Keys)",
           "verify_ssl": "Disable for self-signed certificates (common for local devices)"
         }
       },
@@ -52,7 +52,7 @@
           "api_key": "API Key"
         },
         "data_description": {
-          "api_key": "A new API key from your UniFi Controller (Settings → Control Plane → API Keys)"
+          "api_key": "A new API key from your UniFi Controller (Settings \u2192 Control Plane \u2192 API Keys)"
         }
       },
       "reconfigure": {
@@ -66,9 +66,19 @@
         },
         "data_description": {
           "host": "The URL of your UniFi device (e.g., https://192.168.1.1)",
-          "api_key": "API key from your UniFi Controller (Settings → Control Plane → API Keys)",
+          "api_key": "API key from your UniFi Controller (Settings \u2192 Control Plane \u2192 API Keys)",
           "verify_ssl": "Disable for self-signed certificates (common for local devices)",
           "console_id": "The UniFi cloud console ID this entry connects to"
+        }
+      },
+      "carrier_fabric": {
+        "title": "UniFi Carrier Fabric",
+        "description": "Enter your Carrier Fabric ISP API key. A Carrier Fabric ISP API key (type ISP) is required; console or Site Manager API keys will not work.",
+        "data": {
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "api_key": "An API key with Carrier Fabric ISP permissions (type ISP)."
         }
       }
     },
@@ -79,12 +89,14 @@
       "no_remote_consoles": "No remote UniFi consoles were found for this API key.",
       "api_unsupported": "The UniFi controller did not respond to the official Network Integration API (HTTP 404). This integration requires UniFi OS (e.g. UDM, UDR, Cloud Key Gen2+, UCG) or UniFi Cloud access. Self-hosted UniFi Network installations (Linux/Docker/Proxmox) do not expose this API.",
       "site_parse_error": "Failed to parse site data from the UniFi controller. Please ensure your UniFi OS controller firmware is up to date.",
-      "unknown": "Unexpected error"
+      "unknown": "Unexpected error",
+      "carrier_missing_scope": "The ISP API key lacks the required Carrier Fabric permissions."
     },
     "abort": {
       "already_configured": "Device is already configured",
       "reauth_successful": "Re-authentication was successful",
-      "account_mismatch": "The API key provided does not match the original account. Please use the same API key or remove and re-add the integration."
+      "account_mismatch": "The API key provided does not match the original account. Please use the same API key or remove and re-add the integration.",
+      "carrier_org_mismatch": "The provided ISP API key belongs to a different organisation than the configured entry."
     }
   },
   "options": {
@@ -96,13 +108,17 @@
           "track_wifi_clients": "Track WiFi Clients",
           "track_wired_clients": "Track Wired Clients",
           "client_control": "Enable Client Control",
-          "site_ids": "Sites"
+          "site_ids": "Sites",
+          "track_subscribers": "Track individual subscribers as devices",
+          "carrier_actions": "Enable subscriber service actions (suspend and resume)"
         },
         "data_description": {
           "track_wifi_clients": "Create device tracker entities for connected WiFi clients. This may create many entities.",
           "track_wired_clients": "Create device tracker entities for connected wired (LAN) clients. This may create many entities.",
           "client_control": "Create allow/block switch and reconnect button entities for connected clients. Disable to prevent orphaned entities when clients leave the network.",
-          "site_ids": "Only poll these sites. Leave empty to include every site on the console. Unselected sites are not queried, which reduces API traffic on multi-site consoles."
+          "site_ids": "Only poll these sites. Leave empty to include every site on the console. Unselected sites are not queried, which reduces API traffic on multi-site consoles.",
+          "track_subscribers": "Create device entries for each subscriber in your Carrier Fabric organisation.",
+          "carrier_actions": "Allow suspending and resuming subscriber services from Home Assistant."
         }
       }
     }

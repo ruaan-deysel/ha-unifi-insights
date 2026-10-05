@@ -22,6 +22,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.hass_dict import HassKey
 
+from . import CarrierFabricData
 from .const import DOMAIN
 from .dashboard_contract_utils import as_dict, content_revision
 from .helpers import async_get_device_entry
@@ -99,6 +100,7 @@ def _resolve_entry(hass: HomeAssistant, entry_id: str) -> UnifiInsightsConfigEnt
     if (
         entry.state is not ConfigEntryState.LOADED
         or getattr(entry, "runtime_data", None) is None
+        or isinstance(entry.runtime_data, CarrierFabricData)
     ):
         msg = f"UniFi Insights config entry {entry_id} is not loaded"
         raise _RequestError(ERR_ENTRY_NOT_LOADED, msg)
@@ -384,7 +386,7 @@ def ws_topology_sources(
     sources = []
     for entry in hass.config_entries.async_loaded_entries(DOMAIN):
         runtime = getattr(entry, "runtime_data", None)
-        if runtime is None:
+        if runtime is None or isinstance(runtime, CarrierFabricData):
             continue
         data = runtime.coordinator.data
         sources.append(
@@ -754,7 +756,7 @@ def ws_protect_sources(
     sources = []
     for entry in hass.config_entries.async_loaded_entries(DOMAIN):
         runtime = getattr(entry, "runtime_data", None)
-        if runtime is None:
+        if runtime is None or isinstance(runtime, CarrierFabricData):
             continue
         data = runtime.coordinator.data
         protect = as_dict(data.get("protect"))

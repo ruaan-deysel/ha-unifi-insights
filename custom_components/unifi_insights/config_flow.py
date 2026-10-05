@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import logging
 from typing import Any
@@ -16,6 +17,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     SelectOptionDict,
     SelectSelector,
@@ -34,6 +36,7 @@ from .api import (
     UniFiResponseError,
     UniFiTimeoutError,
 )
+from .api.carrier_fabric.client import UniFiCarrierFabricClient
 from .api.network import UniFiNetworkClient
 from .api.protect import UniFiProtectClient
 from .console_identity import (
@@ -44,24 +47,31 @@ from .console_identity import (
     resolve_console_identity,
 )
 from .const import (
+    CONF_CARRIER_ACTIONS,
+    CONF_CARRIER_ORG_ID,
     CONF_CLIENT_CONTROL,
     CONF_CONNECTION_TYPE,
     CONF_CONSOLE_ID,
     CONF_CONSOLE_NAME,
     CONF_SITE_IDS,
     CONF_TRACK_CLIENTS,
+    CONF_TRACK_SUBSCRIBERS,
     CONF_TRACK_WIFI_CLIENTS,
     CONF_TRACK_WIRED_CLIENTS,
+    CONNECTION_TYPE_CARRIER_FABRIC,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_REMOTE,
     DEFAULT_API_HOST,
+    DEFAULT_CARRIER_ACTIONS,
     DEFAULT_CLIENT_CONTROL,
     DEFAULT_TRACK_CLIENTS,
+    DEFAULT_TRACK_SUBSCRIBERS,
     DOMAIN,
 )
 from .probe import (
     ProbeResult,
     ProbeStatus,
+    async_probe_carrier_fabric,
     async_probe_network,
     async_probe_protect,
     async_probe_with_client,
@@ -367,6 +377,8 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
             self._connection_type = user_input[CONF_CONNECTION_TYPE]
             if self._connection_type == CONNECTION_TYPE_LOCAL:
                 return await self.async_step_local()
+            if self._connection_type == CONNECTION_TYPE_CARRIER_FABRIC:
+                return await self.async_step_carrier_fabric()
             return await self.async_step_remote()
 
         return self.async_show_form(
@@ -386,12 +398,75 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
                                     value=CONNECTION_TYPE_REMOTE,
                                     label="Remote (UniFi Cloud)",
                                 ),
+                                SelectOptionDict(
+                                    value=CONNECTION_TYPE_CARRIER_FABRIC,
+                                    label="Carrier Fabric (ISP)",
+                                ),
                             ],
                             mode=SelectSelectorMode.LIST,
                         )
                     ),
                 }
             ),
+        )
+
+    async def async_step_carrier_fabric(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Carrier Fabric ISP setup."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            api_key = user_input[CONF_API_KEY].strip()
+            try:
+                auth = ApiKeyAuth(api_key=api_key)
+                client = UniFiCarrierFabricClient(
+                    auth=auth,
+                    session=async_get_clientsession(self.hass),
+                    timeout=30,
+                )
+                probe_res = await async_probe_with_client(
+                    client, async_probe_carrier_fabric
+                )
+                if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
+                    if probe_res.org_id:
+                        unique_id = f"carrier_{probe_res.org_id}"
+                    else:
+                        key_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+                        unique_id = f"carrier_key_{key_hash}"
+
+                    await self.async_set_unique_id(unique_id)
+                    self._abort_if_unique_id_configured()
+
+                    entry_data: dict[str, Any] = {
+                        CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+                        CONF_API_KEY: api_key,
+                        CONF_CARRIER_ORG_ID: probe_res.org_id,
+                    }
+                    return self.async_create_entry(
+                        title="UniFi Carrier Fabric",
+                        data=entry_data,
+                    )
+
+                if probe_res.missing_scope:
+                    errors["base"] = "carrier_missing_scope"
+                elif probe_res.status is ProbeStatus.AUTH_FAILED:
+                    errors[CONF_API_KEY] = "invalid_auth"
+                elif probe_res.status is ProbeStatus.UNREACHABLE:
+                    errors["base"] = "cannot_connect"
+                else:
+                    errors["base"] = "unknown"
+
+            except AbortFlow:
+                raise
+            except Exception:
+                _LOGGER.exception("Unexpected exception in Carrier Fabric config flow")
+                errors["base"] = "unknown"
+
+        return self.async_show_form(
+            step_id="carrier_fabric",
+            data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+            errors=errors,
         )
 
     async def async_step_local(
@@ -605,6 +680,62 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL
         )
 
+        if connection_type == CONNECTION_TYPE_CARRIER_FABRIC:
+            if user_input is not None:
+                api_key = user_input[CONF_API_KEY].strip()
+                try:
+                    auth = ApiKeyAuth(api_key=api_key)
+                    client = UniFiCarrierFabricClient(
+                        auth=auth,
+                        session=async_get_clientsession(self.hass),
+                        timeout=30,
+                    )
+                    probe_res = await async_probe_with_client(
+                        client, async_probe_carrier_fabric
+                    )
+                    if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
+                        stored_org_id = reauth_entry.data.get(CONF_CARRIER_ORG_ID)
+                        new_org_id = probe_res.org_id
+                        if (
+                            stored_org_id is not None
+                            and new_org_id is not None
+                            and stored_org_id != new_org_id
+                        ):
+                            return self.async_abort(reason="carrier_org_mismatch")
+
+                        new_data = {
+                            **reauth_entry.data,
+                            CONF_API_KEY: api_key,
+                        }
+                        if stored_org_id is None and new_org_id is not None:
+                            new_data[CONF_CARRIER_ORG_ID] = new_org_id
+
+                        return self.async_update_reload_and_abort(
+                            reauth_entry,
+                            data=new_data,
+                        )
+
+                    if probe_res.missing_scope:
+                        errors["base"] = "carrier_missing_scope"
+                    elif probe_res.status is ProbeStatus.AUTH_FAILED:
+                        errors[CONF_API_KEY] = "invalid_auth"
+                    elif probe_res.status is ProbeStatus.UNREACHABLE:
+                        errors["base"] = "cannot_connect"
+                    else:
+                        errors["base"] = "unknown"
+
+                except AbortFlow:
+                    raise
+                except Exception:
+                    _LOGGER.exception("Unexpected exception in Carrier Fabric reauth")
+                    errors["base"] = "unknown"
+
+            return self.async_show_form(
+                step_id="reauth_confirm",
+                data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+                errors=errors,
+            )
+
         if user_input is not None:
             try:
                 if connection_type == CONNECTION_TYPE_LOCAL:
@@ -700,6 +831,65 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
         errors = {}
         entry = self._get_reconfigure_entry()
         connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL)
+
+        if connection_type == CONNECTION_TYPE_CARRIER_FABRIC:
+            if user_input is not None:
+                api_key = user_input[CONF_API_KEY].strip()
+                try:
+                    auth = ApiKeyAuth(api_key=api_key)
+                    client = UniFiCarrierFabricClient(
+                        auth=auth,
+                        session=async_get_clientsession(self.hass),
+                        timeout=30,
+                    )
+                    probe_res = await async_probe_with_client(
+                        client, async_probe_carrier_fabric
+                    )
+                    if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
+                        stored_org_id = entry.data.get(CONF_CARRIER_ORG_ID)
+                        new_org_id = probe_res.org_id
+                        if (
+                            stored_org_id is not None
+                            and new_org_id is not None
+                            and stored_org_id != new_org_id
+                        ):
+                            return self.async_abort(reason="carrier_org_mismatch")
+
+                        new_data = {
+                            **entry.data,
+                            CONF_API_KEY: api_key,
+                        }
+                        if stored_org_id is None and new_org_id is not None:
+                            new_data[CONF_CARRIER_ORG_ID] = new_org_id
+
+                        return self.async_update_reload_and_abort(
+                            entry,
+                            data=new_data,
+                            reason="reconfigure_successful",
+                        )
+
+                    if probe_res.missing_scope:
+                        errors["base"] = "carrier_missing_scope"
+                    elif probe_res.status is ProbeStatus.AUTH_FAILED:
+                        errors[CONF_API_KEY] = "invalid_auth"
+                    elif probe_res.status is ProbeStatus.UNREACHABLE:
+                        errors["base"] = "cannot_connect"
+                    else:
+                        errors["base"] = "unknown"
+
+                except AbortFlow:
+                    raise
+                except Exception:
+                    _LOGGER.exception(
+                        "Unexpected exception in Carrier Fabric reconfigure"
+                    )
+                    errors["base"] = "unknown"
+
+            return self.async_show_form(
+                step_id="reconfigure",
+                data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+                errors=errors,
+            )
 
         if user_input is not None:
             try:
@@ -887,6 +1077,35 @@ class UnifiInsightsOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        if (
+            self.config_entry.data.get(CONF_CONNECTION_TYPE)
+            == CONNECTION_TYPE_CARRIER_FABRIC
+        ):
+            if user_input is not None:
+                return self.async_create_entry(title="", data=user_input)
+
+            default_track_subscribers = self.config_entry.options.get(
+                CONF_TRACK_SUBSCRIBERS, DEFAULT_TRACK_SUBSCRIBERS
+            )
+            default_carrier_actions = self.config_entry.options.get(
+                CONF_CARRIER_ACTIONS, DEFAULT_CARRIER_ACTIONS
+            )
+            return self.async_show_form(
+                step_id="init",
+                data_schema=vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_TRACK_SUBSCRIBERS,
+                            default=default_track_subscribers,
+                        ): bool,
+                        vol.Optional(
+                            CONF_CARRIER_ACTIONS,
+                            default=default_carrier_actions,
+                        ): bool,
+                    }
+                ),
+            )
+
         available_sites = self._available_sites()
         current_site_ids: list[str] = list(
             self.config_entry.options.get(CONF_SITE_IDS) or []

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.diagnostics import REDACTED, async_redact_data
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 
+from . import CarrierFabricData
 from .api import __version__ as api_version
 from .const import CONF_CONSOLE_ID, ISP_WAN_NUMBERS, SITE_MANAGER_COLLECTIONS
 from .innerspace_transforms import build_innerspace_diagnostics_summary
@@ -18,7 +19,6 @@ from .innerspace_transforms import build_innerspace_diagnostics_summary
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-    from . import UnifiInsightsConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 _MAX_HOST_SITE_COUNTS = 20
@@ -355,11 +355,20 @@ def _site_manager_summary(
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: UnifiInsightsConfigEntry
+    hass: HomeAssistant, entry: Any
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
     _ = hass
     _LOGGER.debug("Gathering diagnostics data for UniFi Insights")
+
+    if isinstance(getattr(entry, "runtime_data", None), CarrierFabricData):
+        carrier_data = entry.runtime_data
+        coord_data = getattr(carrier_data.coordinator, "data", {})
+        summary = coord_data.get("summary", {}) if isinstance(coord_data, dict) else {}
+        return {
+            "entry": async_redact_data(entry.as_dict(), TO_REDACT),
+            "summary": summary,
+        }
 
     data = entry.runtime_data
     coordinator = data.coordinator

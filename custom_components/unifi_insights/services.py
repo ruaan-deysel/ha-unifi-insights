@@ -18,6 +18,7 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 
+from . import CarrierFabricData
 from .const import (
     CHIME_RINGTONE_CHRISTMAS,
     CHIME_RINGTONE_CUSTOM_1,
@@ -81,13 +82,17 @@ def _get_titled_coordinators(hass: HomeAssistant) -> list[tuple[str, Any]]:
     return [
         (entry.title, entry.runtime_data.coordinator)
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if hasattr(entry, "runtime_data") and entry.runtime_data
+        if hasattr(entry, "runtime_data")
+        and entry.runtime_data
+        and not isinstance(entry.runtime_data, CarrierFabricData)
     ]
 
 
 def _coord_data(entry: Any) -> dict[str, Any] | None:
     """Extract coordinator data dictionary if available and valid."""
     runtime_data = getattr(entry, "runtime_data", None)
+    if isinstance(runtime_data, CarrierFabricData):
+        return None
     coord = getattr(runtime_data, "coordinator", None) if runtime_data else None
     if coord and hasattr(coord, "data") and isinstance(coord.data, dict):
         return coord.data
@@ -633,7 +638,9 @@ def _get_coordinator_for_network_resource(
     entries = [
         entry
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if hasattr(entry, "runtime_data") and entry.runtime_data
+        if hasattr(entry, "runtime_data")
+        and entry.runtime_data
+        and not isinstance(entry.runtime_data, CarrierFabricData)
     ]
     if not entries:
         msg = "No UniFi Insights coordinator found"
@@ -817,6 +824,7 @@ def _get_coordinator_for_protect_resource(
         for entry in hass.config_entries.async_entries(DOMAIN)
         if hasattr(entry, "runtime_data")
         and entry.runtime_data
+        and not isinstance(entry.runtime_data, CarrierFabricData)
         and getattr(entry.runtime_data.coordinator, "protect_client", None) is not None
     ]
     if not protect_entries:

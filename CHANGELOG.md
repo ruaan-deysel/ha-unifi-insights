@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- UniFi Mobility support for remote entries. When the cloud API key has Mobility read access, each active Mobility workspace becomes a device with router counts, and each mobile router (UMR, UMR Industrial, UMR Ultra) becomes a device with connectivity, state, clients, WAN source, LTE signal, cellular data usage, VPN and subscription status, and a GPS location tracker, plus diagnostic memory, uptime, firmware, data limit, plan, WAN IP, and ISP sensors. A key without Mobility access is not an error: no re-authentication is requested and no entities are created. Only one remote entry per API key polls Mobility, and diagnostics include a counts-only Mobility summary. [#169](https://github.com/ruaan-deysel/ha-unifi-insights/issues/169)
+
 ## [2026.10.1] - 2026-10-04
 
 ### Fixed

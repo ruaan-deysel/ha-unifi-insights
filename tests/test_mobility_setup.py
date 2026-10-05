@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -20,36 +20,14 @@ from tests.fixtures.mobility_responses import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
     from homeassistant.core import HomeAssistant
 
 pytestmark = pytest.mark.usefixtures(
     "mock_network_client",
     "mock_protect_client",
     "enable_custom_integrations",
-    "site_manager_client",
+    "mock_site_manager_client",
 )
-
-
-@pytest.fixture
-def site_manager_client() -> Generator[MagicMock]:
-    """Keep the account-wide Site Manager poller off the network."""
-    with patch(
-        "custom_components.unifi_insights.coordinators.site_manager."
-        "UniFiSiteManagerClient"
-    ) as client_class:
-        client = client_class.return_value
-        for method in (
-            "list_hosts",
-            "list_sites",
-            "list_devices",
-            "get_isp_metrics",
-            "list_sd_wan_configs",
-        ):
-            setattr(client, method, AsyncMock(return_value=[]))
-        client.close = AsyncMock()
-        yield client
 
 
 def _remote_entry(entry_id: str, console_id: str = "console") -> MockConfigEntry:

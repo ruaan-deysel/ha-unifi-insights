@@ -15,6 +15,11 @@ from pathlib import Path
 from string import Formatter
 
 from custom_components.unifi_insights.binary_sensor import BINARY_SENSOR_TYPES
+from custom_components.unifi_insights.mobility_entity import (
+    LOCATION_DESCRIPTION,
+    ROUTER_SENSORS,
+    WORKSPACE_SENSORS,
+)
 from custom_components.unifi_insights.site_internet_activity_sensor import (
     SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
 )
@@ -22,6 +27,7 @@ from custom_components.unifi_insights.site_internet_activity_sensor import (
 _INTEGRATION_DIR = Path(__file__).parent.parent / "custom_components" / "unifi_insights"
 _EN_JSON = _INTEGRATION_DIR / "translations" / "en.json"
 _STRINGS_JSON = _INTEGRATION_DIR / "strings.json"
+_ICONS_JSON = _INTEGRATION_DIR / "icons.json"
 
 
 def test_binary_sensor_camera_and_sensor_translation_keys_present_in_en_json() -> None:
@@ -154,3 +160,35 @@ def test_site_internet_activity_sensor_translations_resolve_in_both_files() -> N
             f"{key} differs between strings.json and translations/en.json"
         )
         assert desc.name == strings_sensor[key]["name"]
+
+
+def test_mobility_translations_and_icons_resolve_in_every_file() -> None:
+    """Every Mobility entity has a name, enum state names and an icon."""
+    files = {
+        "strings.json": json.loads(_STRINGS_JSON.read_text())["entity"],
+        "translations/en.json": json.loads(_EN_JSON.read_text())["entity"],
+    }
+    icons = json.loads(_ICONS_JSON.read_text())["entity"]
+    descriptions = [
+        ("sensor", desc) for desc in (*ROUTER_SENSORS, *WORKSPACE_SENSORS)
+    ] + [("device_tracker", LOCATION_DESCRIPTION)]
+
+    for platform, desc in descriptions:
+        key = desc.translation_key
+        assert key is not None, desc.key
+        assert key.startswith("mobility_"), key
+        for name, entity in files.items():
+            translation = entity.get(platform, {}).get(key)
+            assert translation, f"{platform}.{key} missing from {name}"
+            assert translation["name"], f"{platform}.{key} has no name in {name}"
+            for option in getattr(desc, "options", None) or []:
+                assert translation.get("state", {}).get(option), (
+                    f"{platform}.{key} state {option} missing from {name}"
+                )
+        assert (
+            files["strings.json"][platform][key]
+            == (files["translations/en.json"][platform][key])
+        )
+        assert icons.get(platform, {}).get(key, {}).get("default"), (
+            f"{platform}.{key} has no icon"
+        )

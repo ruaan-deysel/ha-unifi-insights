@@ -72,6 +72,64 @@
       },
       "outlet_power_factor": {
         "default": "mdi:angle-acute"
+      },
+      "mobility_state": {
+        "default": "mdi:router-wireless"
+      },
+      "mobility_clients": {
+        "default": "mdi:account-multiple"
+      },
+      "mobility_wan_source": {
+        "default": "mdi:wan",
+        "state": {
+          "lte": "mdi:signal-cellular-3",
+          "wifiwan": "mdi:wifi"
+        }
+      },
+      "mobility_lte_signal": {
+        "default": "mdi:signal-cellular-2",
+        "state": {
+          "no_signal": "mdi:signal-cellular-outline",
+          "poor": "mdi:signal-cellular-1",
+          "fair": "mdi:signal-cellular-2",
+          "strong": "mdi:signal-cellular-3"
+        }
+      },
+      "mobility_cellular_data_usage": {
+        "default": "mdi:sim"
+      },
+      "mobility_vpn_status": {
+        "default": "mdi:vpn"
+      },
+      "mobility_subscription_status": {
+        "default": "mdi:card-account-details-outline"
+      },
+      "mobility_memory_usage": {
+        "default": "mdi:memory"
+      },
+      "mobility_uptime": {
+        "default": "mdi:clock-start"
+      },
+      "mobility_firmware": {
+        "default": "mdi:text-box-check"
+      },
+      "mobility_cellular_data_limit": {
+        "default": "mdi:sim-alert"
+      },
+      "mobility_subscription_plan": {
+        "default": "mdi:sim"
+      },
+      "mobility_wan_ip": {
+        "default": "mdi:ip-network"
+      },
+      "mobility_isp": {
+        "default": "mdi:web"
+      },
+      "mobility_workspace_devices": {
+        "default": "mdi:router-wireless"
+      },
+      "mobility_workspace_online_devices": {
+        "default": "mdi:router-wireless-settings"
       }
     },
     "binary_sensor": {
@@ -181,6 +239,11 @@
       },
       "repeat_times": {
         "default": "mdi:repeat"
+      }
+    },
+    "device_tracker": {
+      "mobility_location": {
+        "default": "mdi:map-marker"
       }
     }
   },

@@ -158,6 +158,7 @@ class TestWaterLeakEntityCreation:
         """Both leak entities are created and report dry/wet independently."""
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added: list = []
@@ -195,6 +196,7 @@ class TestWaterLeakEntityCreation:
 
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added: list = []

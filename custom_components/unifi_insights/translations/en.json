@@ -283,6 +283,98 @@
       },
       "outlet_power_factor": {
         "name": "{outlet_name} Power Factor"
+      },
+      "mobility_state": {
+        "name": "State",
+        "state": {
+          "connected": "Connected",
+          "disconnected": "Disconnected",
+          "adopting": "Adopting",
+          "adopting_timeout": "Adoption timed out",
+          "downloading": "Downloading firmware",
+          "upgrading": "Upgrading",
+          "restarting": "Restarting",
+          "factory_reset": "Factory reset",
+          "getting_ready": "Getting ready",
+          "restoring": "Restoring",
+          "deleting": "Deleting"
+        }
+      },
+      "mobility_clients": {
+        "name": "Clients"
+      },
+      "mobility_wan_source": {
+        "name": "WAN source",
+        "state": {
+          "lte": "LTE",
+          "wan": "Ethernet WAN",
+          "wifiwan": "Wi-Fi WAN"
+        }
+      },
+      "mobility_lte_signal": {
+        "name": "LTE signal",
+        "state": {
+          "no_signal": "No signal",
+          "poor": "Poor",
+          "fair": "Fair",
+          "strong": "Strong"
+        }
+      },
+      "mobility_cellular_data_usage": {
+        "name": "Cellular data usage"
+      },
+      "mobility_vpn_status": {
+        "name": "VPN status",
+        "state": {
+          "connecting": "Connecting",
+          "connected": "Connected",
+          "disconnected": "Disconnected",
+          "failed": "Failed"
+        }
+      },
+      "mobility_subscription_status": {
+        "name": "Subscription status",
+        "state": {
+          "active": "Active",
+          "inactive": "Inactive",
+          "pending": "Pending",
+          "failed": "Failed"
+        }
+      },
+      "mobility_memory_usage": {
+        "name": "Memory usage"
+      },
+      "mobility_uptime": {
+        "name": "Uptime"
+      },
+      "mobility_firmware": {
+        "name": "Firmware"
+      },
+      "mobility_cellular_data_limit": {
+        "name": "Cellular data limit"
+      },
+      "mobility_subscription_plan": {
+        "name": "Subscription plan",
+        "state": {
+          "free_trial": "Free trial",
+          "1gb": "1 GB",
+          "2gb": "2 GB",
+          "5gb": "5 GB",
+          "20gb": "20 GB",
+          "cloud": "Cloud"
+        }
+      },
+      "mobility_wan_ip": {
+        "name": "WAN IP address"
+      },
+      "mobility_isp": {
+        "name": "ISP"
+      },
+      "mobility_workspace_devices": {
+        "name": "Routers"
+      },
+      "mobility_workspace_online_devices": {
+        "name": "Online routers"
       }
     },
     "binary_sensor": {
@@ -464,6 +556,11 @@
     "update": {
       "firmware": {
         "name": "Firmware"
+      }
+    },
+    "device_tracker": {
+      "mobility_location": {
+        "name": "Location"
       }
     }
   },

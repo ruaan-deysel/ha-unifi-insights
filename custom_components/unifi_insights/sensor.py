@@ -64,6 +64,7 @@ from .entity import (
 from .innerspace_entity import (
     _discover_innerspace_sensors,
 )
+from .mobility_entity import async_setup_mobility_sensors
 from .site_internet_activity_sensor import (
     SITE_INTERNET_ACTIVITY_SENSOR_TYPES as SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
 )
@@ -1490,6 +1491,11 @@ async def async_setup_entry(
     async_discover_sensors()
     setup_complete = True
     config_entry.async_on_unload(coordinator.async_add_listener(async_discover_sensors))
+
+    if mobility_coordinator := config_entry.runtime_data.mobility_coordinator:
+        async_setup_mobility_sensors(
+            hass, config_entry, mobility_coordinator, async_add_entities
+        )
 
     # Clean up stale port entities from previous runs
     created_uids = {getattr(e, "unique_id", None) for e in initial_entities}

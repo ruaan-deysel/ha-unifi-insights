@@ -90,6 +90,7 @@ def mock_config_entry(mock_coordinator: MagicMock) -> MagicMock:
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     entry.runtime_data = MagicMock()
+    entry.runtime_data.mobility_coordinator = None
     entry.runtime_data.coordinator = mock_coordinator
     entry.runtime_data.device_coordinator = MagicMock()
     entry.options = {CONF_CLIENT_CONTROL: True}

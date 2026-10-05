@@ -19,10 +19,12 @@ from .const import (
     DEFAULT_TRACK_CLIENTS,
     DOMAIN,
     MANUFACTURER,
+    MOBILITY_DEVICE_PREFIX,
 )
 from .coordinators import UnifiFacadeCoordinator
 from .entity import get_client_type as _get_client_type, get_field
 from .helpers import async_get_device_entry
+from .mobility_entity import async_setup_mobility_trackers
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -93,11 +95,15 @@ def _connected_clients_to_track(
 def _client_tracker_entries(
     registry: er.EntityRegistry, entry_id: str
 ) -> list[er.RegistryEntry]:
-    """Return this platform's device_tracker entries for a config entry."""
+    """Return this platform's client tracker entries for a config entry."""
+    # Mobility router GPS trackers share the platform but are not clients:
+    # client-tracking options must never remove them.
     return [
         reg_entry
         for reg_entry in er.async_entries_for_config_entry(registry, entry_id)
-        if reg_entry.domain == "device_tracker" and reg_entry.platform == DOMAIN
+        if reg_entry.domain == "device_tracker"
+        and reg_entry.platform == DOMAIN
+        and not reg_entry.unique_id.startswith(MOBILITY_DEVICE_PREFIX)
     ]
 
 
@@ -184,6 +190,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up device tracker for UniFi Insights integration."""
     coordinator = entry.runtime_data.coordinator
+
+    # Router trackers do not depend on the client-tracking options below.
+    if mobility_coordinator := entry.runtime_data.mobility_coordinator:
+        async_setup_mobility_trackers(
+            hass, entry, mobility_coordinator, async_add_entities
+        )
 
     # Check which client types to track (support both old and new options).
     # Migrate from the old single option if the new options are not set.

@@ -582,6 +582,7 @@ class TestAsyncSetupEntry:
         """Create mock config entry."""
         entry = MagicMock()
         entry.runtime_data = MagicMock()
+        entry.runtime_data.mobility_coordinator = None
         entry.runtime_data.coordinator = mock_coordinator
         return entry
 
@@ -735,6 +736,7 @@ class TestWanLinkBinarySensor:
         """Create mock config entry."""
         entry = MagicMock()
         entry.runtime_data = MagicMock()
+        entry.runtime_data.mobility_coordinator = None
         entry.runtime_data.coordinator = mock_coordinator
         return entry
 
@@ -898,6 +900,7 @@ class TestSiteToSiteVpnBinarySensor:
         """Create mock config entry."""
         entry = MagicMock()
         entry.runtime_data = MagicMock()
+        entry.runtime_data.mobility_coordinator = None
         entry.runtime_data.coordinator = mock_coordinator
         return entry
 
@@ -1180,6 +1183,7 @@ class TestSetupSkipsNonDoorbellCameraSensors:
 
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = coordinator
 
         added_entities: list = []
@@ -1369,6 +1373,7 @@ class TestUnifiPortBinarySensor:
         """Test async_setup_entry creates SFP binary sensors for SFP ports."""
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added_entities: list = []
@@ -1408,6 +1413,7 @@ class TestUnifiPortBinarySensor:
 
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added_entities: list = []
@@ -1478,6 +1484,7 @@ class TestProtectBinarySensorCapabilityFiltering:
         """Test door sensor gets door and tamper binary sensors."""
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added_entities: list = []
@@ -1502,6 +1509,7 @@ class TestProtectBinarySensorCapabilityFiltering:
         """Test door sensor does NOT get leak or motion binary sensors."""
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added_entities: list = []
@@ -1526,6 +1534,7 @@ class TestProtectBinarySensorCapabilityFiltering:
         """Test leak sensor gets leak and tamper binary sensors."""
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added_entities: list = []
@@ -1550,6 +1559,7 @@ class TestProtectBinarySensorCapabilityFiltering:
         """Test leak sensor does NOT get door or motion binary sensors."""
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
 
         added_entities: list = []

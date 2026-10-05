@@ -601,7 +601,7 @@ class TestAsyncSetupEntry:
             "alarm_hub_1": SAMPLE_ALARM_HUB
         }
         listeners: list = []
-        mock_coordinator.async_add_listener = lambda cb: listeners.append(cb)
+        mock_coordinator.async_add_listener = listeners.append
         added_entities: list = []
 
         def add_entities(new_entities, **kwargs):

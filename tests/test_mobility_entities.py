@@ -25,7 +25,9 @@ from custom_components.unifi_insights.coordinators.mobility import (
 )
 from custom_components.unifi_insights.mobility_entity import (
     ROUTER_SENSORS,
+    WORKSPACE_SENSORS,
     UnifiMobilitySensor,
+    UnifiMobilityWorkspaceSensor,
     async_setup_mobility_binary_sensors,
 )
 from custom_components.unifi_insights.services import (
@@ -442,6 +444,28 @@ async def test_inactive_workspace_makes_its_sensors_unavailable(
 
     online = f"mobility_workspace_{WORKSPACE_ID}_online_devices"
     assert _state(hass, "sensor", online).state == STATE_UNAVAILABLE
+
+
+async def test_workspace_sensor_has_no_value_once_the_workspace_is_inactive(
+    hass: HomeAssistant,
+) -> None:
+    """A counter never reports routers for a workspace the account has left."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"connection_type": "remote", "console_id": "c", "api_key": "k"},
+        entry_id="01REMOTE",
+    )
+    entry.add_to_hass(hass)
+    coordinator = UnifiInsightsMobilityCoordinator(hass, entry, mobility_client_mock())
+    coordinator.data = await coordinator._async_update_data()
+    online = next(desc for desc in WORKSPACE_SENSORS if desc.key == "online_devices")
+    sensor = UnifiMobilityWorkspaceSensor(coordinator, online, WORKSPACE_ID)
+    assert sensor.native_value == 1
+
+    coordinator.data["workspaces"][WORKSPACE_ID]["status"] = "INACTIVE"
+
+    assert sensor.native_value is None
+    assert sensor.available is False
 
 
 async def test_network_actions_reject_mobility_targets(

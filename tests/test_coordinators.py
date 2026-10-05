@@ -7869,3 +7869,98 @@ class TestProtectSecurityDeviceFamilies:
                 coordinator._cleanup_stale_devices()
 
         assert "gone" not in coordinator._alarm_hub_last_tamper
+
+    # -- remaining branches ------------------------------------------------
+
+    def test_unrelated_model_key_leaves_security_collections_alone(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A frame for a family this coordinator doesn't track changes nothing."""
+        self._seed_hub(coordinator)
+        before = copy.deepcopy(coordinator.data["alarm_hubs"])
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        coordinator._handle_device_update("relay", {"id": "alarm_hub_1"})
+
+        assert coordinator.data["alarm_hubs"] == before
+        assert coordinator.data["fobs"] == {}
+        assert coordinator.data["link_stations"] == {}
+        listener.assert_called()
+
+    def test_later_frame_of_same_event_with_status_replaces_it(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A same-event frame that carries its own values wins over the first."""
+        self._seed_hub(coordinator)
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        )
+        first_received = coordinator._alarm_hub_last_tamper["alarm_hub_1"]["received"]
+        update = copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        update["metadata"]["status"] = {"text": "restored"}
+        update["metadata"]["userName"] = "Owner"
+
+        coordinator._handle_event_update("alarmHubDeviceTamper", update)
+
+        record = coordinator._alarm_hub_last_tamper["alarm_hub_1"]
+        assert record["status"] == "restored"
+        assert record["_lastTamperUser"] == "Owner"
+        assert record["received"] >= first_received
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+
+    @pytest.mark.asyncio
+    async def test_poll_skips_tamper_record_of_hub_no_longer_listed(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A record whose hub is not in the collection is not re-added."""
+        self._seed_hub(coordinator)
+        coordinator._alarm_hub_last_tamper["gone"] = {
+            "event_id": "e0",
+            "status": "tampered",
+            "received": 0.0,
+            "_lastTamperUser": None,
+            "_lastTamperAt": None,
+        }
+        coordinator.protect_client.alarm_hubs.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_ALARM_HUB)]
+        )
+
+        await coordinator._fetch_alarm_hubs()
+
+        assert set(coordinator.data["alarm_hubs"]) == {"alarm_hub_1"}
+
+    @pytest.mark.asyncio
+    async def test_fetch_without_protect_client_is_a_no_op(
+        self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
+    ) -> None:
+        """A coordinator without a Protect client fetches nothing."""
+        coord = UnifiProtectCoordinator(
+            hass=hass,
+            network_client=_create_mock_network_client(),
+            protect_client=None,
+            entry=mock_config_entry,
+        )
+        try:
+            await coord._fetch_fobs()
+            await coord._fetch_link_stations()
+            await coord._fetch_alarm_hubs()
+            assert coord.data["fobs"] == {}
+            assert coord.data["link_stations"] == {}
+            assert coord.data["alarm_hubs"] == {}
+        finally:
+            await coord.async_shutdown()
+
+    @pytest.mark.asyncio
+    async def test_device_without_id_is_skipped(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """An item the API returns without an id can't be keyed, so it's left out."""
+        coordinator.protect_client.fobs.get_all = AsyncMock(
+            return_value=[{"name": "no id"}, Fob.model_validate(SAMPLE_KEYPAD_FOB)]
+        )
+
+        await coordinator._fetch_fobs()
+
+        assert set(coordinator.data["fobs"]) == {"fob_1"}

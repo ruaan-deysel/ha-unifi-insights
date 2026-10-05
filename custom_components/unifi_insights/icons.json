@@ -234,6 +234,8 @@
     "delete_voucher": "mdi:ticket-outline",
     "trigger_alarm": "mdi:alarm-light",
     "create_liveview": "mdi:view-grid",
-    "set_liveview": "mdi:view-grid-plus"
+    "set_liveview": "mdi:view-grid-plus",
+    "carrier_suspend_subscriber": "mdi:account-cancel",
+    "carrier_resume_subscriber": "mdi:account-check"
   }
 }

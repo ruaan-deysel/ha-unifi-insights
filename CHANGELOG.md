@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support for UniFi Carrier Fabric (ISP) accounts ([#172](https://github.com/ruaan-deysel/ha-unifi-insights/issues/172)):
+  - Dedicated configuration flow and integration entry type for Carrier Fabric.
+  - Aggregated subscriber metric sensors (total, suspended, provisioned, installed, unassigned, pending assignment) and active service plans.
+  - Per-plan subscriber count diagnostic sensors (archived plans disabled by default).
+  - Optional subscriber tracking with state and service plan sensors per subscriber device.
+  - Guarded `carrier_suspend_subscriber` and `carrier_resume_subscriber` service actions with scope validation and write-conflict retry.
+  - Diagnostics support with full PII redaction (names, subscriber numbers, email, addresses, notes, metadata).
+
 ## [2026.10.1] - 2026-10-04
 
 ### Fixed

@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+HTTP_STATUS_FORBIDDEN: Final = 403
+
 SUBSCRIBER_ALLOWLIST: Final = frozenset(
     {
         "id",
@@ -72,6 +74,10 @@ KNOWN_SUBSCRIBER_STATES: Final = (
 )
 
 
+class InvalidSubscriberIdError(HomeAssistantError, ValueError):
+    """Raised when a subscriber ID is not a valid UUID string."""
+
+
 class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
     """Coordinator for UniFi Carrier Fabric API."""
 
@@ -102,7 +108,7 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
             status = getattr(err, "status_code", None)
             api_code = getattr(err, "api_error_code", None)
             if isinstance(err, UniFiAuthenticationError) or status in (401, 403):
-                if status == 403 or api_code == "insufficient_scope":  # noqa: PLR2004
+                if status == HTTP_STATUS_FORBIDDEN or api_code == "insufficient_scope":
                     msg = (
                         "Carrier Fabric API key missing required scope "
                         f"(insufficient_scope): {err}"
@@ -218,12 +224,12 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
         """Validate that subscriber_id is a valid UUID."""
         if not isinstance(subscriber_id, str):
             msg = f"Invalid subscriber ID (UUID string required): {subscriber_id}"
-            raise HomeAssistantError(msg)
+            raise InvalidSubscriberIdError(msg)
         try:
             uuid.UUID(subscriber_id)
         except (ValueError, TypeError, AttributeError) as err:
             msg = f"Invalid subscriber ID format (valid UUID required): {subscriber_id}"
-            raise HomeAssistantError(msg) from err
+            raise InvalidSubscriberIdError(msg) from err
 
     async def async_suspend_subscriber(
         self, subscriber_id: str, reason: str | None = None
@@ -243,6 +249,14 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
                 else:
                     raise
         except Exception as err:
+            status = getattr(err, "status_code", None)
+            api_code = getattr(err, "api_error_code", None)
+            if status == HTTP_STATUS_FORBIDDEN or api_code == "insufficient_scope":
+                msg = (
+                    f"Failed to suspend subscriber {subscriber_id}: "
+                    "Carrier Fabric API key missing required scope 'suspend:service'"
+                )
+                raise HomeAssistantError(msg) from err
             msg = f"Failed to suspend subscriber {subscriber_id}: {err}"
             raise HomeAssistantError(msg) from err
         await self.async_request_refresh()
@@ -263,6 +277,14 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
                 else:
                     raise
         except Exception as err:
+            status = getattr(err, "status_code", None)
+            api_code = getattr(err, "api_error_code", None)
+            if status == HTTP_STATUS_FORBIDDEN or api_code == "insufficient_scope":
+                msg = (
+                    f"Failed to resume subscriber {subscriber_id}: "
+                    "Carrier Fabric API key missing required scope 'resume:service'"
+                )
+                raise HomeAssistantError(msg) from err
             msg = f"Failed to resume subscriber {subscriber_id}: {err}"
             raise HomeAssistantError(msg) from err
         await self.async_request_refresh()

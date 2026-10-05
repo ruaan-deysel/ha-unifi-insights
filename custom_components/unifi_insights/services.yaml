@@ -594,3 +594,35 @@ set_liveview:
       required: true
       selector:
         text:
+
+carrier_suspend_subscriber:
+  name: Suspend Subscriber
+  description: >-
+    Stop a subscriber's internet service. Requires the "Enable service actions"
+    option to be enabled on the Carrier Fabric integration entry, and an ISP
+    API key with the suspend:service scope.
+  target:
+    device:
+      integration: unifi_insights
+    entity:
+      integration: unifi_insights
+  fields:
+    reason:
+      name: Reason
+      description: >-
+        Optional reason for stopping the subscriber's service (maximum 1024 characters).
+      required: false
+      selector:
+        text:
+
+carrier_resume_subscriber:
+  name: Resume Subscriber
+  description: >-
+    Restore a subscriber's internet service. Requires the "Enable service actions"
+    option to be enabled on the Carrier Fabric integration entry, and an ISP
+    API key with the resume:service scope.
+  target:
+    device:
+      integration: unifi_insights
+    entity:
+      integration: unifi_insights

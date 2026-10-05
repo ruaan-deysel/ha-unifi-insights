@@ -420,6 +420,10 @@ SERVICE_TRIGGER_ALARM: Final = "trigger_alarm"
 SERVICE_SET_LIVEVIEW: Final = "set_liveview"
 SERVICE_CREATE_LIVEVIEW: Final = "create_liveview"
 
+# UniFi Carrier Fabric Services
+SERVICE_CARRIER_SUSPEND_SUBSCRIBER: Final = "carrier_suspend_subscriber"
+SERVICE_CARRIER_RESUME_SUBSCRIBER: Final = "carrier_resume_subscriber"
+
 # Port actions
 PORT_ACTION_POWER_CYCLE: Final = "POWER_CYCLE"
 

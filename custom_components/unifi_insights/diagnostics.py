@@ -357,6 +357,33 @@ def _site_manager_summary(
     }
 
 
+# Carrier Fabric redaction constants
+CARRIER_SERVICE_PLAN_ALLOWLIST = frozenset(
+    {
+        "id",
+        "orgId",
+        "name",
+        "status",
+        "downloadMbps",
+        "uploadMbps",
+        "archivedAt",
+        "createdAt",
+        "updatedAt",
+    }
+)
+CARRIER_SUBSCRIBER_PII_FIELDS = frozenset({"name", "subscriberNumber"})
+CARRIER_DEFENSIVE_FORBIDDEN_FIELDS = frozenset(
+    {
+        "email",
+        "notes",
+        "serviceAddress",
+        "metadata",
+        "suspendReason",
+        "hostId",
+    }
+)
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: UnifiInsightsConfigEntry | CarrierFabricConfigEntry
 ) -> dict[str, Any]:
@@ -366,11 +393,70 @@ async def async_get_config_entry_diagnostics(
 
     if isinstance(entry.runtime_data, CarrierFabricData):
         carrier_data = entry.runtime_data
-        coord_data = getattr(carrier_data.coordinator, "data", {})
-        summary = coord_data.get("summary", {}) if isinstance(coord_data, dict) else {}
+        carrier_coordinator = carrier_data.coordinator
+        coord_data = getattr(carrier_coordinator, "data", {})
+        if not isinstance(coord_data, dict):
+            coord_data = {}
+
+        summary = (
+            coord_data.get("summary", {})
+            if isinstance(coord_data.get("summary"), dict)
+            else {}
+        )
+
+        last_exc = getattr(carrier_coordinator, "last_exception", None)
+        last_exc_type = (
+            last_exc.__class__.__name__ if last_exc is not None else None
+        )
+
+        # Redact service plans
+        raw_plans = coord_data.get("service_plans", {})
+        redacted_plans: dict[str, Any] = {}
+        if isinstance(raw_plans, dict):
+            for plan_id, plan_data in raw_plans.items():
+                if not isinstance(plan_data, dict):
+                    continue
+                plan_copy = {
+                    k: v
+                    for k, v in plan_data.items()
+                    if k in CARRIER_SERVICE_PLAN_ALLOWLIST
+                }
+                for forbidden in CARRIER_DEFENSIVE_FORBIDDEN_FIELDS:
+                    if forbidden in plan_data:
+                        plan_copy[forbidden] = REDACTED
+                redacted_plans[plan_id] = plan_copy
+
+        # Redact subscribers
+        raw_subs = coord_data.get("subscribers", {})
+        redacted_subs: dict[str, Any] = {}
+        if isinstance(raw_subs, dict):
+            for sub_id, sub_data in raw_subs.items():
+                if not isinstance(sub_data, dict):
+                    continue
+                sub_copy = dict(sub_data)
+                for pii_field in CARRIER_SUBSCRIBER_PII_FIELDS:
+                    if pii_field in sub_copy:
+                        sub_copy[pii_field] = REDACTED
+                for forbidden in CARRIER_DEFENSIVE_FORBIDDEN_FIELDS:
+                    if forbidden in sub_copy:
+                        sub_copy[forbidden] = REDACTED
+                redacted_subs[sub_id] = sub_copy
+
         return {
             "entry": async_redact_data(entry.as_dict(), TO_REDACT),
+            "coordinator": {
+                "last_update_success": getattr(
+                    carrier_coordinator, "last_update_success", True
+                ),
+                "last_exception_type": last_exc_type,
+            },
             "summary": summary,
+            "data": {
+                "org_id": coord_data.get("org_id"),
+                "summary": summary,
+                "service_plans": redacted_plans,
+                "subscribers": redacted_subs,
+            },
         }
 
     data = entry.runtime_data

@@ -465,6 +465,29 @@
       },
       "mobility_workspace_online_devices": {
         "name": "Online routers"
+      },
+      "thread_role": {
+        "name": "Thread Role",
+        "state": {
+          "disabled": "Disabled",
+          "detached": "Detached",
+          "child": "Child",
+          "router": "Router",
+          "leader": "Leader"
+        }
+      },
+      "thread_joined_devices": {
+        "name": "Thread Joined Devices"
+      },
+      "fob_keypad_beep_volume": {
+        "name": "Keypad Beep Volume"
+      },
+      "fob_arm_control": {
+        "name": "Arm Control",
+        "state": {
+          "enabled": "Enabled",
+          "disabled": "Disabled"
+        }
       }
     },
     "binary_sensor": {
@@ -534,6 +557,15 @@
       },
       "doorbell": {
         "name": "Doorbell"
+      },
+      "alarm_hub_device_tamper": {
+        "name": "Tamper Detection"
+      },
+      "thread_network_problem": {
+        "name": "Thread Network"
+      },
+      "fob_keypad_beep": {
+        "name": "Keypad Beep"
       }
     },
     "button": {

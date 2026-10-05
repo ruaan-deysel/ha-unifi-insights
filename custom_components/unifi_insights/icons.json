@@ -160,6 +160,18 @@
       },
       "mobility_workspace_online_devices": {
         "default": "mdi:router-wireless-settings"
+      },
+      "thread_role": {
+        "default": "mdi:access-point-network"
+      },
+      "thread_joined_devices": {
+        "default": "mdi:devices"
+      },
+      "fob_keypad_beep_volume": {
+        "default": "mdi:volume-high"
+      },
+      "fob_arm_control": {
+        "default": "mdi:shield-key"
       }
     },
     "binary_sensor": {
@@ -221,6 +233,24 @@
         "default": "mdi:door-open",
         "state": {
           "off": "mdi:door-closed"
+        }
+      },
+      "alarm_hub_device_tamper": {
+        "default": "mdi:shield-alert",
+        "state": {
+          "off": "mdi:shield-check"
+        }
+      },
+      "thread_network_problem": {
+        "default": "mdi:access-point-network",
+        "state": {
+          "on": "mdi:access-point-network-off"
+        }
+      },
+      "fob_keypad_beep": {
+        "default": "mdi:dialpad",
+        "state": {
+          "off": "mdi:volume-off"
         }
       }
     },

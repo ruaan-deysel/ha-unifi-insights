@@ -112,6 +112,13 @@ TO_REDACT = {
     # Smart detections that name a person or their vehicle
     "licensePlate",
     "license_plate",
+    # Protect alarm hub tamper events name the user involved
+    "userName",
+    "_lastTamperUser",
+    # Thread network identity (the network key itself is never exposed)
+    "networkName",
+    "panId",
+    "extendedPanId",
 }
 
 # Labels that name a person rather than a piece of hardware. These are only

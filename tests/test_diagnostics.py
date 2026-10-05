@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -21,6 +22,11 @@ from custom_components.unifi_insights.coordinators.config import (
 from custom_components.unifi_insights.diagnostics import (
     _redact_coordinator_data,
     async_get_config_entry_diagnostics,
+)
+from tests.fixtures.library_responses import (
+    SAMPLE_ALARM_HUB,
+    SAMPLE_ALARM_HUB_TAMPER_EVENT,
+    SAMPLE_THREAD_LINK_STATION,
 )
 
 
@@ -425,6 +431,36 @@ def test_redact_coordinator_data_tolerates_unexpected_shapes(data: Any) -> None:
     has not loaded yet, or when a section is missing or shaped unexpectedly.
     """
     assert _redact_coordinator_data(data) == data
+
+
+def test_redact_coordinator_data_hides_thread_ids_and_tamper_user() -> None:
+    """Thread network ids identify the network; userName names a person."""
+    hub = {**copy.deepcopy(SAMPLE_ALARM_HUB), "_lastTamperUser": "Installer"}
+    data = {
+        "protect": {
+            "link_stations": {"ls": copy.deepcopy(SAMPLE_THREAD_LINK_STATION)},
+            "alarm_hubs": {"hub": hub},
+            "events": {
+                "alarmHubDeviceTamper": {
+                    "e1": copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+                }
+            },
+        }
+    }
+
+    redacted = _redact_coordinator_data(data)
+
+    network = redacted["protect"]["link_stations"]["ls"]["threadState"]["network"]
+    for key in ("networkName", "panId", "extendedPanId"):
+        assert network[key] == REDACTED
+    assert network["role"] == "leader"
+    assert network["channel"] == 15
+    assert redacted["protect"]["alarm_hubs"]["hub"]["_lastTamperUser"] == REDACTED
+    event = redacted["protect"]["events"]["alarmHubDeviceTamper"]["e1"]
+    assert event["metadata"]["userName"] == REDACTED
+    text = str(redacted)
+    for secret in ("Installer", "Home Thread", "0011223344556677", "1a2b"):
+        assert secret not in text
 
 
 async def test_diagnostics_redacts_unpunctuated_macs_anywhere(

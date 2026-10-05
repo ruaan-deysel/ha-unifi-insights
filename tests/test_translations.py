@@ -20,6 +20,10 @@ from custom_components.unifi_insights.mobility_entity import (
     ROUTER_SENSORS,
     WORKSPACE_SENSORS,
 )
+from custom_components.unifi_insights.protect_security_entity import (
+    SECURITY_BINARY_SENSOR_TYPES,
+    SECURITY_SENSOR_TYPES,
+)
 from custom_components.unifi_insights.site_internet_activity_sensor import (
     SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
 )
@@ -192,3 +196,40 @@ def test_mobility_translations_and_icons_resolve_in_every_file() -> None:
         assert icons.get(platform, {}).get(key, {}).get("default"), (
             f"{platform}.{key} has no icon"
         )
+
+
+def test_protect_security_entity_translations_resolve_in_both_files() -> None:
+    """Alarm hub/Thread/fob entities resolve, ENUM states included."""
+    en = json.loads(_EN_JSON.read_text())["entity"]
+    strings = json.loads(_STRINGS_JSON.read_text())["entity"]
+
+    for platform, descriptions in (
+        ("binary_sensor", SECURITY_BINARY_SENSOR_TYPES),
+        ("sensor", SECURITY_SENSOR_TYPES),
+    ):
+        for desc in descriptions:
+            key = desc.translation_key
+            assert key is not None
+            assert key in strings[platform], f"{key} missing from strings.json"
+            assert key in en[platform], f"{key} missing from translations/en.json"
+            assert en[platform][key] == strings[platform][key], (
+                f"{key} differs between strings.json and translations/en.json"
+            )
+            assert strings[platform][key]["name"]
+            options = getattr(desc, "options", None)
+            if options:
+                assert set(strings[platform][key]["state"]) == set(options), key
+
+
+def test_protect_security_entity_icons_defined() -> None:
+    """Every alarm hub/Thread/fob entity has an icon in icons.json."""
+    icons = json.loads(_ICONS_JSON.read_text())["entity"]
+
+    for platform, descriptions in (
+        ("binary_sensor", SECURITY_BINARY_SENSOR_TYPES),
+        ("sensor", SECURITY_SENSOR_TYPES),
+    ):
+        for desc in descriptions:
+            entry = icons.get(platform, {}).get(desc.translation_key)
+            assert entry is not None, f"{desc.translation_key} has no icon"
+            assert entry["default"].startswith("mdi:")

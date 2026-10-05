@@ -1,0 +1,541 @@
+# Copyright 2026 UniFi Insights contributors
+"""Tests for UniFi Carrier Fabric sensors."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import CONF_API_KEY, EntityCategory
+from homeassistant.helpers import (
+    device_registry as dr,
+)
+from homeassistant.helpers import (
+    entity_registry as er,
+)
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.unifi_insights import CarrierFabricData
+from custom_components.unifi_insights.carrier_fabric_sensor import (
+    AGGREGATE_SENSOR_DESCRIPTIONS,
+    UnifiCarrierFabricAggregateSensor,
+    UnifiCarrierFabricPlanSubscribersSensor,
+    UnifiCarrierFabricSubscriberPlanSensor,
+    UnifiCarrierFabricSubscriberStateSensor,
+)
+from custom_components.unifi_insights.const import (
+    CONF_CARRIER_ORG_ID,
+    CONF_CONNECTION_TYPE,
+    CONF_TRACK_SUBSCRIBERS,
+    CONNECTION_TYPE_CARRIER_FABRIC,
+    DOMAIN,
+)
+from custom_components.unifi_insights.sensor import async_setup_entry
+
+pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
+
+
+@pytest.fixture
+def mock_carrier_coordinator():
+    """Create a mock Carrier Fabric coordinator."""
+    coord = MagicMock()
+    coord.data = {
+        "org_id": "org_test123",
+        "service_plans": {
+            "plan_1": {
+                "id": "plan_1",
+                "orgId": "org_test123",
+                "name": "Fiber 100M",
+                "status": "active",
+                "downloadMbps": 100.0,
+                "uploadMbps": 50.0,
+                "archivedAt": None,
+            },
+            "plan_2": {
+                "id": "plan_2",
+                "orgId": "org_test123",
+                "name": "Legacy DSL",
+                "status": "archived",
+                "downloadMbps": 10.0,
+                "uploadMbps": 1.0,
+                "archivedAt": "2026-01-01T00:00:00Z",
+            },
+        },
+        "subscribers": {
+            "sub_1": {
+                "id": "sub_1",
+                "orgId": "org_test123",
+                "name": "Alice Resident",
+                "subscriberNumber": "SUB-001",
+                "planId": "plan_1",
+                "state": "installed",
+                "suspended": False,
+                "suspendedAt": None,
+                "activatedAt": "2026-01-15T10:00:00Z",
+                # Private fields that must never appear in attributes
+                "email": "alice@example.com",
+                "serviceAddress": "123 Main St",
+                "notes": "VIP customer",
+                "metadata": {"router": "UDM-Pro"},
+                "suspendReason": "non-payment",
+                "hostId": "host-xyz",
+            },
+            "sub_2": {
+                "id": "sub_2",
+                "orgId": "org_test123",
+                "name": None,
+                "subscriberNumber": "SUB-002",
+                "planId": None,
+                "state": "provisioned",
+                "suspended": True,
+                "suspendedAt": "2026-02-01T12:00:00Z",
+                "activatedAt": None,
+            },
+            "sub_3_12345678": {
+                "id": "sub_3_12345678",
+                "orgId": "org_test123",
+                "name": None,
+                "subscriberNumber": None,
+                "planId": "unknown_plan_id",
+                "state": "unknown_custom_state",
+                "suspended": False,
+            },
+        },
+        "summary": {
+            "total_subscribers": 3,
+            "suspended_subscribers": 1,
+            "subscribers_by_state": {
+                "pending_assignment": 0,
+                "provisioned": 1,
+                "installed": 1,
+                "unknown": 1,
+            },
+            "active_service_plans": 1,
+            "subscribers_by_plan": {
+                "plan_1": 1,
+            },
+            "unassigned_subscribers": 1,
+        },
+    }
+    listeners = []
+    coord.async_add_listener = MagicMock(side_effect=listeners.append)
+    coord._listeners = listeners
+    return coord
+
+
+@pytest.fixture
+def carrier_entry(hass, mock_carrier_coordinator):
+    """Create a mock Carrier Fabric entry attached to coordinator."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Carrier Fabric",
+        unique_id="carrier_org_test123",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "isp_secret_key",
+            CONF_CARRIER_ORG_ID: "org_test123",
+        },
+        options={
+            CONF_TRACK_SUBSCRIBERS: False,
+        },
+    )
+    entry.add_to_hass(hass)
+    mock_client = MagicMock()
+    mock_client.close = AsyncMock()
+    entry.runtime_data = CarrierFabricData(
+        client=mock_client,
+        coordinator=mock_carrier_coordinator,
+    )
+    return entry
+
+
+async def test_carrier_fabric_aggregate_sensors(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Test creation, values, and attributes of organisation aggregate sensors."""
+    added_entities = []
+
+    def mock_add_entities(entities):
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, carrier_entry, mock_add_entities)
+
+    # 7 aggregate sensors + 2 plan sensors = 9 entities (track_subscribers is False)
+    assert len(added_entities) == 9
+
+    agg_sensors = [
+        e for e in added_entities if isinstance(e, UnifiCarrierFabricAggregateSensor)
+    ]
+    assert len(agg_sensors) == 7
+
+    sensors_by_key = {s.entity_description.key: s for s in agg_sensors}
+
+    # Verify primary sensors
+    total = sensors_by_key["total_subscribers"]
+    assert total.unique_id == "carrier_org_test123_total_subscribers"
+    assert total.native_value == 3
+    assert total.entity_description.entity_category is None
+    assert total.state_class == SensorStateClass.MEASUREMENT
+    assert total.device_info["identifiers"] == {(DOMAIN, "carrier_org_test123")}
+    assert total.device_info["name"] == "UniFi Carrier Fabric"
+
+    suspended = sensors_by_key["suspended_subscribers"]
+    assert suspended.unique_id == "carrier_org_test123_suspended_subscribers"
+    assert suspended.native_value == 1
+    assert suspended.entity_description.entity_category is None
+    assert suspended.state_class == SensorStateClass.MEASUREMENT
+
+    # Verify diagnostic sensors
+    prov = sensors_by_key["subscribers_provisioned"]
+    assert prov.native_value == 1
+    assert prov.entity_description.entity_category == EntityCategory.DIAGNOSTIC
+
+    inst = sensors_by_key["subscribers_installed"]
+    assert inst.native_value == 1
+    assert inst.entity_description.entity_category == EntityCategory.DIAGNOSTIC
+
+    unassigned = sensors_by_key["unassigned_subscribers"]
+    assert unassigned.native_value == 1
+    assert unassigned.entity_description.entity_category == EntityCategory.DIAGNOSTIC
+
+    plans = sensors_by_key["active_service_plans"]
+    assert plans.native_value == 1
+    assert plans.entity_description.entity_category == EntityCategory.DIAGNOSTIC
+
+
+async def test_carrier_fabric_plan_sensors(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Test per-plan subscriber count sensors."""
+    added_entities = []
+    await async_setup_entry(hass, carrier_entry, added_entities.extend)
+
+    plan_sensors = [
+        e
+        for e in added_entities
+        if isinstance(e, UnifiCarrierFabricPlanSubscribersSensor)
+    ]
+    assert len(plan_sensors) == 2
+
+    sensors_by_plan = {s._plan_id: s for s in plan_sensors}
+
+    # Active plan
+    s1 = sensors_by_plan["plan_1"]
+    assert s1.unique_id == "carrier_org_test123_plan_plan_1_subscribers"
+    assert s1.native_value == 1
+    assert s1.available is True
+    assert s1.entity_registry_enabled_default is True
+    assert s1.translation_placeholders == {"plan_name": "Fiber 100M"}
+    assert s1.extra_state_attributes == {
+        "status": "active",
+        "download_mbps": 100.0,
+        "upload_mbps": 50.0,
+    }
+
+    # Archived plan
+    s2 = sensors_by_plan["plan_2"]
+    assert s2.unique_id == "carrier_org_test123_plan_plan_2_subscribers"
+    assert s2.native_value == 0
+    assert s2.available is True
+    assert s2.entity_registry_enabled_default is False
+    assert s2.extra_state_attributes["status"] == "archived"
+    assert s2.extra_state_attributes["archived_at"] == "2026-01-01T00:00:00Z"
+
+    # Test plan disappearance
+    del mock_carrier_coordinator.data["service_plans"]["plan_1"]
+    assert s1.available is False
+
+
+async def test_carrier_fabric_subscriber_sensors_opt_in(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Test opt-in subscriber entities with privacy protections and device hierarchy."""
+    hass.config_entries.async_update_entry(
+        carrier_entry,
+        options={CONF_TRACK_SUBSCRIBERS: True},
+    )
+
+    added_entities = []
+    await async_setup_entry(hass, carrier_entry, added_entities.extend)
+
+    state_sensors = [
+        e
+        for e in added_entities
+        if isinstance(e, UnifiCarrierFabricSubscriberStateSensor)
+    ]
+    plan_sensors = [
+        e
+        for e in added_entities
+        if isinstance(e, UnifiCarrierFabricSubscriberPlanSensor)
+    ]
+
+    assert len(state_sensors) == 3
+    assert len(plan_sensors) == 3
+
+    states_by_sub = {s._subscriber_id: s for s in state_sensors}
+    plans_by_sub = {s._subscriber_id: s for s in plan_sensors}
+
+    # Subscriber 1: named, active, on plan 1
+    s1_state = states_by_sub["sub_1"]
+    assert s1_state.unique_id == "carrier_subscriber_sub_1_state"
+    assert s1_state.device_class == SensorDeviceClass.ENUM
+    assert s1_state.native_value == "installed"
+    assert s1_state.available is True
+    assert s1_state.extra_state_attributes == {"activated_at": "2026-01-15T10:00:00Z"}
+    # Verify strict privacy: ensure private fields are NOT present
+    for private_field in (
+        "email",
+        "serviceAddress",
+        "notes",
+        "metadata",
+        "suspendReason",
+        "hostId",
+        "subscriberNumber",
+    ):
+        assert private_field not in s1_state.extra_state_attributes
+
+    # Device info checks
+    dev_info1 = s1_state.device_info
+    assert dev_info1["identifiers"] == {(DOMAIN, "carrier_subscriber_sub_1")}
+    assert dev_info1["via_device"] == (DOMAIN, "carrier_org_test123")
+    assert dev_info1["name"] == "Alice Resident"
+
+    s1_plan = plans_by_sub["sub_1"]
+    assert s1_plan.unique_id == "carrier_subscriber_sub_1_service_plan"
+    assert s1_plan.native_value == "Fiber 100M"
+    assert s1_plan.extra_state_attributes == {
+        "download_mbps": 100.0,
+        "upload_mbps": 50.0,
+    }
+    assert s1_plan.entity_category == EntityCategory.DIAGNOSTIC
+
+    # Subscriber 2: suspended, unassigned, name falls back to subscriberNumber
+    s2_state = states_by_sub["sub_2"]
+    assert s2_state.native_value == "suspended"
+    assert s2_state.extra_state_attributes == {"suspended_at": "2026-02-01T12:00:00Z"}
+    assert s2_state.device_info["name"] == "SUB-002"
+
+    s2_plan = plans_by_sub["sub_2"]
+    assert s2_plan.native_value is None
+    assert s2_plan.extra_state_attributes == {}
+
+    # Subscriber 3: name falls back to Subscriber <id[:8]>
+    # unknown state, unknown plan ID
+    s3_state = states_by_sub["sub_3_12345678"]
+    assert s3_state.device_info["name"] == "Subscriber sub_3_12"
+    assert s3_state.native_value == "unknown"
+
+    s3_plan = plans_by_sub["sub_3_12345678"]
+    assert s3_plan.native_value == "unknown_plan_id"
+
+    # Subscriber disappearance marks entity unavailable without deleting
+    del mock_carrier_coordinator.data["subscribers"]["sub_1"]
+    assert s1_state.available is False
+    assert s1_plan.available is False
+
+
+async def test_carrier_fabric_track_subscribers_disabled_reconciliation(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Test subscriber cleanup when track_subscribers is disabled."""
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+
+    # Pre-register organisation device and aggregate entity
+    org_device = dev_reg.async_get_or_create(
+        config_entry_id=carrier_entry.entry_id,
+        identifiers={(DOMAIN, carrier_entry.unique_id)},
+    )
+    ent_reg.async_get_or_create(
+        domain="sensor",
+        platform=DOMAIN,
+        unique_id=f"{carrier_entry.unique_id}_total_subscribers",
+        config_entry=carrier_entry,
+        device_id=org_device.id,
+    )
+
+    # Pre-register subscriber device and entity
+    sub_device = dev_reg.async_get_or_create(
+        config_entry_id=carrier_entry.entry_id,
+        identifiers={(DOMAIN, "carrier_subscriber_sub_old")},
+    )
+    ent_reg.async_get_or_create(
+        domain="sensor",
+        platform=DOMAIN,
+        unique_id="carrier_subscriber_sub_old_state",
+        config_entry=carrier_entry,
+        device_id=sub_device.id,
+    )
+
+    # Run setup with track_subscribers = False
+    hass.config_entries.async_update_entry(
+        carrier_entry,
+        options={CONF_TRACK_SUBSCRIBERS: False},
+    )
+
+    added_entities = []
+    await async_setup_entry(hass, carrier_entry, added_entities.extend)
+
+    # Verify subscriber entity was removed
+    assert (
+        ent_reg.async_get_entity_id(
+            "sensor", DOMAIN, "carrier_subscriber_sub_old_state"
+        )
+        is None
+    )
+
+    # Verify subscriber device was removed
+    sub_devices = [
+        d
+        for d in dr.async_entries_for_config_entry(dev_reg, carrier_entry.entry_id)
+        if (DOMAIN, "carrier_subscriber_sub_old") in d.identifiers
+    ]
+    assert len(sub_devices) == 0
+
+    # Verify organisation device and entity were NOT removed
+    org_devices = [
+        d
+        for d in dr.async_entries_for_config_entry(dev_reg, carrier_entry.entry_id)
+        if (DOMAIN, carrier_entry.unique_id) in d.identifiers
+    ]
+    assert len(org_devices) == 1
+    assert (
+        ent_reg.async_get_entity_id(
+            "sensor", DOMAIN, f"{carrier_entry.unique_id}_total_subscribers"
+        )
+        is not None
+    )
+
+
+async def test_carrier_fabric_dynamic_discovery(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Test dynamic discovery of new plans and subscribers on coordinator refresh."""
+    hass.config_entries.async_update_entry(
+        carrier_entry,
+        options={CONF_TRACK_SUBSCRIBERS: True},
+    )
+
+    added_batches = []
+
+    def mock_add_entities(entities):
+        added_batches.append(entities)
+
+    await async_setup_entry(hass, carrier_entry, mock_add_entities)
+    assert len(added_batches) == 1  # Initial batch
+
+    # Simulate coordinator update with new plan and new subscriber
+    mock_carrier_coordinator.data["service_plans"]["plan_new"] = {
+        "id": "plan_new",
+        "name": "Gigabit Ultra",
+        "status": "active",
+        "downloadMbps": 1000.0,
+        "uploadMbps": 1000.0,
+    }
+    mock_carrier_coordinator.data["subscribers"]["sub_new"] = {
+        "id": "sub_new",
+        "name": "Bob New",
+        "state": "installed",
+        "suspended": False,
+        "planId": "plan_new",
+    }
+
+    # Trigger listeners
+    for listener in mock_carrier_coordinator._listeners:
+        listener()
+
+    assert len(added_batches) == 2  # New batch discovered
+    new_entities = added_batches[1]
+    new_uids = {e.unique_id for e in new_entities}
+
+    assert f"{carrier_entry.unique_id}_plan_plan_new_subscribers" in new_uids
+    assert "carrier_subscriber_sub_new_state" in new_uids
+    assert "carrier_subscriber_sub_new_service_plan" in new_uids
+
+
+async def test_carrier_fabric_sensor_defensive_fallbacks(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Test defensive fallbacks for missing data and coordinator updates."""
+    # Test plan sensor when plan is absent from data
+    ghost_plan_sensor = UnifiCarrierFabricPlanSubscribersSensor(
+        mock_carrier_coordinator, carrier_entry, "ghost_plan"
+    )
+    assert ghost_plan_sensor.available is False
+    assert ghost_plan_sensor.native_value == 0
+    assert ghost_plan_sensor.extra_state_attributes == {}
+    assert ghost_plan_sensor.entity_registry_enabled_default is True
+
+    # Test plan sensor coordinator update
+    mock_carrier_coordinator.data["service_plans"]["plan_1"]["name"] = "Renamed Fiber"
+    ghost_plan_sensor._plan_id = "plan_1"
+    with patch.object(ghost_plan_sensor, "async_write_ha_state"):
+        ghost_plan_sensor._handle_coordinator_update()
+    assert ghost_plan_sensor.translation_placeholders == {"plan_name": "Renamed Fiber"}
+
+    # Test subscriber state and plan sensors when subscriber is absent
+    ghost_sub_state = UnifiCarrierFabricSubscriberStateSensor(
+        mock_carrier_coordinator, carrier_entry, "ghost_sub"
+    )
+    assert ghost_sub_state.available is False
+    assert ghost_sub_state.native_value is None
+    assert ghost_sub_state.extra_state_attributes == {}
+
+    ghost_sub_plan = UnifiCarrierFabricSubscriberPlanSensor(
+        mock_carrier_coordinator, carrier_entry, "ghost_sub"
+    )
+    assert ghost_sub_plan.available is False
+    assert ghost_sub_plan.native_value is None
+    assert ghost_sub_plan.extra_state_attributes == {}
+
+    # Test snake_case attribute variants
+    mock_carrier_coordinator.data["subscribers"]["sub_snake"] = {
+        "id": "sub_snake",
+        "state": "provisioned",
+        "suspended": False,
+        "suspended_at": "2026-03-01T00:00:00Z",
+        "activated_at": "2026-03-02T00:00:00Z",
+        "plan_id": "plan_snake",
+    }
+    mock_carrier_coordinator.data["service_plans"]["plan_snake"] = {
+        "id": "plan_snake",
+        "name": "Snake Plan",
+        "download_mbps": 500.0,
+        "upload_mbps": 250.0,
+        "archived_at": "2026-03-03T00:00:00Z",
+        "status": "archived",
+    }
+    snake_state = UnifiCarrierFabricSubscriberStateSensor(
+        mock_carrier_coordinator, carrier_entry, "sub_snake"
+    )
+    assert snake_state.extra_state_attributes == {
+        "suspended_at": "2026-03-01T00:00:00Z",
+        "activated_at": "2026-03-02T00:00:00Z",
+    }
+
+    snake_plan = UnifiCarrierFabricSubscriberPlanSensor(
+        mock_carrier_coordinator, carrier_entry, "sub_snake"
+    )
+    assert snake_plan.native_value == "Snake Plan"
+    assert snake_plan.extra_state_attributes == {
+        "download_mbps": 500.0,
+        "upload_mbps": 250.0,
+    }
+
+    # Test aggregate sensor when summary is malformed
+    mock_carrier_coordinator.data["summary"] = None
+    agg = UnifiCarrierFabricAggregateSensor(
+        mock_carrier_coordinator,
+        carrier_entry,
+        AGGREGATE_SENSOR_DESCRIPTIONS[0],
+    )
+    assert agg.native_value == 0
+
+    # Test coordinator unavailable
+    mock_carrier_coordinator.last_update_success = False
+    assert snake_state.available is False
+
+    # Test subscribers not a dict
+    mock_carrier_coordinator.last_update_success = True
+    mock_carrier_coordinator.data["subscribers"] = None
+    assert snake_state.available is False
+    assert snake_state._subscriber_data is None

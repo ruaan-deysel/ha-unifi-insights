@@ -90,6 +90,7 @@ if TYPE_CHECKING:
 from homeassistant.helpers.entity import DeviceInfo
 
 from .carrier_fabric_data import CarrierFabricData
+from .carrier_fabric_sensor import async_setup_carrier_fabric_sensors
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1381,9 +1382,8 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensors for UniFi Insights integration."""
-    _ = hass
     if isinstance(config_entry.runtime_data, CarrierFabricData):
-        _LOGGER.debug("Carrier Fabric sensor platform setup deferred to Phase 3")
+        await async_setup_carrier_fabric_sensors(hass, config_entry, async_add_entities)
         return
 
     _LOGGER.debug("Setting up UniFi Insights sensors")

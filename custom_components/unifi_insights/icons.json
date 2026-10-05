@@ -72,6 +72,36 @@
       },
       "outlet_power_factor": {
         "default": "mdi:angle-acute"
+      },
+      "total_subscribers": {
+        "default": "mdi:account-group"
+      },
+      "suspended_subscribers": {
+        "default": "mdi:account-cancel"
+      },
+      "subscribers_pending_assignment": {
+        "default": "mdi:account-clock"
+      },
+      "subscribers_provisioned": {
+        "default": "mdi:account-cog"
+      },
+      "subscribers_installed": {
+        "default": "mdi:account-check"
+      },
+      "unassigned_subscribers": {
+        "default": "mdi:account-question"
+      },
+      "active_service_plans": {
+        "default": "mdi:format-list-bulleted-type"
+      },
+      "plan_subscribers": {
+        "default": "mdi:account-multiple"
+      },
+      "subscriber_state": {
+        "default": "mdi:account-badge"
+      },
+      "subscriber_service_plan": {
+        "default": "mdi:tag-outline"
       }
     },
     "binary_sensor": {

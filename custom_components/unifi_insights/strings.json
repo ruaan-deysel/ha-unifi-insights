@@ -302,6 +302,43 @@
       },
       "outlet_power_factor": {
         "name": "{outlet_name} Power Factor"
+      },
+      "total_subscribers": {
+        "name": "Total subscribers"
+      },
+      "suspended_subscribers": {
+        "name": "Suspended subscribers"
+      },
+      "subscribers_pending_assignment": {
+        "name": "Subscribers pending assignment"
+      },
+      "subscribers_provisioned": {
+        "name": "Subscribers provisioned"
+      },
+      "subscribers_installed": {
+        "name": "Subscribers installed"
+      },
+      "unassigned_subscribers": {
+        "name": "Unassigned subscribers"
+      },
+      "active_service_plans": {
+        "name": "Active service plans"
+      },
+      "plan_subscribers": {
+        "name": "{plan_name} subscribers"
+      },
+      "subscriber_state": {
+        "name": "Service state",
+        "state": {
+          "pending_assignment": "Pending assignment",
+          "provisioned": "Provisioned",
+          "installed": "Installed",
+          "suspended": "Suspended",
+          "unknown": "Unknown"
+        }
+      },
+      "subscriber_service_plan": {
+        "name": "Service plan"
       }
     },
     "binary_sensor": {

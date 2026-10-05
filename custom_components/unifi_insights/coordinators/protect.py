@@ -452,10 +452,12 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         # Families already reported once as unsupported (logged at INFO the
         # first time only, not on every hourly re-probe).
         self._unsupported_logged: set[str] = set()
-        # alarm hub id -> {"_lastTamperUser", "_lastTamperAt"} from its latest
-        # alarmHubDeviceTamper event. Kept outside `self.data` because the
-        # REST poll rebuilds every hub dict; `_fetch_alarm_hubs` lays these
-        # back on top so the details outlive the next poll.
+        # alarm hub id -> its latest alarmHubDeviceTamper event: "event_id",
+        # "status", "received" (monotonic time the status arrived) and the
+        # "_lastTamperUser"/"_lastTamperAt" keys written onto the hub dict.
+        # Kept outside `self.data` because the REST poll rebuilds every hub
+        # dict; `_fetch_alarm_hubs` lays it back on top (see
+        # `_with_tamper_record`) so the event outlives the next poll.
         self._alarm_hub_last_tamper: dict[str, dict[str, Any]] = {}
         self.data: dict[str, Any] = {
             "cameras": {},
@@ -1581,33 +1583,80 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         """
         Apply an alarmHubDeviceTamper event to its hub.
 
-        The status is written into ``alarmHub.deviceTamperStatus`` as an
-        optimistic update; the next poll or devices frame stays authoritative.
-        ``userName`` is recorded as ``_lastTamperUser`` without assuming whose
-        name it is (the spec does not say whether it is the person who
+        The status is written into ``alarmHub.deviceTamperStatus`` straight
+        away. ``userName`` is recorded as ``_lastTamperUser`` without assuming
+        whose name it is (the spec does not say whether it is the person who
         tampered or who restored), and ``start`` (epoch ms) as
         ``_lastTamperAt``.
+
+        A later frame of the same event (its "end", say) may carry only some
+        fields, so it fills gaps from the earlier frame rather than wiping
+        them. A different event replaces the record outright, so a restore
+        that names nobody does not show the previous event's user.
         """
         metadata = event_data.get("metadata")
         if not isinstance(metadata, dict):
             metadata = {}
         status = _event_metadata_text(metadata.get("status"))
-        tamper = {
+        record: dict[str, Any] = {
+            "event_id": event_data.get("id"),
+            "status": status,
+            "received": time.monotonic(),
             "_lastTamperUser": _event_metadata_text(metadata.get("userName")),
             "_lastTamperAt": event_data.get("start"),
         }
-        self._alarm_hub_last_tamper[device_id] = tamper
-        update: dict[str, Any] = dict(tamper)
-        if status is not None:
-            update["alarmHub"] = {"deviceTamperStatus": status}
-        self.data["alarm_hubs"][device_id] = _deep_merge(
-            self.data["alarm_hubs"][device_id], update
+        previous = self._alarm_hub_last_tamper.get(device_id)
+        if previous is not None and previous.get("event_id") == record["event_id"]:
+            if status is None:
+                record["received"] = previous["received"]
+            for key in ("status", "_lastTamperUser", "_lastTamperAt"):
+                if record[key] is None:
+                    record[key] = previous[key]
+        self._alarm_hub_last_tamper[device_id] = record
+        self.data["alarm_hubs"][device_id] = self._with_tamper_record(
+            self.data["alarm_hubs"][device_id], record, requested_at=None
         )
         _LOGGER.info(
             "Protect coordinator: Tamper event for alarm hub %s: status=%s",
             device_id,
             status,
         )
+
+    @staticmethod
+    def _with_tamper_record(
+        hub: dict[str, Any], record: dict[str, Any], *, requested_at: float | None
+    ) -> dict[str, Any]:
+        """
+        Return ``hub`` with its latest tamper event laid on top.
+
+        The event's user and time always apply. Its status applies when
+        ``requested_at`` is None (the event itself is being applied), when the
+        REST payload has no ``deviceTamperStatus`` of its own (Protect 7.2.x
+        sends the event but not the field, and on 7.3.70 the field is
+        optional), or when the event arrived after the poll's request was
+        sent: that REST snapshot predates the tamper and would otherwise read
+        as a false all-clear. Otherwise REST is authoritative. Both times are
+        HA's own monotonic clock, so Protect's clock skew cannot matter.
+        """
+        overlay: dict[str, Any] = {
+            "_lastTamperUser": record["_lastTamperUser"],
+            "_lastTamperAt": record["_lastTamperAt"],
+        }
+        status = record["status"]
+        if status is not None:
+            alarm_hub = hub.get("alarmHub")
+            reported = (
+                alarm_hub.get("deviceTamperStatus")
+                if isinstance(alarm_hub, dict)
+                else None
+            )
+            if (
+                requested_at is None
+                or not isinstance(reported, str)
+                or record["received"] >= requested_at
+            ):
+                overlay["alarmHub"] = {"deviceTamperStatus": status}
+        return _deep_merge(hub, overlay)
 
     def _apply_motion_event(
         self,
@@ -2472,13 +2521,16 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         await self._fetch_device_family("link_stations")
 
     async def _fetch_alarm_hubs(self) -> None:
-        """Fetch alarm hub data, keeping the latest tamper event details."""
+        """Fetch alarm hub data, keeping the latest tamper event on top."""
+        requested_at = time.monotonic()
         await self._fetch_device_family("alarm_hubs")
         hubs = self.data["alarm_hubs"]
-        for hub_id, tamper in self._alarm_hub_last_tamper.items():
+        for hub_id, record in self._alarm_hub_last_tamper.items():
             hub = hubs.get(hub_id)
             if isinstance(hub, dict):
-                hubs[hub_id] = {**hub, **tamper}
+                hubs[hub_id] = self._with_tamper_record(
+                    hub, record, requested_at=requested_at
+                )
 
     async def _fetch_device_family(self, collection: str) -> None:
         """

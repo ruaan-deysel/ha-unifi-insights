@@ -7745,6 +7745,101 @@ class TestProtectSecurityDeviceFamilies:
         assert hub["_lastTamperUser"] == "Installer"
         assert hub["_lastTamperAt"] == 1759628100000
 
+    @pytest.mark.asyncio
+    async def test_event_status_survives_poll_without_rest_status(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Protect 7.2.x has the tamper event but no REST deviceTamperStatus.
+
+        The event's status must outlive the next poll, or the sensor blinks
+        on for one poll and then sits at unknown.
+        """
+        rest_hub = copy.deepcopy(SAMPLE_ALARM_HUB)
+        del rest_hub["alarmHub"]["deviceTamperStatus"]
+        coordinator.data["alarm_hubs"] = {"alarm_hub_1": copy.deepcopy(rest_hub)}
+        coordinator.protect_client.alarm_hubs.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(rest_hub)]
+        )
+
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        )
+        await coordinator._fetch_alarm_hubs()
+        await coordinator._fetch_alarm_hubs()
+
+        alarm_hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]["alarmHub"]
+        assert alarm_hub["deviceTamperStatus"] == "tampered"
+        assert alarm_hub["armed"] == "off"
+
+    @pytest.mark.asyncio
+    async def test_event_during_in_flight_poll_beats_the_stale_snapshot(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A REST snapshot taken before the tamper must not read as clear.
+
+        The next poll, requested after the event, is authoritative again.
+        """
+        self._seed_hub(coordinator)
+
+        async def get_all_with_tamper_mid_flight() -> list[LinkStation]:
+            coordinator._handle_event_update(
+                "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+            )
+            return [LinkStation.model_validate(SAMPLE_ALARM_HUB)]  # "restored"
+
+        endpoint = coordinator.protect_client.alarm_hubs
+        endpoint.get_all = get_all_with_tamper_mid_flight
+        await coordinator._fetch_alarm_hubs()
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "tampered"
+
+        endpoint.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_ALARM_HUB)]
+        )
+        await coordinator._fetch_alarm_hubs()
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+
+    def test_later_frame_of_same_event_keeps_user_and_time(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """An update frame of the same event (e.g. its end) fills gaps only."""
+        self._seed_hub(coordinator)
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        )
+
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper",
+            {"id": "event_tamper_1", "device": "alarm_hub_1", "end": 1759628200000},
+        )
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["_lastTamperUser"] == "Installer"
+        assert hub["_lastTamperAt"] == 1759628100000
+        assert hub["alarmHub"]["deviceTamperStatus"] == "tampered"
+
+    def test_new_event_without_user_does_not_inherit_previous_user(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A different event naming nobody must not show the last event's user."""
+        self._seed_hub(coordinator)
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        )
+        restored = copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        restored["id"] = "event_tamper_2"
+        restored["start"] = 1759628300000
+        restored["metadata"]["status"] = {"text": "restored"}
+        del restored["metadata"]["userName"]
+
+        coordinator._handle_event_update("alarmHubDeviceTamper", restored)
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["_lastTamperUser"] is None
+        assert hub["_lastTamperAt"] == 1759628300000
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+
     def test_tamper_event_through_events_stream_envelope(
         self, coordinator: UnifiProtectCoordinator
     ) -> None:

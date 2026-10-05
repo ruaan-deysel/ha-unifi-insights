@@ -7448,3 +7448,181 @@ class TestProtectSecurityDeviceFamilies:
                 device_id="registry_dev1",
                 remove_config_entry_id=coordinator.config_entry.entry_id,
             )
+
+    # -- WebSocket device frames ------------------------------------------
+
+    def _seed_hub(self, coordinator: UnifiProtectCoordinator) -> dict[str, Any]:
+        hub = copy.deepcopy(SAMPLE_ALARM_HUB)
+        hub["alarmHub"]["armed"] = "on"
+        coordinator.data["alarm_hubs"] = {"alarm_hub_1": hub}
+        return hub
+
+    def test_linkstation_frame_for_known_alarm_hub_updates_alarm_hubs(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Alarm hubs and link stations share modelKey "linkstation".
+
+        The frame is routed by which collection already holds the id.
+        """
+        self._seed_hub(coordinator)
+        coordinator.data["link_stations"] = {
+            "link_station_thread": copy.deepcopy(SAMPLE_THREAD_LINK_STATION)
+        }
+
+        coordinator._handle_device_update(
+            "linkstation", {"id": "alarm_hub_1", "state": "DISCONNECTED"}
+        )
+        coordinator._handle_device_update(
+            "linkstation", {"id": "link_station_thread", "name": "Renamed"}
+        )
+
+        assert coordinator.data["alarm_hubs"]["alarm_hub_1"]["state"] == "DISCONNECTED"
+        assert "alarm_hub_1" not in coordinator.data["link_stations"]
+        assert coordinator.data["link_stations"]["link_station_thread"]["name"] == (
+            "Renamed"
+        )
+        assert "link_station_thread" not in coordinator.data["alarm_hubs"]
+
+    @pytest.mark.parametrize(
+        ("is_alarm_hub", "collection"),
+        [(True, "alarm_hubs"), (False, "link_stations")],
+    )
+    def test_linkstation_frame_for_new_device_uses_is_alarm_hub(
+        self,
+        coordinator: UnifiProtectCoordinator,
+        is_alarm_hub: bool,
+        collection: str,
+    ) -> None:
+        """An id no poll has seen yet is routed by the frame's isAlarmHub."""
+        coordinator._handle_device_update(
+            "linkstation", {"id": "new1", "isAlarmHub": is_alarm_hub}
+        )
+
+        assert "new1" in coordinator.data[collection]
+
+    def test_linkstation_frame_for_unknown_device_is_dropped(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Without an id match or isAlarmHub there is no safe target."""
+        coordinator._handle_device_update(
+            "linkstation", {"id": "mystery", "state": "CONNECTED"}
+        )
+
+        assert "mystery" not in coordinator.data["alarm_hubs"]
+        assert "mystery" not in coordinator.data["link_stations"]
+
+    def test_partial_nested_frame_keeps_sibling_fields(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A partial alarmHub frame must not wipe armed/battery until next poll."""
+        self._seed_hub(coordinator)
+
+        coordinator._handle_device_update(
+            "linkstation",
+            {"id": "alarm_hub_1", "alarmHub": {"deviceTamperStatus": "tampered"}},
+        )
+
+        alarm_hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]["alarmHub"]
+        assert alarm_hub["deviceTamperStatus"] == "tampered"
+        assert alarm_hub["armed"] == "on"
+        assert alarm_hub["battery"] == {
+            "charging": "off",
+            "batteryStatus": "ok",
+            "voltage": 13.1,
+        }
+
+    def test_partial_thread_network_frame_keeps_sibling_fields(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Merging recurses through threadState.network."""
+        coordinator.data["link_stations"] = {
+            "link_station_thread": copy.deepcopy(SAMPLE_THREAD_LINK_STATION)
+        }
+
+        coordinator._handle_device_update(
+            "linkstation",
+            {
+                "id": "link_station_thread",
+                "threadState": {"network": {"joinedDeviceCount": 5}},
+            },
+        )
+
+        network = coordinator.data["link_stations"]["link_station_thread"][
+            "threadState"
+        ]["network"]
+        assert network["joinedDeviceCount"] == 5
+        assert network["role"] == "leader"
+        assert network["channel"] == 15
+
+    def test_explicit_null_in_frame_replaces_nested_value(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Only dict-over-dict merges; a null network is a real state change."""
+        coordinator.data["link_stations"] = {
+            "link_station_thread": copy.deepcopy(SAMPLE_THREAD_LINK_STATION)
+        }
+
+        coordinator._handle_device_update(
+            "linkstation",
+            {"id": "link_station_thread", "threadState": {"network": None}},
+        )
+
+        state = coordinator.data["link_stations"]["link_station_thread"]["threadState"]
+        assert state["network"] is None
+
+    def test_merge_never_mutates_the_previous_dicts(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Listeners holding the old dict must see it unchanged."""
+        hub = self._seed_hub(coordinator)
+        old_alarm_hub = hub["alarmHub"]
+        snapshot = copy.deepcopy(hub)
+
+        coordinator._handle_device_update(
+            "linkstation",
+            {"id": "alarm_hub_1", "alarmHub": {"deviceTamperStatus": "tampered"}},
+        )
+
+        assert hub == snapshot
+        assert old_alarm_hub["deviceTamperStatus"] == "restored"
+        new_hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert new_hub is not hub
+        assert new_hub["alarmHub"] is not old_alarm_hub
+
+    def test_fob_frame_deep_merges_keypad_settings(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Fob frames ("fob" modelKey) deep-merge into fobs."""
+        coordinator.data["fobs"] = {"fob_1": copy.deepcopy(SAMPLE_KEYPAD_FOB)}
+
+        coordinator._handle_device_update(
+            "fob", {"id": "fob_1", "keypadSettings": {"beepVolume": 20}}
+        )
+
+        keypad = coordinator.data["fobs"]["fob_1"]["keypadSettings"]
+        assert keypad == {"beepEnabled": True, "beepVolume": 20}
+
+    def test_real_envelope_linkstation_frame_reaches_alarm_hubs(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """End to end through the confirmed {"type", "item"} envelope."""
+        self._seed_hub(coordinator)
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        coordinator._on_websocket_message(
+            {
+                "type": "update",
+                "item": {
+                    "id": "alarm_hub_1",
+                    "modelKey": "linkstation",
+                    "alarmHub": {"armed": "off"},
+                },
+            }
+        )
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["armed"] == "off"
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+        assert hub["type"] == "UP-AlarmHub"
+        listener.assert_called()

@@ -35,6 +35,8 @@ from custom_components.unifi_insights.const import (
     DEVICE_TYPE_VIEWER,
     DEVICE_TYPE_VIEWPORT,
     DOMAIN,
+    MODEL_KEY_FOB,
+    MODEL_KEY_LINKSTATION,
     SCAN_INTERVAL_PROTECT,
 )
 from custom_components.unifi_insights.helpers import async_get_device_entry
@@ -258,6 +260,30 @@ def _pick_field(containers: list[dict[str, Any]], *keys: str) -> Any:
             if value:
                 return value
     return None
+
+
+def _deep_merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
+    """
+    Merge ``new`` over ``old``, recursing where both sides hold a dict.
+
+    Returns a new dict at every level it touches and never mutates either
+    argument (see the in-place-mutation note in `_on_websocket_message`).
+    Only dict-over-dict recurses: any other value, ``None`` included,
+    replaces the old one, so a frame can still clear a nested object.
+
+    Used for the WebSocket frames of the nested-object families (fobs, link
+    stations, alarm hubs): a partial frame such as
+    ``{"alarmHub": {"deviceTamperStatus": "tampered"}}`` would otherwise
+    wipe the hub's armed/battery state until the next poll.
+    """
+    merged = dict(old)
+    for key, value in new.items():
+        existing = merged.get(key)
+        if isinstance(value, dict) and isinstance(existing, dict):
+            merged[key] = _deep_merge(existing, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _normalize_epoch_seconds(value: Any) -> float | None:
@@ -1197,6 +1223,22 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 **self.data["viewports"].get(device_id, {}),
                 **device_data,
             }
+        elif model_key == MODEL_KEY_FOB:
+            self.data["fobs"][device_id] = _deep_merge(
+                self.data["fobs"].get(device_id, {}), device_data
+            )
+        elif model_key == MODEL_KEY_LINKSTATION:
+            collection = self._linkstation_collection(device_id, device_data)
+            if collection is None:
+                _LOGGER.debug(
+                    "Protect coordinator: dropping WebSocket linkstation update "
+                    "for unknown device %s; the next poll will pick it up",
+                    device_id,
+                )
+                return
+            self.data[collection][device_id] = _deep_merge(
+                self.data[collection].get(device_id, {}), device_data
+            )
 
         # async_set_updated_data (rather than async_update_listeners) also
         # marks the last update as successful and resets the poll timer, so
@@ -1204,6 +1246,26 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         # while WebSocket data is flowing, and the 30s poll fallback re-arms
         # from the last WebSocket message rather than firing needlessly.
         self.async_set_updated_data(self.data)
+
+    def _linkstation_collection(
+        self, device_id: str, device_data: dict[str, Any]
+    ) -> str | None:
+        """
+        Pick the collection a WebSocket "linkstation" frame belongs to.
+
+        Link stations and alarm hubs share the "linkstation" modelKey, so the
+        frame is routed by which collection already holds the id, then by the
+        frame's own isAlarmHub. A partial frame for an id no poll has seen
+        and without isAlarmHub has no safe target: None (drop it).
+        """
+        if device_id in self.data["alarm_hubs"]:
+            return "alarm_hubs"
+        if device_id in self.data["link_stations"]:
+            return "link_stations"
+        is_alarm_hub = device_data.get("isAlarmHub")
+        if isinstance(is_alarm_hub, bool):
+            return "alarm_hubs" if is_alarm_hub else "link_stations"
+        return None
 
     def _normalize_camera_data(self, camera: dict[str, Any]) -> dict[str, Any]:
         """Normalize camera fields across alias and legacy payload shapes."""

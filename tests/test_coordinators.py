@@ -40,6 +40,7 @@ from custom_components.unifi_insights.api.network.models import (
     PortBytesMetrics,
     SiteReportBucket,
 )
+from custom_components.unifi_insights.api.protect.models import Fob, LinkStation
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
     CONF_SITE_IDS,
@@ -85,7 +86,6 @@ from custom_components.unifi_insights.coordinators.protect import (
     UnifiProtectCoordinator,
 )
 from custom_components.unifi_insights.entity import is_device_online
-from custom_components.unifi_insights.api.protect.models import Fob, LinkStation
 from tests.conftest import mock_device_lookup_method, set_mock_device_lookup
 from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
@@ -5429,6 +5429,16 @@ class TestUnifiFacadeCoordinator:
         """Test facade coordinator initialization."""
         assert facade_coordinator.name == f"{DOMAIN}_facade"
 
+    def test_aggregate_without_protect_has_security_device_keys(
+        self, facade_coordinator_no_protect: UnifiFacadeCoordinator
+    ):
+        """The empty Protect fallback carries every collection entities index."""
+        facade_coordinator_no_protect._aggregate_data()
+
+        protect = facade_coordinator_no_protect.data["protect"]
+        for collection in ("fobs", "link_stations", "alarm_hubs"):
+            assert protect[collection] == {}
+
     def test_aggregate_data(self, facade_coordinator: UnifiFacadeCoordinator):
         """Test data aggregation."""
         facade_coordinator._aggregate_data()
@@ -7198,7 +7208,6 @@ class TestUnifiInsightsInnerSpaceCoordinator:
         assert "w1" in wifi_res
 
 
-
 # ============================================================================
 # Protect 7.3.70 security device families (fobs, link stations, alarm hubs)
 # ============================================================================
@@ -7296,6 +7305,7 @@ class TestProtectSecurityDeviceFamilies:
         self,
         coordinator: UnifiProtectCoordinator,
         caplog: pytest.LogCaptureFixture,
+        *,
         collection: str,
         fetch_method: str,
         model: type,
@@ -7325,9 +7335,7 @@ class TestProtectSecurityDeviceFamilies:
                 await getattr(coordinator, fetch_method)()
             assert get_all.await_count == 2
 
-        unsupported = [
-            r for r in caplog.records if "does not expose" in r.getMessage()
-        ]
+        unsupported = [r for r in caplog.records if "does not expose" in r.getMessage()]
         assert len(unsupported) == 1
         assert unsupported[0].levelno == logging.INFO
 
@@ -7434,12 +7442,15 @@ class TestProtectSecurityDeviceFamilies:
         mock_device = MagicMock()
         mock_device.id = "registry_dev1"
 
-        with patch(
-            "custom_components.unifi_insights.coordinators.protect.dr.async_get"
-        ) as mock_registry, patch(
-            "custom_components.unifi_insights.coordinators.protect.async_get_device_entry",
-            side_effect=lambda _reg, ident, _entry: (
-                mock_device if ident == (DOMAIN, identifier) else None
+        with (
+            patch(
+                "custom_components.unifi_insights.coordinators.protect.dr.async_get"
+            ) as mock_registry,
+            patch(
+                "custom_components.unifi_insights.coordinators.protect.async_get_device_entry",
+                side_effect=lambda _reg, ident, _entry: (
+                    mock_device if ident == (DOMAIN, identifier) else None
+                ),
             ),
         ):
             for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
@@ -7491,6 +7502,7 @@ class TestProtectSecurityDeviceFamilies:
     def test_linkstation_frame_for_new_device_uses_is_alarm_hub(
         self,
         coordinator: UnifiProtectCoordinator,
+        *,
         is_alarm_hub: bool,
         collection: str,
     ) -> None:

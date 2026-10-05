@@ -52,6 +52,7 @@ from .entity import (
     is_gateway_device,
 )
 from .mobility_entity import async_setup_mobility_binary_sensors
+from .protect_security_entity import discover_protect_security_binary_sensors
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -628,6 +629,11 @@ async def async_setup_entry(
                                         device_id=sensor_id,
                                     )
                                 )
+
+        # Add Protect alarm hub, link station and fob binary sensors
+        entities.extend(
+            discover_protect_security_binary_sensors(coordinator, known_sensor_keys)
+        )
 
         if entities:
             _LOGGER.info("Adding %d UniFi Insights binary sensors", len(entities))

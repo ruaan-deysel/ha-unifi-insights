@@ -24,13 +24,13 @@ from custom_components.unifi_insights.api.network.models.resources import (
 )
 from custom_components.unifi_insights.api.network.models.site import Site, SiteHealth
 from custom_components.unifi_insights.api.network.models.wifi import WifiNetwork
-from custom_components.unifi_insights.api.protect.models.arm_profile import ArmProfile
 from custom_components.unifi_insights.api.protect.models import (
     FobArmControlSettings,
     FobKeypadSettings,
     LinkStationThreadNetwork,
     LinkStationThreadState,
 )
+from custom_components.unifi_insights.api.protect.models.arm_profile import ArmProfile
 from custom_components.unifi_insights.api.protect.models.doorlock import DoorLock
 from custom_components.unifi_insights.api.protect.models.fob import Fob
 from custom_components.unifi_insights.api.protect.models.link_station import (
@@ -497,7 +497,10 @@ def test_fob_parses_keypad_and_arm_control_settings() -> None:
     assert fob.arm_control_settings.enabled is True
     assert fob.arm_control_settings.arm_profile_id == "arm_profile_away"
     assert fob.arm_control_settings.night_profile_id is None
-    assert fob.feature_flags == {"buttons": ["arm", "disarm", "night"], "hasKeypad": True}
+    assert fob.feature_flags == {
+        "buttons": ["arm", "disarm", "night"],
+        "hasKeypad": True,
+    }
 
 
 def test_fob_accepts_string_button_labels() -> None:

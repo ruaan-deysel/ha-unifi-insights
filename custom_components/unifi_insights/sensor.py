@@ -65,6 +65,7 @@ from .innerspace_entity import (
     _discover_innerspace_sensors,
 )
 from .mobility_entity import async_setup_mobility_sensors
+from .protect_security_entity import discover_protect_security_sensors
 from .site_internet_activity_sensor import (
     SITE_INTERNET_ACTIVITY_SENSOR_TYPES as SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
 )
@@ -1488,6 +1489,11 @@ async def async_setup_entry(
 
         # Add UniFi InnerSpace placement sensors
         _discover_innerspace_sensors(coordinator, known_sensor_keys, entities)
+
+        # Add Protect alarm hub, link station and fob sensors
+        entities.extend(
+            discover_protect_security_sensors(coordinator, known_sensor_keys)
+        )
 
         if entities:
             _LOGGER.info("Adding %d UniFi Insights sensors", len(entities))

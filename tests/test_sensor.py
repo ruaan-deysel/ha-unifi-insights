@@ -24,6 +24,9 @@ from custom_components.unifi_insights.const import (
     CONNECTION_TYPE_LOCAL,
     DOMAIN,
 )
+from custom_components.unifi_insights.protect_security_entity import (
+    UnifiProtectSecuritySensor,
+)
 from custom_components.unifi_insights.sensor import (
     NVR_SENSOR_TYPES,
     OUTLET_SENSOR_TYPES,
@@ -60,6 +63,10 @@ from custom_components.unifi_insights.sensor import (
     bytes_to_megabits,
     format_uptime,
     get_network_device_temperature,
+)
+from tests.fixtures.library_responses import (
+    SAMPLE_KEYPAD_FOB,
+    SAMPLE_THREAD_LINK_STATION,
 )
 
 
@@ -1208,6 +1215,34 @@ class TestAsyncSetupEntry:
             e for e in added_entities if isinstance(e, UnifiProtectSensor)
         ]
         assert len(protect_sensors) > 0
+
+    async def test_setup_entry_creates_protect_security_sensors(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Thread gateway and keypad fob sensors are discovered at setup."""
+        mock_coordinator.data["protect"]["link_stations"] = {
+            "link_station_thread": SAMPLE_THREAD_LINK_STATION
+        }
+        mock_coordinator.data["protect"]["fobs"] = {"fob_1": SAMPLE_KEYPAD_FOB}
+        mock_config_entry.runtime_data.coordinator = mock_coordinator
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+
+        keys = {
+            e.entity_description.key
+            for e in added_entities
+            if isinstance(e, UnifiProtectSecuritySensor)
+        }
+        assert keys == {
+            "thread_role",
+            "thread_joined_devices",
+            "fob_keypad_beep_volume",
+            "fob_arm_control",
+        }
 
     async def test_setup_entry_without_protect_client(
         self, hass: HomeAssistant, mock_coordinator, mock_config_entry

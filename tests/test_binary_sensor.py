@@ -24,6 +24,13 @@ from custom_components.unifi_insights.const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_SENSOR,
 )
+from custom_components.unifi_insights.protect_security_entity import (
+    UnifiProtectSecurityBinarySensor,
+)
+from tests.fixtures.library_responses import (
+    SAMPLE_ALARM_HUB,
+    SAMPLE_THREAD_LINK_STATION,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -585,6 +592,37 @@ class TestAsyncSetupEntry:
         entry.runtime_data.mobility_coordinator = None
         entry.runtime_data.coordinator = mock_coordinator
         return entry
+
+    async def test_setup_entry_creates_protect_security_binary_sensors(
+        self, hass: HomeAssistant, mock_coordinator, mock_config_entry
+    ):
+        """Alarm hub tamper is discovered at setup, and on later updates."""
+        mock_coordinator.data["protect"]["alarm_hubs"] = {
+            "alarm_hub_1": SAMPLE_ALARM_HUB
+        }
+        listeners: list = []
+        mock_coordinator.async_add_listener = lambda cb: listeners.append(cb)
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_config_entry, add_entities)
+        mock_coordinator.data["protect"]["link_stations"] = {
+            "link_station_thread": SAMPLE_THREAD_LINK_STATION
+        }
+        for listener in listeners:
+            listener()
+
+        keys = {
+            (e._device_type, e.entity_description.key)
+            for e in added_entities
+            if isinstance(e, UnifiProtectSecurityBinarySensor)
+        }
+        assert keys == {
+            ("alarm_hub", "alarm_hub_device_tamper"),
+            ("link_station", "thread_network_problem"),
+        }
 
     async def test_setup_entry_creates_sensors(
         self, hass: HomeAssistant, mock_coordinator, mock_config_entry

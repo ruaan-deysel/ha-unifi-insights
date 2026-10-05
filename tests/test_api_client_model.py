@@ -25,12 +25,25 @@ from custom_components.unifi_insights.api.network.models.resources import (
 from custom_components.unifi_insights.api.network.models.site import Site, SiteHealth
 from custom_components.unifi_insights.api.network.models.wifi import WifiNetwork
 from custom_components.unifi_insights.api.protect.models.arm_profile import ArmProfile
+from custom_components.unifi_insights.api.protect.models import (
+    FobArmControlSettings,
+    FobKeypadSettings,
+    LinkStationThreadNetwork,
+    LinkStationThreadState,
+)
 from custom_components.unifi_insights.api.protect.models.doorlock import DoorLock
+from custom_components.unifi_insights.api.protect.models.fob import Fob
 from custom_components.unifi_insights.api.protect.models.link_station import (
     AlarmHub,
     LinkStation,
 )
 from custom_components.unifi_insights.api.protect.models.viewport import Viewport
+from tests.fixtures.library_responses import (
+    SAMPLE_ALARM_HUB,
+    SAMPLE_KEYPAD_FOB,
+    SAMPLE_LINK_STATION,
+    SAMPLE_THREAD_LINK_STATION,
+)
 
 
 def test_client_model_accepts_vpn_type() -> None:
@@ -388,3 +401,128 @@ def test_innerspace_models_parse_openapi_payloads() -> None:
     )
     assert inv.id == "inv-1"
     assert inv.model == "U6-Mesh"
+
+
+def test_link_station_parses_thread_state() -> None:
+    """A Thread gateway's threadState.network parses into typed fields."""
+    station = LinkStation.model_validate(SAMPLE_THREAD_LINK_STATION)
+
+    assert isinstance(station.thread_state, LinkStationThreadState)
+    network = station.thread_state.network
+    assert isinstance(network, LinkStationThreadNetwork)
+    assert network.status == "ready"
+    assert network.role == "leader"
+    assert network.network_name == "Home Thread"
+    assert network.channel == 15
+    assert network.pan_id == "1a2b"
+    assert network.extended_pan_id == "0011223344556677"
+    assert network.joined_device_count == 4
+    assert network.error_reason is None
+    assert network.last_updated_at == 1759628000000
+
+
+def test_link_station_thread_tolerates_values_outside_the_spec() -> None:
+    """New firmware enum values or out-of-range numbers must not drop the device.
+
+    `ProtectDeviceEndpoint.get_all` skips a whole device on ValidationError, so
+    a strict model would make a link station vanish from HA the day Protect
+    adds a Thread role.
+    """
+    station = LinkStation.model_validate(
+        {
+            "id": "ls-1",
+            "threadState": {
+                "network": {
+                    "status": "degraded",
+                    "role": "commissioner",
+                    "channel": 99,
+                    "joinedDeviceCount": -1,
+                }
+            },
+        }
+    )
+
+    assert station.thread_state is not None
+    network = station.thread_state.network
+    assert network is not None
+    assert network.status == "degraded"
+    assert network.role == "commissioner"
+    assert network.channel == 99
+    assert network.joined_device_count == -1
+
+
+def test_link_station_without_thread_network() -> None:
+    """A null network and an absent threadState both parse."""
+    hub = LinkStation.model_validate(SAMPLE_ALARM_HUB)
+    assert hub.thread_state is not None
+    assert hub.thread_state.network is None
+
+    # Real 7.3.70 SuperLink capture: no threadState key at all.
+    station = LinkStation.model_validate(SAMPLE_LINK_STATION)
+    assert station.thread_state is None
+
+
+def test_link_station_accepts_numeric_last_event() -> None:
+    """The spec types lastEvent as epoch milliseconds, not an object."""
+    station = LinkStation.model_validate(SAMPLE_THREAD_LINK_STATION)
+
+    assert station.last_event == 1759628000000
+
+
+def test_link_station_dump_keeps_unknown_nested_keys() -> None:
+    """Unknown nested keys survive the camelCase dump the coordinator stores."""
+    payload = {
+        "id": "ls-1",
+        "threadState": {
+            "futureState": "x",
+            "network": {"status": "ready", "futureKey": 1},
+        },
+    }
+
+    dumped = LinkStation.model_validate(payload).model_dump(by_alias=True)
+
+    assert dumped["threadState"]["futureState"] == "x"
+    assert dumped["threadState"]["network"]["futureKey"] == 1
+    assert dumped["threadState"]["network"]["status"] == "ready"
+
+
+def test_fob_parses_keypad_and_arm_control_settings() -> None:
+    """A keypad fob parses keypad and arm-control settings."""
+    fob = Fob.model_validate(SAMPLE_KEYPAD_FOB)
+
+    assert isinstance(fob.keypad_settings, FobKeypadSettings)
+    assert fob.keypad_settings.beep_enabled is True
+    assert fob.keypad_settings.beep_volume == 60
+    assert isinstance(fob.arm_control_settings, FobArmControlSettings)
+    assert fob.arm_control_settings.enabled is True
+    assert fob.arm_control_settings.arm_profile_id == "arm_profile_away"
+    assert fob.arm_control_settings.night_profile_id is None
+    assert fob.feature_flags == {"buttons": ["arm", "disarm", "night"], "hasKeypad": True}
+
+
+def test_fob_accepts_string_button_labels() -> None:
+    """The spec types buttonLabels as a string enum ("securityActions")."""
+    fob = Fob.model_validate({"id": "fob-1", "buttonLabels": "securityActions"})
+
+    assert fob.button_labels == "securityActions"
+
+
+def test_fob_tolerates_keypad_values_outside_the_spec() -> None:
+    """An out-of-range volume or missing keys must not drop the fob."""
+    fob = Fob.model_validate(
+        {
+            "id": "fob-1",
+            "keypadSettings": {"beepVolume": 150, "chime": "soft"},
+            "armControlSettings": {},
+        }
+    )
+
+    assert fob.keypad_settings is not None
+    assert fob.keypad_settings.beep_volume == 150
+    assert fob.keypad_settings.beep_enabled is None
+    assert fob.arm_control_settings is not None
+    assert fob.arm_control_settings.enabled is None
+    dumped = fob.model_dump(by_alias=True)
+    assert dumped["keypadSettings"]["chime"] == "soft"
+    assert dumped["keypadSettings"]["beepVolume"] == 150
+    assert dumped["armControlSettings"]["armProfileId"] is None

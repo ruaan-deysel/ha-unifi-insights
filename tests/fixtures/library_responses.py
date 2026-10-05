@@ -159,6 +159,105 @@ SAMPLE_NVR = {
     "version": "3.0.22",
 }
 
+# Redacted capture of a real /link-stations item on Protect 7.3.70
+# (2026-10-05). A SuperLink sends no "threadState" key at all, although the
+# spec marks it required.
+SAMPLE_LINK_STATION = {
+    "id": "link_station_1",
+    "modelKey": "linkstation",
+    "state": "CONNECTED",
+    "name": "SuperLink",
+    "type": "UP-SuperLink-US",
+    "guid": "00000000-0000-0000-0000-000000000001",
+    "mac": "AABBCC000001",
+    "isAlarmHub": False,
+    "ledSettings": {"isEnabled": True},
+    "lastEvent": None,
+}
+
+# The rest are built from the Protect 7.3.70 OpenAPI schemas: no console used
+# for these captures had a Thread gateway, an alarm hub or a fob.
+SAMPLE_THREAD_LINK_STATION = {
+    "id": "link_station_thread",
+    "modelKey": "linkstation",
+    "state": "CONNECTED",
+    "name": "Thread Gateway",
+    "type": "UP-SuperLink-US",
+    "mac": "AABBCC000002",
+    "isAlarmHub": False,
+    "ledSettings": {"isEnabled": True},
+    "lastEvent": 1759628000000,
+    "threadState": {
+        "network": {
+            "status": "ready",
+            "role": "leader",
+            "networkName": "Home Thread",
+            "channel": 15,
+            "panId": "1a2b",
+            "extendedPanId": "0011223344556677",
+            "joinedDeviceCount": 4,
+            "errorReason": None,
+            "lastUpdatedAt": 1759628000000,
+        }
+    },
+}
+
+SAMPLE_ALARM_HUB = {
+    "id": "alarm_hub_1",
+    "modelKey": "linkstation",
+    "state": "CONNECTED",
+    "name": "Alarm Hub",
+    "type": "UP-AlarmHub",
+    "mac": "AABBCC000003",
+    "isAlarmHub": True,
+    "ledSettings": {"isEnabled": True},
+    "lastEvent": None,
+    "alarmHub": {
+        "armed": "off",
+        "battery": {"charging": "off", "batteryStatus": "ok", "voltage": 13.1},
+        "deviceTamperStatus": "restored",
+    },
+    "threadState": {"network": None},
+}
+
+SAMPLE_KEYPAD_FOB = {
+    "id": "fob_1",
+    "modelKey": "fob",
+    "state": "CONNECTED",
+    "name": "Hallway Keypad",
+    "type": "UP-Keypad",
+    "mac": "AABBCC000004",
+    "awayState": "ONLINE",
+    "buttonLabels": "securityActions",
+    "featureFlags": {"buttons": ["arm", "disarm", "night"], "hasKeypad": True},
+    "armControlSettings": {
+        "enabled": True,
+        "armProfileId": "arm_profile_away",
+        "nightProfileId": None,
+    },
+    "keypadSettings": {"beepEnabled": True, "beepVolume": 60},
+    "wirelessConnectionState": {
+        "signalState": "good",
+        "batteryStatus": {"percentage": 90, "isLow": False},
+        "bridge": "link_station_1",
+    },
+}
+
+SAMPLE_ALARM_HUB_TAMPER_EVENT = {
+    "id": "event_tamper_1",
+    "modelKey": "event",
+    "type": "alarmHubDeviceTamper",
+    "start": 1759628100000,
+    "end": None,
+    "device": "alarm_hub_1",
+    "metadata": {
+        "status": {"text": "tampered"},
+        "deviceId": {"text": "alarm_hub_1"},
+        "deviceName": {"text": "Alarm Hub"},
+        "userName": "Installer",
+    },
+}
+
 SAMPLE_SITE_REPORT_RESPONSE = {
     "meta": {"rc": "ok"},
     "data": [

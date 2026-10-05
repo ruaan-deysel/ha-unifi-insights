@@ -43,7 +43,12 @@ from custom_components.unifi_insights.api.network import (
     parse_outlet_metrics,
 )
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
-from tests.fixtures.library_responses import SAMPLE_SITE_REPORT_RESPONSE
+from tests.fixtures.library_responses import (
+    SAMPLE_ALARM_HUB,
+    SAMPLE_KEYPAD_FOB,
+    SAMPLE_SITE_REPORT_RESPONSE,
+    SAMPLE_THREAD_LINK_STATION,
+)
 
 
 def _network_client() -> UniFiNetworkClient:
@@ -1251,6 +1256,31 @@ async def test_alarm_hubs_get_all_wrapped_and_unwrapped() -> None:
     unwrapped = await client.alarm_hubs.get_all()
     assert len(unwrapped) == 1
     assert unwrapped[0].id == "hub-2"
+
+
+async def test_spec_shaped_protect_7_3_70_devices_are_not_dropped() -> None:
+    """Spec-shaped 7.3.70 fobs, link stations and alarm hubs all parse.
+
+    `get_all` skips any item that fails validation, so a model type that
+    disagrees with the spec (buttonLabels is a string, lastEvent a number)
+    silently hides every real device of that family.
+    """
+    client = _protect_client()
+
+    client._get = AsyncMock(return_value={"data": [SAMPLE_KEYPAD_FOB]})
+    fobs = await client.fobs.get_all()
+    assert [fob.id for fob in fobs] == ["fob_1"]
+    assert client.fobs.last_result_complete is True
+
+    client._get = AsyncMock(return_value=[SAMPLE_THREAD_LINK_STATION])
+    stations = await client.link_stations.get_all()
+    assert [station.id for station in stations] == ["link_station_thread"]
+    assert client.link_stations.last_result_complete is True
+
+    client._get = AsyncMock(return_value=[SAMPLE_ALARM_HUB])
+    hubs = await client.alarm_hubs.get_all()
+    assert [hub.id for hub in hubs] == ["alarm_hub_1"]
+    assert client.alarm_hubs.last_result_complete is True
 
 
 async def test_alarm_hubs_trigger_output_posts_expected_payload() -> None:

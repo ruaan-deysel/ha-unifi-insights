@@ -68,6 +68,10 @@ SCAN_INTERVAL_SITE_MANAGER = timedelta(minutes=10)
 # access, or accounts without routers, are only re-checked hourly.
 SCAN_INTERVAL_MOBILITY = timedelta(minutes=5)
 SCAN_INTERVAL_MOBILITY_IDLE = timedelta(hours=1)
+# Device identifiers: routers are `mobility_{uuid}`, workspaces
+# `mobility_workspace_{uuid}`. Router ids are UUIDs, so they never collide.
+MOBILITY_DEVICE_PREFIX: Final = "mobility_"
+MOBILITY_WORKSPACE_PREFIX: Final = "mobility_workspace_"
 # Site Manager response sections shared by the coordinator and diagnostics.
 SITE_MANAGER_COLLECTIONS: Final = (
     "hosts",

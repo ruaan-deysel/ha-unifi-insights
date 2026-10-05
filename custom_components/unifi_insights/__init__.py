@@ -36,6 +36,8 @@ from .const import (
     CONNECTION_TYPE_LOCAL,
     DEFAULT_API_HOST,
     DOMAIN,
+    MOBILITY_DEVICE_PREFIX,
+    MOBILITY_WORKSPACE_PREFIX,
 )
 from .const import (
     CONNECTION_TYPE_REMOTE as CONNECTION_TYPE_REMOTE,
@@ -45,9 +47,11 @@ from .coordinators import (
     UnifiDeviceCoordinator,
     UnifiFacadeCoordinator,
     UnifiInsightsInnerSpaceCoordinator,
+    UnifiInsightsMobilityCoordinator,
     UnifiInsightsSiteManagerCoordinator,
     UnifiProtectCoordinator,
 )
+from .coordinators.mobility import ACCESS_UNKNOWN, async_setup_mobility
 from .coordinators.site_manager import (
     async_acquire_site_manager,
     async_release_site_manager,
@@ -82,6 +86,8 @@ class UnifiInsightsData:
     innerspace_client: UniFiInnerSpaceClient | None = None
     site_manager_coordinator: UnifiInsightsSiteManagerCoordinator | None = None
     site_manager_fingerprint: str | None = None
+    # Only the remote entry that owns its cloud key's Mobility data has one.
+    mobility_coordinator: UnifiInsightsMobilityCoordinator | None = None
     # Facade coordinator for backward compatibility with entity classes
     _facade_coordinator: UnifiFacadeCoordinator | None = None
 
@@ -565,11 +571,15 @@ async def async_setup_entry(
 
     site_manager_fingerprint: str | None = None
     site_manager_coordinator: UnifiInsightsSiteManagerCoordinator | None = None
+    mobility_coordinator: UnifiInsightsMobilityCoordinator | None = None
     if not is_local:
         site_manager_fingerprint, account = await async_acquire_site_manager(
             hass, entry.data[CONF_API_KEY], entry.entry_id, websession
         )
         site_manager_coordinator = account.coordinator
+        # Mobility is not part of the facade: its polls do not update
+        # console entities, and its outages do not affect their availability.
+        mobility_coordinator = async_setup_mobility(hass, entry, websession)
 
     try:
         # The facade aggregates the optional account snapshot separately.
@@ -596,6 +606,7 @@ async def async_setup_entry(
             innerspace_client=innerspace_client,
             site_manager_coordinator=site_manager_coordinator,
             site_manager_fingerprint=site_manager_fingerprint,
+            mobility_coordinator=mobility_coordinator,
             _facade_coordinator=facade_coordinator,
         )
 
@@ -679,8 +690,10 @@ async def async_remove_config_entry_device(
     Deselecting a site in options stops it being polled, so its devices can
     never come back and would otherwise sit unavailable with no way to remove
     them. WiFi devices carry no site id, so they are allowed once no polled
-    site serves that network any more. Everything else is refused: devices of
-    polled sites are live, and Protect and client devices are not site-scoped.
+    site serves that network any more. Mobility routers and workspaces are
+    allowed once Mobility no longer reports them. Everything else is refused:
+    devices of polled sites are live, and Protect and client devices are not
+    site-scoped.
     """
     runtime_data = getattr(entry, "runtime_data", None)
     if runtime_data is None:
@@ -697,9 +710,35 @@ async def async_remove_config_entry_device(
                 for site_id in deselected
             )
             or _is_stale_wifi_identifier(identifier, config_coordinator, polled)
+            or _is_stale_mobility_identifier(
+                identifier, runtime_data.mobility_coordinator
+            )
         )
         for domain, identifier in device_entry.identifiers
     )
+
+
+def _is_stale_mobility_identifier(
+    identifier: str, coordinator: UnifiInsightsMobilityCoordinator | None
+) -> bool:
+    """
+    Return True if a Mobility router or workspace is no longer reported.
+
+    An entry without a Mobility coordinator no longer owns its key's Mobility
+    data, so devices it created earlier can never update again. Otherwise only
+    a successful poll that answered for the key is proof a device is gone.
+    """
+    if not identifier.startswith(MOBILITY_DEVICE_PREFIX):
+        return False
+    if coordinator is None:
+        return True
+    data = coordinator.data
+    if not coordinator.last_update_success or data["access"] == ACCESS_UNKNOWN:
+        return False
+    if identifier.startswith(MOBILITY_WORKSPACE_PREFIX):
+        workspace_id = identifier.removeprefix(MOBILITY_WORKSPACE_PREFIX)
+        return workspace_id not in data["workspaces"]
+    return identifier.removeprefix(MOBILITY_DEVICE_PREFIX) not in data["devices"]
 
 
 def _is_stale_wifi_identifier(

@@ -214,6 +214,22 @@ def mock_innerspace_client() -> Generator[MagicMock]:
         yield client
 
 
+@pytest.fixture(autouse=True)
+def mock_mobility_client() -> Generator[MagicMock]:
+    """Keep remote entries off the Mobility cloud API: an account without routers."""
+    client = MagicMock()
+    client.list_workspaces = AsyncMock(return_value=[])
+    client.list_devices = AsyncMock(return_value=[])
+    client.get_device = AsyncMock(return_value={})
+    client.close = AsyncMock()
+
+    with patch(
+        "custom_components.unifi_insights.coordinators.mobility.UniFiMobilityClient",
+        MagicMock(return_value=client),
+    ):
+        yield client
+
+
 @pytest.fixture
 def mock_network_client() -> Generator[MagicMock]:
     """Return a mocked UniFi Network client."""

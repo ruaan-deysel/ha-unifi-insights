@@ -35,6 +35,7 @@ from custom_components.unifi_insights.const import (
     DEVICE_TYPE_VIEWER,
     DEVICE_TYPE_VIEWPORT,
     DOMAIN,
+    EVENT_TYPE_ALARM_HUB_DEVICE_TAMPER,
     MODEL_KEY_FOB,
     MODEL_KEY_LINKSTATION,
     SCAN_INTERVAL_PROTECT,
@@ -286,6 +287,19 @@ def _deep_merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _event_metadata_text(value: Any) -> str | None:
+    """
+    Read one event metadata value as text.
+
+    Protect wraps most event metadata as ``{"text": ...}`` but sends some
+    fields (``alarmHubDeviceTamper``'s ``userName``) as a plain string, so
+    both are accepted. Anything else reads as None.
+    """
+    if isinstance(value, dict):
+        value = value.get("text")
+    return value if isinstance(value, str) else None
+
+
 def _normalize_epoch_seconds(value: Any) -> float | None:
     """
     Normalize a timestamp payload to a single epoch-seconds float.
@@ -438,6 +452,11 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         # Families already reported once as unsupported (logged at INFO the
         # first time only, not on every hourly re-probe).
         self._unsupported_logged: set[str] = set()
+        # alarm hub id -> {"_lastTamperUser", "_lastTamperAt"} from its latest
+        # alarmHubDeviceTamper event. Kept outside `self.data` because the
+        # REST poll rebuilds every hub dict; `_fetch_alarm_hubs` lays these
+        # back on top so the details outlive the next poll.
+        self._alarm_hub_last_tamper: dict[str, dict[str, Any]] = {}
         self.data: dict[str, Any] = {
             "cameras": {},
             "lights": {},
@@ -1550,6 +1569,46 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 event_data.get("end"),
             )
 
+        elif (
+            event_type == EVENT_TYPE_ALARM_HUB_DEVICE_TAMPER
+            and device_id in self.data["alarm_hubs"]
+        ):
+            self._apply_alarm_hub_tamper_event(device_id, event_data)
+
+    def _apply_alarm_hub_tamper_event(
+        self, device_id: str, event_data: dict[str, Any]
+    ) -> None:
+        """
+        Apply an alarmHubDeviceTamper event to its hub.
+
+        The status is written into ``alarmHub.deviceTamperStatus`` as an
+        optimistic update; the next poll or devices frame stays authoritative.
+        ``userName`` is recorded as ``_lastTamperUser`` without assuming whose
+        name it is (the spec does not say whether it is the person who
+        tampered or who restored), and ``start`` (epoch ms) as
+        ``_lastTamperAt``.
+        """
+        metadata = event_data.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        status = _event_metadata_text(metadata.get("status"))
+        tamper = {
+            "_lastTamperUser": _event_metadata_text(metadata.get("userName")),
+            "_lastTamperAt": event_data.get("start"),
+        }
+        self._alarm_hub_last_tamper[device_id] = tamper
+        update: dict[str, Any] = dict(tamper)
+        if status is not None:
+            update["alarmHub"] = {"deviceTamperStatus": status}
+        self.data["alarm_hubs"][device_id] = _deep_merge(
+            self.data["alarm_hubs"][device_id], update
+        )
+        _LOGGER.info(
+            "Protect coordinator: Tamper event for alarm hub %s: status=%s",
+            device_id,
+            status,
+        )
+
     def _apply_motion_event(
         self,
         bucket: dict[str, Any],
@@ -2413,8 +2472,13 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         await self._fetch_device_family("link_stations")
 
     async def _fetch_alarm_hubs(self) -> None:
-        """Fetch alarm hub data."""
+        """Fetch alarm hub data, keeping the latest tamper event details."""
         await self._fetch_device_family("alarm_hubs")
+        hubs = self.data["alarm_hubs"]
+        for hub_id, tamper in self._alarm_hub_last_tamper.items():
+            hub = hubs.get(hub_id)
+            if isinstance(hub, dict):
+                hubs[hub_id] = {**hub, **tamper}
 
     async def _fetch_device_family(self, collection: str) -> None:
         """
@@ -2575,6 +2639,8 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     self._sensor_ws_recency_preserve_counts.pop(device_id, None)
                     self._sensor_ws_recency_latched.pop(device_id, None)
                     self._sensor_preserve_cap_warned.discard(device_id)
+                elif device_type == "alarm_hubs":
+                    self._alarm_hub_last_tamper.pop(device_id, None)
 
             self._previous_protect_device_ids[device_type] = current_ids | pending_ids
 

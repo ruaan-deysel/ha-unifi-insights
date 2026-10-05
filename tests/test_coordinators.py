@@ -89,6 +89,7 @@ from custom_components.unifi_insights.api.protect.models import Fob, LinkStation
 from tests.conftest import mock_device_lookup_method, set_mock_device_lookup
 from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
+    SAMPLE_ALARM_HUB_TAMPER_EVENT,
     SAMPLE_KEYPAD_FOB,
     SAMPLE_THREAD_LINK_STATION,
 )
@@ -7626,3 +7627,123 @@ class TestProtectSecurityDeviceFamilies:
         assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
         assert hub["type"] == "UP-AlarmHub"
         listener.assert_called()
+
+    # -- alarmHubDeviceTamper events --------------------------------------
+
+    def test_tamper_event_sets_status_user_and_time(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """status is a {text} wrapper; userName is a plain string."""
+        hub = self._seed_hub(coordinator)
+        snapshot = copy.deepcopy(hub)
+
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        )
+
+        updated = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert updated["alarmHub"]["deviceTamperStatus"] == "tampered"
+        assert updated["alarmHub"]["armed"] == "on"
+        assert updated["_lastTamperUser"] == "Installer"
+        assert updated["_lastTamperAt"] == 1759628100000
+        assert hub == snapshot
+
+    @pytest.mark.parametrize(
+        ("user_name", "expected"),
+        [({"text": "Installer"}, "Installer"), (None, None), (42, None)],
+    )
+    def test_tamper_event_user_name_shapes(
+        self,
+        coordinator: UnifiProtectCoordinator,
+        user_name: Any,
+        expected: str | None,
+    ) -> None:
+        """A {text} wrapper is tolerated; anything else is no user."""
+        self._seed_hub(coordinator)
+        event = copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        event["metadata"]["userName"] = user_name
+
+        coordinator._handle_event_update("alarmHubDeviceTamper", event)
+
+        assert coordinator.data["alarm_hubs"]["alarm_hub_1"]["_lastTamperUser"] == (
+            expected
+        )
+
+    def test_tamper_event_without_status_keeps_reported_status(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """An unreadable status never overwrites the hub's reported one."""
+        self._seed_hub(coordinator)
+        event = copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        event["metadata"]["status"] = {"value": "tampered"}  # no "text"
+
+        coordinator._handle_event_update("alarmHubDeviceTamper", event)
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+        assert hub["_lastTamperAt"] == 1759628100000
+
+    def test_tamper_event_for_unknown_device_is_ignored(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """An event for a hub no poll has seen changes nothing."""
+        event = copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        event["device"] = "not_a_hub"
+
+        coordinator._handle_event_update("alarmHubDeviceTamper", event)
+
+        assert coordinator.data["alarm_hubs"] == {}
+        assert coordinator._alarm_hub_last_tamper == {}
+
+    @pytest.mark.asyncio
+    async def test_tamper_details_survive_the_next_poll(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """The REST poll rebuilds each hub dict; the event details persist.
+
+        Status stays authoritative from REST.
+        """
+        self._seed_hub(coordinator)
+        coordinator._handle_event_update(
+            "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
+        )
+        coordinator.protect_client.alarm_hubs.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_ALARM_HUB)]
+        )
+
+        await coordinator._fetch_alarm_hubs()
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "restored"
+        assert hub["_lastTamperUser"] == "Installer"
+        assert hub["_lastTamperAt"] == 1759628100000
+
+    def test_tamper_event_through_events_stream_envelope(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """End to end: the event's top-level "device" names the hub."""
+        self._seed_hub(coordinator)
+
+        coordinator._on_websocket_event_message(
+            {"type": "add", "item": copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)}
+        )
+
+        hub = coordinator.data["alarm_hubs"]["alarm_hub_1"]
+        assert hub["alarmHub"]["deviceTamperStatus"] == "tampered"
+
+    def test_stale_cleanup_forgets_tamper_details(
+        self, hass: HomeAssistant, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """An evicted hub's event details must not leak onto a reused id."""
+        coordinator._alarm_hub_last_tamper["gone"] = {"_lastTamperUser": "x"}
+        coordinator._previous_protect_device_ids["alarm_hubs"] = {"gone"}
+        coordinator.data["alarm_hubs"] = {}
+
+        with patch(
+            "custom_components.unifi_insights.coordinators.protect.dr.async_get"
+        ) as mock_registry:
+            set_mock_device_lookup(mock_registry.return_value, None)
+            for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
+                coordinator._cleanup_stale_devices()
+
+        assert "gone" not in coordinator._alarm_hub_last_tamper

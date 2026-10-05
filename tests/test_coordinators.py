@@ -81,10 +81,17 @@ from custom_components.unifi_insights.coordinators.protect import (
     MAX_CONSECUTIVE_EMPTY_FETCHES,
     MAX_CONSECUTIVE_MISSING_POLLS,
     STALE_EVENT_TIMEOUT,
+    UNSUPPORTED_RESOURCE_RETRY,
     UnifiProtectCoordinator,
 )
 from custom_components.unifi_insights.entity import is_device_online
+from custom_components.unifi_insights.api.protect.models import Fob, LinkStation
 from tests.conftest import mock_device_lookup_method, set_mock_device_lookup
+from tests.fixtures.library_responses import (
+    SAMPLE_ALARM_HUB,
+    SAMPLE_KEYPAD_FOB,
+    SAMPLE_THREAD_LINK_STATION,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -322,6 +329,12 @@ def _create_mock_protect_client() -> MagicMock:
         ]
     )
 
+    # Protect 7.3.70 security device families
+    for family in ("fobs", "link_stations", "alarm_hubs"):
+        endpoint = MagicMock()
+        endpoint.get_all = AsyncMock(return_value=[])
+        endpoint.last_result_complete = True
+        setattr(client, family, endpoint)
     # WebSocket support
     client.get_host_id = AsyncMock(return_value="nvr1")
     client.websocket = MagicMock()
@@ -7182,3 +7195,256 @@ class TestUnifiInsightsInnerSpaceCoordinator:
             dummy_coord, "site1", "default", set()
         )
         assert "w1" in wifi_res
+
+
+
+# ============================================================================
+# Protect 7.3.70 security device families (fobs, link stations, alarm hubs)
+# ============================================================================
+
+_SECURITY_FAMILIES = [
+    ("fobs", "_fetch_fobs", Fob, SAMPLE_KEYPAD_FOB),
+    ("link_stations", "_fetch_link_stations", LinkStation, SAMPLE_THREAD_LINK_STATION),
+    ("alarm_hubs", "_fetch_alarm_hubs", LinkStation, SAMPLE_ALARM_HUB),
+]
+
+
+class TestProtectSecurityDeviceFamilies:
+    """Polling, WebSocket and event handling for fobs/link stations/alarm hubs."""
+
+    @pytest.fixture
+    async def coordinator(
+        self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
+    ) -> AsyncGenerator[UnifiProtectCoordinator]:
+        """Create a protect coordinator, shut down on teardown."""
+        coord = UnifiProtectCoordinator(
+            hass=hass,
+            network_client=_create_mock_network_client(),
+            protect_client=_create_mock_protect_client(),
+            entry=mock_config_entry,
+        )
+        yield coord
+        await coord.async_shutdown()
+
+    def test_collections_are_initialised(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Each family has a data key named device_type + "s" from the start.
+
+        `UnifiProtectEntity` indexes `data["protect"][f"{device_type}s"]`
+        directly, so a missing key is a KeyError in every entity.
+        """
+        for collection in ("fobs", "link_stations", "alarm_hubs"):
+            assert coordinator.data[collection] == {}
+            assert coordinator._previous_protect_device_ids[collection] == set()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("collection", "fetch_method", "model", "sample"), _SECURITY_FAMILIES
+    )
+    async def test_fetch_populates_collection_with_camelcase_dicts(
+        self,
+        coordinator: UnifiProtectCoordinator,
+        collection: str,
+        fetch_method: str,
+        model: type,
+        sample: dict[str, Any],
+    ) -> None:
+        """A fetch stores the alias-keyed dump of each real model by id."""
+        getattr(coordinator.protect_client, collection).get_all = AsyncMock(
+            return_value=[model.model_validate(sample)]
+        )
+
+        await getattr(coordinator, fetch_method)()
+
+        stored = coordinator.data[collection][sample["id"]]
+        assert stored["id"] == sample["id"]
+        assert stored["state"] == "CONNECTED"
+        if collection == "fobs":
+            assert stored["keypadSettings"]["beepVolume"] == 60
+        else:
+            assert "threadState" in stored
+
+    @pytest.mark.asyncio
+    async def test_scheduled_poll_fetches_every_family(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """The 30s poll includes the three new families."""
+        client = coordinator.protect_client
+        client.fobs.get_all = AsyncMock(
+            return_value=[Fob.model_validate(SAMPLE_KEYPAD_FOB)]
+        )
+        client.link_stations.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_THREAD_LINK_STATION)]
+        )
+        client.alarm_hubs.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_ALARM_HUB)]
+        )
+
+        data = await coordinator._async_update_data()
+
+        assert set(data["fobs"]) == {"fob_1"}
+        assert set(data["link_stations"]) == {"link_station_thread"}
+        assert set(data["alarm_hubs"]) == {"alarm_hub_1"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("collection", "fetch_method", "model", "sample"), _SECURITY_FAMILIES
+    )
+    async def test_404_marks_family_unsupported_and_logs_once(
+        self,
+        coordinator: UnifiProtectCoordinator,
+        caplog: pytest.LogCaptureFixture,
+        collection: str,
+        fetch_method: str,
+        model: type,
+        sample: dict[str, Any],
+    ) -> None:
+        """An older Protect answering 404 is polled hourly and logged once.
+
+        Without this every 30s poll spends a request on an endpoint the
+        console does not have.
+        """
+        get_all = AsyncMock(side_effect=UniFiNotFoundError("Not Found", 404))
+        getattr(coordinator.protect_client, collection).get_all = get_all
+        clock = 1000.0
+
+        with patch(
+            "custom_components.unifi_insights.coordinators.protect.time.monotonic",
+            side_effect=lambda: clock,
+        ):
+            with caplog.at_level(logging.INFO):
+                await getattr(coordinator, fetch_method)()
+                await getattr(coordinator, fetch_method)()
+            assert get_all.await_count == 1
+            assert coordinator.data[collection] == {}
+
+            clock += UNSUPPORTED_RESOURCE_RETRY.total_seconds() + 1
+            with caplog.at_level(logging.INFO):
+                await getattr(coordinator, fetch_method)()
+            assert get_all.await_count == 2
+
+        unsupported = [
+            r for r in caplog.records if "does not expose" in r.getMessage()
+        ]
+        assert len(unsupported) == 1
+        assert unsupported[0].levelno == logging.INFO
+
+    @pytest.mark.asyncio
+    async def test_unsupported_family_recovers_once_endpoint_answers(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A Protect upgrade is picked up at the next hourly re-probe."""
+        endpoint = coordinator.protect_client.fobs
+        endpoint.get_all = AsyncMock(
+            side_effect=[
+                UniFiNotFoundError("Not Found", 404),
+                [Fob.model_validate(SAMPLE_KEYPAD_FOB)],
+            ]
+        )
+        clock = 1000.0
+        with patch(
+            "custom_components.unifi_insights.coordinators.protect.time.monotonic",
+            side_effect=lambda: clock,
+        ):
+            await coordinator._fetch_fobs()
+            clock += UNSUPPORTED_RESOURCE_RETRY.total_seconds() + 1
+            await coordinator._fetch_fobs()
+            await coordinator._fetch_fobs()
+
+        assert "fob_1" in coordinator.data["fobs"]
+        # Not skipped after recovering: the third call went to the API.
+        assert endpoint.get_all.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_404_after_success_keeps_cache_and_keeps_polling(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A family that answered before is not written off on one 404.
+
+        It goes through the bounded 404 cache path instead, like cameras.
+        """
+        endpoint = coordinator.protect_client.alarm_hubs
+        endpoint.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_ALARM_HUB)]
+        )
+        await coordinator._fetch_alarm_hubs()
+
+        endpoint.get_all = AsyncMock(side_effect=UniFiNotFoundError("Not Found", 404))
+        await coordinator._fetch_alarm_hubs()
+        await coordinator._fetch_alarm_hubs()
+
+        assert "alarm_hub_1" in coordinator.data["alarm_hubs"]
+        assert endpoint.get_all.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_fetch_error_keeps_cached_devices(
+        self, coordinator: UnifiProtectCoordinator, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Any other error preserves the cache and is logged."""
+        coordinator.data["link_stations"] = {"ls1": {"id": "ls1"}}
+        coordinator.protect_client.link_stations.get_all = AsyncMock(
+            side_effect=Exception("500 Internal Server Error")
+        )
+
+        await coordinator._fetch_link_stations()
+
+        assert coordinator.data["link_stations"] == {"ls1": {"id": "ls1"}}
+        assert "Error fetching link_stations" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_incomplete_response_is_merged_over_cache(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A device the endpoint dropped on a parse error is not treated as gone."""
+        coordinator.data["fobs"] = {"fob_old": {"id": "fob_old"}}
+        endpoint = coordinator.protect_client.fobs
+        endpoint.get_all = AsyncMock(
+            return_value=[Fob.model_validate(SAMPLE_KEYPAD_FOB)]
+        )
+        endpoint.last_result_complete = False
+
+        await coordinator._fetch_fobs()
+
+        assert set(coordinator.data["fobs"]) == {"fob_old", "fob_1"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("collection", "identifier"),
+        [
+            ("fobs", "protect_fob_dev1"),
+            ("link_stations", "protect_link_station_dev1"),
+            ("alarm_hubs", "protect_alarm_hub_dev1"),
+        ],
+    )
+    async def test_stale_cleanup_removes_vanished_device(
+        self,
+        hass: HomeAssistant,
+        coordinator: UnifiProtectCoordinator,
+        collection: str,
+        identifier: str,
+    ) -> None:
+        """A device gone past the grace window leaves the registry.
+
+        The identifier must match the entity's `protect_{device_type}_{id}`.
+        """
+        coordinator._previous_protect_device_ids[collection] = {"dev1"}
+        coordinator.data[collection] = {}
+        mock_device = MagicMock()
+        mock_device.id = "registry_dev1"
+
+        with patch(
+            "custom_components.unifi_insights.coordinators.protect.dr.async_get"
+        ) as mock_registry, patch(
+            "custom_components.unifi_insights.coordinators.protect.async_get_device_entry",
+            side_effect=lambda _reg, ident, _entry: (
+                mock_device if ident == (DOMAIN, identifier) else None
+            ),
+        ):
+            for _ in range(MAX_CONSECUTIVE_MISSING_POLLS + 1):
+                coordinator._cleanup_stale_devices()
+
+            mock_registry.return_value.async_update_device.assert_called_once_with(
+                device_id="registry_dev1",
+                remove_config_entry_id=coordinator.config_entry.entry_id,
+            )

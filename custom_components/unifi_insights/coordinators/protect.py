@@ -138,6 +138,13 @@ MAX_SENSOR_REFRESH_LOOP_ITERATIONS: Final = 2
 # poll. 3 polls is ~90s at SCAN_INTERVAL_PROTECT (30s).
 MAX_CONSECUTIVE_MISSING_POLLS: Final = 3
 
+# How long a Protect device family whose list endpoint answered 404 before it
+# ever answered successfully (a Protect version that predates it) is left
+# alone before it is probed again. Re-probing at all lets a Protect upgrade
+# be picked up without a reload; doing it hourly rather than every poll keeps
+# an old console from spending a request per family every 30s.
+UNSUPPORTED_RESOURCE_RETRY: Final = timedelta(hours=1)
+
 # Envelope-only keys that must never leak from the raw top-level WebSocket
 # frame into a merged device/event dict - see `_pick_field` and the
 # `_on_websocket_message`/`_on_websocket_event_message` docstrings for why.
@@ -315,6 +322,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
     - Viewers
     - Chimes
     - Liveviews
+    - Fobs, link stations and alarm hubs (Protect 7.3.70 security devices)
     - Real-time events via WebSocket
 
     UNVALIDATED SCHEMA WARNING: the "events" WebSocket subscription
@@ -356,6 +364,9 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "nvrs": set(),
             "viewers": set(),
             "chimes": set(),
+            "fobs": set(),
+            "link_stations": set(),
+            "alarm_hubs": set(),
         }
         self._consecutive_empty_fetches: dict[str, int] = {
             "cameras": 0,
@@ -364,6 +375,9 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "nvrs": 0,
             "viewers": 0,
             "chimes": 0,
+            "fobs": 0,
+            "link_stations": 0,
+            "alarm_hubs": 0,
         }
         # collection -> consecutive polls whose fetch raised a transient error.
         # Kept separate from `_consecutive_empty_fetches`: an empty response is
@@ -383,7 +397,21 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "nvrs": {},
             "viewers": {},
             "chimes": {},
+            "fobs": {},
+            "link_stations": {},
+            "alarm_hubs": {},
         }
+        # Families whose list endpoint has answered successfully at least
+        # once. A 404 from one of these is a transient/removed-device signal
+        # for `_update_device_collection`, not "this Protect is too old".
+        self._answered_families: set[str] = set()
+        # family -> monotonic time before which it is not polled again,
+        # after a 404 from a Protect version that predates the endpoint.
+        # See UNSUPPORTED_RESOURCE_RETRY.
+        self._unsupported_until: dict[str, float] = {}
+        # Families already reported once as unsupported (logged at INFO the
+        # first time only, not on every hourly re-probe).
+        self._unsupported_logged: set[str] = set()
         self.data: dict[str, Any] = {
             "cameras": {},
             "lights": {},
@@ -391,6 +419,10 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "nvrs": {},
             "viewers": {},
             "chimes": {},
+            # Keyed device_type + "s" (see DEVICE_TYPE_FOB and friends).
+            "fobs": {},
+            "link_stations": {},
+            "alarm_hubs": {},
             "doorlocks": {},
             "viewports": {},
             "liveviews": {},
@@ -1608,6 +1640,11 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             # Fetch liveviews
             await self._fetch_liveviews()
 
+            # Fetch Protect 7.3.70 security devices
+            await self._fetch_fobs()
+            await self._fetch_link_stations()
+            await self._fetch_alarm_hubs()
+
             self._available = True
             self.data["last_update"] = datetime.now(tz=UTC)
 
@@ -1617,7 +1654,8 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             _LOGGER.debug(
                 "Protect coordinator: Update complete - "
                 "%d cameras, %d lights, %d sensors, %d NVRs, "
-                "%d chimes, %d viewers, %d liveviews",
+                "%d chimes, %d viewers, %d liveviews, "
+                "%d fobs, %d link stations, %d alarm hubs",
                 len(self.data["cameras"]),
                 len(self.data["lights"]),
                 len(self.data["sensors"]),
@@ -1625,6 +1663,9 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 len(self.data["chimes"]),
                 len(self.data["viewers"]),
                 len(self.data["liveviews"]),
+                len(self.data["fobs"]),
+                len(self.data["link_stations"]),
+                len(self.data["alarm_hubs"]),
             )
 
             return self.data
@@ -2301,6 +2342,80 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         except Exception as err:
             _LOGGER.debug("Protect coordinator: Error fetching liveviews: %s", err)
 
+    async def _fetch_fobs(self) -> None:
+        """Fetch fob data."""
+        await self._fetch_device_family("fobs")
+
+    async def _fetch_link_stations(self) -> None:
+        """Fetch link station data."""
+        await self._fetch_device_family("link_stations")
+
+    async def _fetch_alarm_hubs(self) -> None:
+        """Fetch alarm hub data."""
+        await self._fetch_device_family("alarm_hubs")
+
+    async def _fetch_device_family(self, collection: str) -> None:
+        """
+        Fetch one simple device family into ``self.data[collection]``.
+
+        ``collection`` is both the data key and the protect_client endpoint
+        attribute ("fobs", "link_stations", "alarm_hubs").
+
+        A 404 before the family has ever answered means this Protect version
+        does not have the endpoint (it is not "no devices": an empty family
+        answers ``[]``). That is logged once at INFO and the family is skipped
+        until UNSUPPORTED_RESOURCE_RETRY has passed. A 404 after a successful
+        answer goes through the bounded 404 cache path like every other
+        collection. Any other error keeps the cached devices, as for chimes.
+        """
+        if not self.protect_client:
+            return
+
+        retry_at = self._unsupported_until.get(collection)
+        if retry_at is not None and time.monotonic() < retry_at:
+            return
+
+        endpoint = getattr(self.protect_client, collection)
+        _LOGGER.debug("Protect coordinator: Fetching %s", collection)
+        try:
+            models = await endpoint.get_all()
+        except UniFiNotFoundError:
+            if collection in self._answered_families:
+                self._update_device_collection(collection, {}, is_404=True)
+                return
+            self._unsupported_until[collection] = (
+                time.monotonic() + UNSUPPORTED_RESOURCE_RETRY.total_seconds()
+            )
+            if collection not in self._unsupported_logged:
+                self._unsupported_logged.add(collection)
+                _LOGGER.info(
+                    "Protect coordinator: this Protect version does not expose "
+                    "%s (HTTP 404); checking again every %s",
+                    collection,
+                    UNSUPPORTED_RESOURCE_RETRY,
+                )
+            return
+        except Exception as err:
+            _LOGGER.warning(
+                "Protect coordinator: Error fetching %s: %s", collection, err
+            )
+            return
+
+        self._unsupported_until.pop(collection, None)
+        self._answered_families.add(collection)
+        devices: dict[str, Any] = {}
+        for model in models:
+            device = self._model_to_dict(model)
+            device_id = device.get("id")
+            if device_id:
+                devices[device_id] = device
+        self._update_device_collection(
+            collection, devices, is_partial=not endpoint.last_result_complete
+        )
+        _LOGGER.debug(
+            "Protect coordinator: Successfully fetched %d %s", len(devices), collection
+        )
+
     def _cleanup_stale_devices(self) -> None:
         """
         Remove stale Protect devices from the device registry (Gold requirement).
@@ -2322,6 +2437,9 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "nvrs",
             "viewers",
             "chimes",
+            "fobs",
+            "link_stations",
+            "alarm_hubs",
         ]:
             current_ids: set[str] = set(self.data.get(device_type, {}).keys())
             previous_ids = self._previous_protect_device_ids.get(device_type, set())

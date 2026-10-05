@@ -132,6 +132,20 @@ DEVICE_TYPE_VIEWER: Final = "viewer"
 DEVICE_TYPE_CHIME: Final = "chime"
 DEVICE_TYPE_DOORLOCK: Final = "doorlock"
 DEVICE_TYPE_VIEWPORT: Final = "viewport"
+# Protect 7.3.70 security devices. The coordinator keys their collections as
+# f"{device_type}s" ("fobs", "link_stations", "alarm_hubs") because
+# UnifiProtectEntity looks devices up that way.
+DEVICE_TYPE_FOB: Final = "fob"
+DEVICE_TYPE_LINK_STATION: Final = "link_station"
+DEVICE_TYPE_ALARM_HUB: Final = "alarm_hub"
+
+# Protect WebSocket modelKey values that differ from the device types above.
+# Link stations and alarm hubs share one modelKey; there is no "alarmHub" key.
+MODEL_KEY_LINKSTATION: Final = "linkstation"
+MODEL_KEY_FOB: Final = "fob"
+
+# Protect event types
+EVENT_TYPE_ALARM_HUB_DEVICE_TAMPER: Final = "alarmHubDeviceTamper"
 
 # Camera attributes
 ATTR_CAMERA_ID: Final = "camera_id"
@@ -309,6 +323,17 @@ ATTR_SENSOR_LEAK_DETECTED: Final = "leak_detected"
 ATTR_SENSOR_LEAK_DETECTED_AT: Final = "leak_detected_at"
 ATTR_SENSOR_EXTERNAL_LEAK_DETECTED: Final = "external_leak_detected"
 ATTR_SENSOR_EXTERNAL_LEAK_DETECTED_AT: Final = "external_leak_detected_at"
+
+# Link station / alarm hub / fob attributes
+ATTR_THREAD_CHANNEL: Final = "channel"
+ATTR_THREAD_NETWORK_NAME: Final = "network_name"
+ATTR_THREAD_PAN_ID: Final = "pan_id"
+ATTR_THREAD_EXTENDED_PAN_ID: Final = "extended_pan_id"
+ATTR_THREAD_ERROR_REASON: Final = "error_reason"
+ATTR_LAST_TAMPER_USER: Final = "last_tamper_user"
+ATTR_LAST_TAMPER_AT: Final = "last_tamper_at"
+ATTR_ARM_PROFILE_ID: Final = "arm_profile_id"
+ATTR_NIGHT_PROFILE_ID: Final = "night_profile_id"
 
 # NVR attributes
 ATTR_NVR_ID: Final = "nvr_id"

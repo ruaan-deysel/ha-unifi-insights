@@ -177,6 +177,13 @@ def _create_mock_protect_client() -> MagicMock:
     client.create_liveview = AsyncMock(return_value={"id": "liveview1"})
     client.update_viewer = AsyncMock(return_value=True)
 
+    # Protect 7.3.70 security device families (empty by default)
+    for family in ("fobs", "link_stations", "alarm_hubs"):
+        endpoint = MagicMock()
+        endpoint.get_all = AsyncMock(return_value=[])
+        endpoint.last_result_complete = True
+        setattr(client, family, endpoint)
+
     # WebSocket support (real-time device updates, additive to polling)
     client.get_host_id = AsyncMock(return_value="nvr1")
     client.websocket = MagicMock()

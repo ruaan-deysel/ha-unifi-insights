@@ -22,7 +22,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util.hass_dict import HassKey
 
-from . import CarrierFabricData
+from .carrier_fabric_data import CarrierFabricData
 from .const import DOMAIN
 from .dashboard_contract_utils import as_dict, content_revision
 from .helpers import async_get_device_entry

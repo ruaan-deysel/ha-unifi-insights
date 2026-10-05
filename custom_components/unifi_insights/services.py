@@ -18,7 +18,7 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 
-from . import CarrierFabricData
+from .carrier_fabric_data import CarrierFabricData
 from .const import (
     CHIME_RINGTONE_CHRISTMAS,
     CHIME_RINGTONE_CUSTOM_1,

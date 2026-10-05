@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.config_entries import ConfigEntry
@@ -24,6 +24,10 @@ from .api.carrier_fabric.client import UniFiCarrierFabricClient
 from .api.innerspace import UniFiInnerSpaceClient
 from .api.network import UniFiNetworkClient
 from .api.protect import UniFiProtectClient
+from .carrier_fabric_data import (
+    CarrierFabricConfigEntry,
+    CarrierFabricData,
+)
 from .console_identity import (
     first_non_default_site_id,
     is_console_device,
@@ -56,6 +60,7 @@ from .coordinators.site_manager import (
     async_acquire_site_manager,
     async_release_site_manager,
 )
+from .frontend import async_register_frontend
 from .probe import (
     ProbeResult,
     ProbeStatus,
@@ -64,6 +69,9 @@ from .probe import (
     async_probe_network,
     async_probe_protect,
 )
+from .services import async_setup_services
+from .topology_keys import async_load_node_keys, async_remove_node_key
+from .websocket_api import async_register_websocket_commands
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -101,17 +109,8 @@ class UnifiInsightsData:
         return self._facade_coordinator
 
 
-@dataclass
-class CarrierFabricData:
-    """Runtime data for UniFi Carrier Fabric integration."""
-
-    client: UniFiCarrierFabricClient
-    coordinator: UnifiCarrierFabricCoordinator
-
-
 # Use TypeAlias for proper mypy validation (Python 3.10+ style)
 UnifiInsightsConfigEntry: TypeAlias = ConfigEntry[UnifiInsightsData]  # noqa: UP040
-CarrierFabricConfigEntry: TypeAlias = ConfigEntry[CarrierFabricData]  # noqa: UP040
 
 CARRIER_FABRIC_PLATFORMS: list[Platform] = [Platform.SENSOR]
 
@@ -129,11 +128,6 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
     Platform.UPDATE,
 ]
-
-from .frontend import async_register_frontend  # noqa: E402
-from .services import async_setup_services  # noqa: E402
-from .topology_keys import async_load_node_keys, async_remove_node_key  # noqa: E402
-from .websocket_api import async_register_websocket_commands  # noqa: E402
 
 # Add CONFIG_SCHEMA definition
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -302,7 +296,7 @@ def _first_site_id(config_coordinator: UnifiConfigCoordinator) -> str | None:
 
 
 async def _async_setup_carrier_fabric_entry(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: CarrierFabricConfigEntry
 ) -> bool:
     """Set up UniFi Carrier Fabric integration from a config entry."""
     _LOGGER.info("Setting up UniFi Carrier Fabric integration")
@@ -346,14 +340,18 @@ async def _async_setup_carrier_fabric_entry(
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry | CarrierFabricConfigEntry
+) -> bool:
     """Set up UniFi Insights from a config entry."""
     _LOGGER.info("Setting up UniFi Insights integration")
 
     # Determine connection type (default to local for backward compatibility)
     connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_LOCAL)
     if connection_type == CONNECTION_TYPE_CARRIER_FABRIC:
-        return await _async_setup_carrier_fabric_entry(hass, entry)
+        return await _async_setup_carrier_fabric_entry(
+            hass, cast("CarrierFabricConfigEntry", entry)
+        )
 
     is_local = connection_type == CONNECTION_TYPE_LOCAL
 
@@ -676,13 +674,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry | CarrierFabricConfigEntry
+) -> bool:
     """Unload a config entry."""
     _LOGGER.debug("Unloading UniFi Insights config entry")
     _clear_setup_probe_attempts(hass, entry.entry_id)
 
-    runtime_data = getattr(entry, "runtime_data", None)
-    if isinstance(runtime_data, CarrierFabricData):
+    if isinstance(entry.runtime_data, CarrierFabricData):
         return await hass.config_entries.async_unload_platforms(
             entry, CARRIER_FABRIC_PLATFORMS
         )
@@ -692,7 +691,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Only tear down the API clients once the platforms are gone; closing them
     # first would leave loaded entities behind with dead clients if a platform
     # failed to unload.
-    if unload_ok and hasattr(entry, "runtime_data") and entry.runtime_data:
+    if unload_ok and isinstance(entry.runtime_data, UnifiInsightsData):
         data = entry.runtime_data
         _LOGGER.debug("Closing API clients")
         if data.protect_client:
@@ -737,7 +736,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_remove_config_entry_device(
     hass: HomeAssistant,  # noqa: ARG001
-    entry: ConfigEntry,
+    entry: UnifiInsightsConfigEntry | CarrierFabricConfigEntry,
     device_entry: DeviceEntry,
 ) -> bool:
     """
@@ -824,13 +823,17 @@ def _is_site_scoped_identifier(identifier: str, site_id: str) -> bool:
     }
 
 
-async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_remove_entry(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry | CarrierFabricConfigEntry
+) -> None:
     """Forget per-entry setup state when an entry is deleted."""
     _clear_setup_probe_attempts(hass, entry.entry_id)
     await async_remove_node_key(hass, entry.entry_id)
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry | CarrierFabricConfigEntry
+) -> None:
     """Reload config entry."""
     await hass.config_entries.async_reload(entry.entry_id)
 

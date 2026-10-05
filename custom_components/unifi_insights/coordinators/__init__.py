@@ -7,6 +7,7 @@ from .config import UnifiConfigCoordinator
 from .device import UnifiDeviceCoordinator
 from .facade import UnifiFacadeCoordinator
 from .innerspace import UnifiInsightsInnerSpaceCoordinator
+from .mobility import UnifiInsightsMobilityCoordinator
 from .protect import UnifiProtectCoordinator
 from .site_manager import UnifiInsightsSiteManagerCoordinator
 
@@ -16,6 +17,7 @@ __all__ = [
     "UnifiDeviceCoordinator",
     "UnifiFacadeCoordinator",
     "UnifiInsightsInnerSpaceCoordinator",
+    "UnifiInsightsMobilityCoordinator",
     "UnifiInsightsSiteManagerCoordinator",
     "UnifiProtectCoordinator",
 ]

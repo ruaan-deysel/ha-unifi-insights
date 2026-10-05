@@ -64,6 +64,10 @@ SCAN_INTERVAL_DEVICE = timedelta(seconds=30)
 SCAN_INTERVAL_CONFIG = timedelta(minutes=5)
 SCAN_INTERVAL_INNERSPACE = timedelta(minutes=5)
 SCAN_INTERVAL_SITE_MANAGER = timedelta(minutes=10)
+# Mobility routers report usage and location slowly; keys without Mobility
+# access, or accounts without routers, are only re-checked hourly.
+SCAN_INTERVAL_MOBILITY = timedelta(minutes=5)
+SCAN_INTERVAL_MOBILITY_IDLE = timedelta(hours=1)
 # Site Manager response sections shared by the coordinator and diagnostics.
 SITE_MANAGER_COLLECTIONS: Final = (
     "hosts",

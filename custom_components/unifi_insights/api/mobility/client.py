@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn
+from typing import TYPE_CHECKING, Any, ClassVar, NoReturn, TypeIs
 
 from custom_components.unifi_insights.api.base import BaseUniFiClient
 from custom_components.unifi_insights.api.const import (
@@ -34,6 +34,11 @@ _MAX_PAGES = _MAX_ITEMS // _PAGE_SIZE
 # Workspace and device ids are UUIDs. They become path segments, so anything
 # that is not a plain id is refused rather than sent.
 _ID_PATTERN = re.compile(r"[0-9A-Za-z-]{1,64}")
+
+
+def is_valid_mobility_id(identifier: Any) -> TypeIs[str]:
+    """Return True if a workspace or device id is a plain path segment."""
+    return isinstance(identifier, str) and bool(_ID_PATTERN.fullmatch(identifier))
 
 
 class UniFiMobilityClient(BaseUniFiClient):
@@ -116,7 +121,7 @@ class UniFiMobilityClient(BaseUniFiClient):
     @staticmethod
     def _safe_id(identifier: Any) -> str:
         """Return an id that is safe to use as a URL path segment."""
-        if not isinstance(identifier, str) or not _ID_PATTERN.fullmatch(identifier):
+        if not is_valid_mobility_id(identifier):
             msg = "Invalid Mobility identifier"
             raise UniFiValidationError(msg)
         return identifier

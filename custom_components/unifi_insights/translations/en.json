@@ -130,7 +130,7 @@
           "client_control": "Enable Client Control",
           "site_ids": "Sites",
           "track_subscribers": "Track individual subscribers as devices",
-          "carrier_actions": "Enable subscriber service actions (suspend and resume)"
+          "carrier_actions": "Enable service actions (suspend and resume subscribers)"
         },
         "data_description": {
           "track_wifi_clients": "Create device tracker entities for connected WiFi clients. This may create many entities.",

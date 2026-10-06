@@ -46,7 +46,7 @@ class TestUnifiInsightsButton:
         coordinator.hass = hass
         coordinator.network_client = MagicMock()
         coordinator.network_client.base_url = "https://192.168.1.1"
-        coordinator.network_client.restart_device = AsyncMock(return_value=True)
+        coordinator.network_client.devices.restart = AsyncMock(return_value=True)
         coordinator.protect_client = None
         coordinator.data = {
             "sites": {"site1": {"id": "site1", "meta": {"name": "Default"}}},
@@ -139,13 +139,13 @@ class TestUnifiInsightsButton:
 
         await button.async_press()
 
-        mock_coordinator.network_client.restart_device.assert_called_once_with(
+        mock_coordinator.network_client.devices.restart.assert_called_once_with(
             "site1", "device1"
         )
 
     async def test_button_press_failure(self, hass: HomeAssistant, mock_coordinator):
         """Test button press failure."""
-        mock_coordinator.network_client.restart_device = AsyncMock(return_value=False)
+        mock_coordinator.network_client.devices.restart = AsyncMock(return_value=False)
         description = BUTTON_TYPES[0]
 
         button = UnifiInsightsButton(
@@ -158,11 +158,11 @@ class TestUnifiInsightsButton:
         with pytest.raises(HomeAssistantError, match="Unable to restart device"):
             await button.async_press()
 
-        mock_coordinator.network_client.restart_device.assert_called_once()
+        mock_coordinator.network_client.devices.restart.assert_called_once()
 
     async def test_button_press_exception(self, hass: HomeAssistant, mock_coordinator):
         """Test button press handles exception."""
-        mock_coordinator.network_client.restart_device = AsyncMock(
+        mock_coordinator.network_client.devices.restart = AsyncMock(
             side_effect=Exception("API Error")
         )
         description = BUTTON_TYPES[0]
@@ -176,6 +176,25 @@ class TestUnifiInsightsButton:
 
         with pytest.raises(HomeAssistantError, match="Unable to restart device"):
             await button.async_press()
+
+    async def test_button_press_uses_facade_restart(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """The facade coroutine runs when present (no fallback)."""
+        mock_coordinator.async_restart_device = AsyncMock(return_value=True)
+        button = UnifiInsightsButton(
+            coordinator=mock_coordinator,
+            description=BUTTON_TYPES[0],
+            site_id="site1",
+            device_id="device1",
+        )
+
+        await button.async_press()
+
+        mock_coordinator.async_restart_device.assert_awaited_once_with(
+            "site1", "device1"
+        )
+        mock_coordinator.network_client.devices.restart.assert_not_called()
 
 
 class TestUnifiClientReconnectButton:
@@ -707,10 +726,18 @@ class TestAsyncSetupEntry:
         assert first_count > 0
 
         ptz_start_before = len(
-            [e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStartButton)]
+            [
+                e
+                for e in added_entities
+                if isinstance(e, UnifiProtectPTZPatrolStartButton)
+            ]
         )
         ptz_stop_before = len(
-            [e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStopButton)]
+            [
+                e
+                for e in added_entities
+                if isinstance(e, UnifiProtectPTZPatrolStopButton)
+            ]
         )
         chime_before = len(
             [e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)]
@@ -721,15 +748,33 @@ class TestAsyncSetupEntry:
 
         assert len(added_entities) == first_count
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStartButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectPTZPatrolStartButton)
+                ]
+            )
             == ptz_start_before
         )
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStopButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectPTZPatrolStopButton)
+                ]
+            )
             == ptz_stop_before
         )
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectChimePlayButton)
+                ]
+            )
             == chime_before
         )
 

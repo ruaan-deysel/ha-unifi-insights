@@ -257,7 +257,7 @@ class UnifiInsightsButton(UnifiInsightsEntity, ButtonEntity):
             f"Unable to restart device {self._device_id}",
             self._site_id,
             self._device_id,
-            fallback_factory=lambda: self.coordinator.network_client.restart_device(  # type: ignore[attr-defined]
+            fallback_factory=lambda: self.coordinator.network_client.devices.restart(
                 self._site_id,
                 self._device_id,
             ),

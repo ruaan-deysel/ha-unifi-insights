@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import TYPE_CHECKING, Any, Literal, NoReturn
 
 from custom_components.unifi_insights.api.base import BaseUniFiClient
 from custom_components.unifi_insights.api.const import (
@@ -57,6 +57,12 @@ class UniFiSiteManagerClient(BaseUniFiClient):
         """Return all accessible UniFi hosts."""
         return await self._list_paginated("/v1/hosts")
 
+    async def get_host(self, host_id: str) -> dict[str, Any]:
+        """Return detailed information for a specific host."""
+        path = f"/v1/hosts/{host_id}"
+        data = await self._get(path)
+        return self._extract_object(data, path)
+
     async def list_sites(self) -> list[dict[str, Any]]:
         """Return all accessible UniFi sites."""
         return await self._list_paginated("/v1/sites")
@@ -101,23 +107,55 @@ class UniFiSiteManagerClient(BaseUniFiClient):
 
     async def get_isp_metrics(
         self,
-        begin_timestamp: datetime,
-        end_timestamp: datetime,
+        begin: datetime | None = None,
+        end: datetime | None = None,
+        *,
+        begin_timestamp: datetime | None = None,
+        end_timestamp: datetime | None = None,
+        metric_type: Literal["5m", "1h"] = "5m",
+        duration: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return five-minute ISP metrics for the supplied RFC3339 time range."""
-        data = await self._get(
-            "/v1/isp-metrics/5m",
-            params={
-                "beginTimestamp": self._format_timestamp(begin_timestamp),
-                "endTimestamp": self._format_timestamp(end_timestamp),
-            },
-        )
-        return self._extract_data(data, "/v1/isp-metrics/5m")
+        """Return ISP metrics for the supplied time range or duration."""
+        effective_begin = begin if begin is not None else begin_timestamp
+        effective_end = end if end is not None else end_timestamp
+        params: dict[str, Any] = {}
+        if effective_begin is not None:
+            params["beginTimestamp"] = self._format_timestamp(effective_begin)
+        if effective_end is not None:
+            params["endTimestamp"] = self._format_timestamp(effective_end)
+        if duration is not None:
+            params["duration"] = duration
+
+        path = f"/v1/isp-metrics/{metric_type}"
+        data = await self._get(path, params=params or None)
+        return self._extract_data(data, path)
+
+    async def query_isp_metrics(
+        self,
+        metric_type: Literal["5m", "1h"],
+        sites: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Query ISP metrics for specific sites and time ranges."""
+        path = f"/v1/isp-metrics/{metric_type}/query"
+        data = await self._post(path, json_data={"sites": sites})
+        return self._extract_object(data, path)
 
     async def list_sd_wan_configs(self) -> list[dict[str, Any]]:
         """Return all SD-WAN configurations."""
         data = await self._get("/v1/sd-wan-configs")
         return self._extract_data(data, "/v1/sd-wan-configs")
+
+    async def get_sd_wan_config(self, config_id: str) -> dict[str, Any]:
+        """Return detailed information for a specific SD-WAN configuration."""
+        path = f"/v1/sd-wan-configs/{config_id}"
+        data = await self._get(path)
+        return self._extract_object(data, path)
+
+    async def get_sd_wan_config_status(self, config_id: str) -> dict[str, Any]:
+        """Return deployment and connection status for an SD-WAN config."""
+        path = f"/v1/sd-wan-configs/{config_id}/status"
+        data = await self._get(path)
+        return self._extract_object(data, path)
 
     async def _list_paginated(
         self,
@@ -178,6 +216,21 @@ class UniFiSiteManagerClient(BaseUniFiClient):
         if not isinstance(data, list) or not all(
             isinstance(item, dict) for item in data
         ):
+            self._raise_response_error(f"{path} returned malformed data")
+
+        return data
+
+    def _extract_object(
+        self,
+        response: dict[str, Any] | list[Any] | None,
+        path: str,
+    ) -> dict[str, Any]:
+        """Validate and return a Site Manager response envelope's data object."""
+        if not isinstance(response, dict):
+            self._raise_response_error(f"{path} returned a malformed response envelope")
+
+        data = response.get("data")
+        if not isinstance(data, dict):
             self._raise_response_error(f"{path} returned malformed data")
 
         return data

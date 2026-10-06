@@ -307,18 +307,18 @@ Carrier Fabric is configured as a separate entry type. When adding the integrati
 
 The Carrier Fabric configuration entry provides two optional settings (both disabled by default):
 
-- **Track subscribers**: When enabled, creates device entities for individual subscribers, providing state and assigned plan sensors for each subscriber.
+- **Track subscribers**: When enabled, creates a device for each subscriber, providing a service state sensor and an assigned plan sensor. Each subscriber device is named after the subscriber's name (or their subscriber number when no name is set), so these names are customer data that anyone with access to your Home Assistant will see.
 - **Enable service actions**: When enabled, permits executing the `carrier_suspend_subscriber` and `carrier_resume_subscriber` service actions to suspend or resume subscriber internet access.
 
 ### Entities
 
 By default, the integration creates:
-- **Aggregate sensors**: Total subscribers, suspended subscribers, provisioned subscribers, installed subscribers, unassigned subscribers, subscribers pending assignment, and active service plans count.
-- **Per-plan diagnostic sensors**: Number of subscribers on each service plan (archived plans are disabled by default).
+- **Primary sensors**: Total subscribers, suspended subscribers.
+- **Diagnostic sensors**: Pending assignment subscribers, provisioned subscribers, installed subscribers, unassigned subscribers, active service plans count, and per-plan subscribers on each service plan (archived plans are disabled by default).
 
 When subscriber tracking is enabled, each subscriber device includes:
-- **Subscriber state sensor**: Current subscriber lifecycle status (`installed`, `provisioned`, `pending_assignment`, `unassigned`, or `suspended`).
-- **Subscriber service plan sensor**: The name of the subscriber's assigned service plan.
+- **Primary sensor**: Subscriber service state (`pending_assignment`, `provisioned`, `installed`, `suspended`, or `unknown` when the API reports a state this integration does not recognize).
+- **Diagnostic sensor**: Subscriber service plan (the name of the subscriber's assigned service plan).
 
 ### Services
 
@@ -330,7 +330,7 @@ When "Enable service actions" is active and your API key has the required scopes
 
 Subscriber privacy is strictly preserved:
 - Personal data such as email addresses, service addresses, customer notes, custom metadata, and suspension reasons are never exposed in Home Assistant entities or state attributes.
-- Downloadable diagnostics reports redact subscriber names, subscriber numbers, and all sensitive fields.
+- Downloadable diagnostics reports contain only an allowlist of fields, and subscriber names and subscriber numbers are redacted from them.
 
 ### Out of Scope
 

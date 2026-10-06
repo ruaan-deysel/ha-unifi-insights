@@ -29,6 +29,7 @@ from custom_components.unifi_insights.const import (
     SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
 )
 from custom_components.unifi_insights.coordinators.carrier_fabric import (
+    InvalidSubscriberIdError,
     UnifiCarrierFabricCoordinator,
 )
 from custom_components.unifi_insights.services import (
@@ -319,33 +320,36 @@ async def test_rejection_unloaded_entry(hass, setup_carrier_services):
     sub_device = setup_carrier_services["sub_device"]
 
     carrier_entry.mock_state(hass, ConfigEntryState.NOT_LOADED)
+    carrier_entry.runtime_data = None
 
     with pytest.raises(
         ServiceValidationError, match="Carrier Fabric integration entry is not loaded"
-    ):
+    ) as exc_info:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
             {"device_id": sub_device.id},
             blocking=True,
         )
+    assert exc_info.value.translation_key == "carrier_entry_not_loaded"
 
 
 async def test_rejection_invalid_subscriber_id(hass, setup_carrier_services):
     """Test rejection when subscriber ID is not a valid UUID."""
     invalid_sub_device = setup_carrier_services["invalid_sub_device"]
     coord = setup_carrier_services["coordinator"]
-    coord.async_suspend_subscriber.side_effect = ValueError(
-        "Invalid subscriber ID format (valid UUID required): not-a-valid-uuid"
-    )
 
-    with pytest.raises(ServiceValidationError, match="Invalid subscriber ID format"):
+    with pytest.raises(
+        ServiceValidationError, match="Invalid subscriber ID format"
+    ) as exc_info:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
             {"device_id": invalid_sub_device.id},
             blocking=True,
         )
+    assert exc_info.value.translation_key == "carrier_invalid_subscriber_id"
+    coord.async_suspend_subscriber.assert_not_called()
 
 
 async def test_rejection_reason_too_long(hass, setup_carrier_services):
@@ -376,13 +380,19 @@ async def test_suspend_403_maps_to_scope_message(hass, setup_carrier_services):
 
     with pytest.raises(
         HomeAssistantError, match="missing required scope 'suspend:service'"
-    ):
+    ) as exc_info:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
             {"device_id": sub_device.id},
             blocking=True,
         )
+    assert exc_info.value.translation_key == "carrier_missing_scope"
+    assert exc_info.value.translation_placeholders == {
+        "scope": "suspend:service",
+        "action": "suspend",
+        "subscriber_id": VALID_SUB_ID,
+    }
 
 
 async def test_resume_403_maps_to_scope_message(hass, setup_carrier_services):
@@ -398,29 +408,133 @@ async def test_resume_403_maps_to_scope_message(hass, setup_carrier_services):
 
     with pytest.raises(
         HomeAssistantError, match="missing required scope 'resume:service'"
-    ):
+    ) as exc_info:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CARRIER_RESUME_SUBSCRIBER,
             {"device_id": sub_device.id},
             blocking=True,
         )
+    assert exc_info.value.translation_key == "carrier_missing_scope"
+    assert exc_info.value.translation_placeholders == {
+        "scope": "resume:service",
+        "action": "resume",
+        "subscriber_id": VALID_SUB_ID,
+    }
 
 
 async def test_generic_unifi_error_maps_to_ha_error(hass, setup_carrier_services):
-    """Test generic UniFiError maps to HomeAssistantError."""
+    """A generic UniFiError maps to a translated error with no raw text."""
     coord = setup_carrier_services["coordinator"]
     sub_device = setup_carrier_services["sub_device"]
 
-    coord.async_suspend_subscriber.side_effect = UniFiError("Service unavailable")
+    sensitive_detail = "API secret failure: user@isp.com db timeout"
+    coord.async_suspend_subscriber.side_effect = UniFiError(sensitive_detail)
 
-    with pytest.raises(HomeAssistantError, match="Failed to suspend subscriber"):
+    with pytest.raises(
+        HomeAssistantError, match=r"^Failed to suspend subscriber$"
+    ) as exc_info:
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
             {"device_id": sub_device.id},
             blocking=True,
         )
+    assert exc_info.value.translation_key == "carrier_action_failed"
+    assert exc_info.value.translation_placeholders == {"action": "suspend"}
+    assert sensitive_detail not in str(exc_info.value)
+
+
+async def test_coordinator_invalid_subscriber_id_maps_to_validation_error(
+    hass, setup_carrier_services
+):
+    """The coordinator's typed id error becomes a translated validation error."""
+    coord = setup_carrier_services["coordinator"]
+    sub_device = setup_carrier_services["sub_device"]
+
+    coord.async_suspend_subscriber.side_effect = InvalidSubscriberIdError("bad id")
+
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"device_id": sub_device.id},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_invalid_subscriber_id"
+    assert exc_info.value.translation_placeholders == {"target": VALID_SUB_ID}
+
+
+@pytest.mark.parametrize(
+    ("status_code", "api_error_code", "expected_key"),
+    [
+        (403, None, "carrier_missing_scope"),
+        (401, "insufficient_scope", "carrier_missing_scope"),
+        (401, "unauthorized", "carrier_action_failed"),
+        (401, None, "carrier_action_failed"),
+    ],
+)
+async def test_auth_error_scope_detection_uses_typed_fields(
+    hass, setup_carrier_services, status_code, api_error_code, expected_key
+):
+    """Only a 403 or the insufficient_scope code is reported as a missing scope."""
+    coord = setup_carrier_services["coordinator"]
+    sub_device = setup_carrier_services["sub_device"]
+
+    coord.async_resume_subscriber.side_effect = UniFiAuthenticationError(
+        "Rejected",
+        status_code=status_code,
+        api_error_code=api_error_code,
+    )
+
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_RESUME_SUBSCRIBER,
+            {"device_id": sub_device.id},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == expected_key
+
+
+@pytest.mark.parametrize(
+    ("service", "method"),
+    [
+        (SERVICE_CARRIER_SUSPEND_SUBSCRIBER, "async_suspend_subscriber"),
+        (SERVICE_CARRIER_RESUME_SUBSCRIBER, "async_resume_subscriber"),
+    ],
+)
+async def test_unexpected_exceptions_are_not_mapped(
+    hass, setup_carrier_services, service, method
+):
+    """A programming error must surface as itself, not as carrier_action_failed."""
+    coord = setup_carrier_services["coordinator"]
+    sub_device = setup_carrier_services["sub_device"]
+
+    getattr(coord, method).side_effect = KeyError("boom")
+
+    with pytest.raises(KeyError):
+        await hass.services.async_call(
+            DOMAIN,
+            service,
+            {"device_id": sub_device.id},
+            blocking=True,
+        )
+
+
+async def test_area_only_target_is_ignored(hass, setup_carrier_services):
+    """Areas are unsupported: an area-only target is the same as no target."""
+    coord = setup_carrier_services["coordinator"]
+
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"target": {"area_id": "living_room"}},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_target_required"
+    coord.async_suspend_subscriber.assert_not_called()
 
 
 async def test_write_conflict_retry_end_to_end(hass, setup_carrier_services):

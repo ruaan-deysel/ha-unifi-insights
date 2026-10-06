@@ -21,7 +21,7 @@ pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
 
 
 async def test_carrier_fabric_diagnostics_redaction(hass):
-    """Test Carrier Fabric diagnostics redacts PII and forbidden fields."""
+    """Test Carrier Fabric diagnostics exports allowlisted fields and redacts PII."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         entry_id="carrier_test_entry",
@@ -120,16 +120,17 @@ async def test_carrier_fabric_diagnostics_redaction(hass):
     assert data["org_id"] == "org_999"
     assert data["summary"] == summary_data
 
-    # 5. Service plans: allowlist kept, non-allowlisted omitted, forbidden redacted
+    # 5. Service plans: allowlist kept, everything else absent
     plan = data["service_plans"]["plan-1"]
     assert plan["id"] == "plan-1"
     assert plan["name"] == "Fiber 500"
     assert plan["downloadMbps"] == 500
     assert "extraInternalField" not in plan
-    assert plan["notes"] == "**REDACTED**"
-    assert plan["metadata"] == "**REDACTED**"
+    assert "notes" not in plan
+    assert "metadata" not in plan
 
-    # 6. Subscribers: id/state/planId kept, name and number redacted, forbidden redacted
+    # 6. Subscribers: id/state/planId kept, name and number redacted, the
+    # non-allowlisted fields are absent rather than redacted
     sub = data["subscribers"]["sub-uuid-1"]
     assert sub["id"] == "sub-uuid-1"
     assert sub["orgId"] == "org_999"
@@ -139,12 +140,15 @@ async def test_carrier_fabric_diagnostics_redaction(hass):
     assert sub["createdAt"] == "2026-01-01T00:00:00Z"
     assert sub["name"] == "**REDACTED**"
     assert sub["subscriberNumber"] == "**REDACTED**"
-    assert sub["email"] == "**REDACTED**"
-    assert sub["notes"] == "**REDACTED**"
-    assert sub["serviceAddress"] == "**REDACTED**"
-    assert sub["metadata"] == "**REDACTED**"
-    assert sub["suspendReason"] == "**REDACTED**"
-    assert sub["hostId"] == "**REDACTED**"
+    for dropped in (
+        "email",
+        "notes",
+        "serviceAddress",
+        "metadata",
+        "suspendReason",
+        "hostId",
+    ):
+        assert dropped not in sub
 
 
 async def test_carrier_fabric_diagnostics_exception_reported(hass):
@@ -173,3 +177,70 @@ async def test_carrier_fabric_diagnostics_exception_reported(hass):
     diag = await async_get_config_entry_diagnostics(hass, entry)
     assert diag["coordinator"]["last_update_success"] is False
     assert diag["coordinator"]["last_exception_type"] == "TimeoutError"
+
+
+async def test_carrier_fabric_diagnostics_drops_non_allowlisted_nested_data(hass):
+    """A non-allowlisted nested object never reaches the export, whatever its keys."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        entry_id="carrier_test_entry_nested",
+        unique_id="carrier_org_nested",
+        data={
+            "connection_type": CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "secret_isp_key",
+            CONF_CARRIER_ORG_ID: "org_nested",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    mock_coord = MagicMock()
+    mock_coord.last_update_success = True
+    mock_coord.last_exception = None
+    mock_coord.data = {
+        "org_id": "org_nested",
+        "summary": {},
+        "service_plans": {
+            "plan-nested": {
+                "id": "plan-nested",
+                "name": "Fiber 100",
+                "contacts": [{"phone": "+1 555 0100"}],
+            }
+        },
+        "subscribers": {
+            "sub-uuid-nested": {
+                "id": "sub-uuid-nested",
+                "orgId": "org_nested",
+                "planId": "plan-nested",
+                "name": "Bob Test",
+                "subscriberNumber": "SUB-9",
+                "state": "provisioned",
+                "unrecognized_top_level_key": "should_be_dropped",
+                # Keys no forbidden-field list would ever name
+                "contacts": [{"phone": "+1 555 0101"}],
+                "custom_details": {"safe_info": "public_val", "pager": "12345"},
+            }
+        },
+    }
+    entry.runtime_data = CarrierFabricData(
+        client=MagicMock(),
+        coordinator=mock_coord,
+    )
+
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    sub = diag["data"]["subscribers"]["sub-uuid-nested"]
+
+    # Allowlisted PII is redacted, other allowlisted fields are kept
+    assert sub["name"] == "**REDACTED**"
+    assert sub["subscriberNumber"] == "**REDACTED**"
+    assert sub["id"] == "sub-uuid-nested"
+    assert sub["state"] == "provisioned"
+
+    # Anything outside the allowlist is absent, nested or not
+    assert set(sub) == {"id", "orgId", "planId", "name", "subscriberNumber", "state"}
+    assert "+1 555 0101" not in repr(diag)
+    assert "+1 555 0100" not in repr(diag)
+    assert "12345" not in repr(diag)
+    assert diag["data"]["service_plans"]["plan-nested"] == {
+        "id": "plan-nested",
+        "name": "Fiber 100",
+    }

@@ -42,6 +42,9 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from custom_components.unifi_insights.const import DOMAIN
+from custom_components.unifi_insights.coordinators.carrier_fabric import (
+    UnifiCarrierFabricCoordinator,
+)
 from custom_components.unifi_insights.coordinators.facade import (
     UnifiFacadeCoordinator,
 )
@@ -2854,10 +2857,22 @@ class TestConsoleOwnershipRouting:
 
 
 class TestServiceCoordinatorContract:
-    """Guard the service layer against calling methods the facade lacks."""
+    """Guard the service layer against calling methods a coordinator lacks."""
 
-    def test_every_coordinator_method_called_by_services_exists(self):
-        """Every ``coordinator.<method>()`` in services.py must exist on the facade.
+    @pytest.mark.parametrize(
+        ("variable", "coordinator_class"),
+        [
+            ("coordinator", UnifiFacadeCoordinator),
+            ("carrier_coordinator", UnifiCarrierFabricCoordinator),
+        ],
+    )
+    def test_every_coordinator_method_called_by_services_exists(
+        self, variable, coordinator_class
+    ):
+        """Every ``<variable>.<method>()`` in services.py must exist on its class.
+
+        ``coordinator`` is the console facade, ``carrier_coordinator`` the
+        Carrier Fabric coordinator.
 
         The service tests drive MagicMock coordinators, which happily accept any
         attribute name. That is how ``async_set_camera_chime_volume`` - a method
@@ -2878,7 +2893,7 @@ class TestServiceCoordinatorContract:
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
                 and isinstance(node.func.value, ast.Name)
-                and node.func.value.id == "coordinator"
+                and node.func.value.id == variable
             ):
                 starred = any(isinstance(a, ast.Starred) for a in node.args) or any(
                     kw.arg is None for kw in node.keywords
@@ -2892,18 +2907,14 @@ class TestServiceCoordinatorContract:
                     )
                 )
 
-        assert calls, "no coordinator.<method>() calls found - parser broke"
+        assert calls, f"no {variable}.<method>() calls found - parser broke"
 
         missing = sorted(
-            {
-                name
-                for name, _, _, _ in calls
-                if not hasattr(UnifiFacadeCoordinator, name)
-            }
+            {name for name, _, _, _ in calls if not hasattr(coordinator_class, name)}
         )
         assert not missing, (
-            f"services.py calls coordinator methods that do not exist on "
-            f"UnifiFacadeCoordinator: {missing}"
+            f"services.py calls {variable} methods that do not exist on "
+            f"{coordinator_class.__name__}: {missing}"
         )
 
         # hasattr alone would still accept a 3-arg call to a 2-arg method, which
@@ -2912,7 +2923,7 @@ class TestServiceCoordinatorContract:
         for name, positional, keywords, starred in calls:
             if starred:
                 continue
-            signature = inspect.signature(getattr(UnifiFacadeCoordinator, name))
+            signature = inspect.signature(getattr(coordinator_class, name))
             try:
                 signature.bind(
                     object(),  # self
@@ -2922,7 +2933,7 @@ class TestServiceCoordinatorContract:
             except TypeError as err:
                 bad_arity.append(f"{name}: {err}")
         assert not bad_arity, (
-            f"services.py calls coordinator methods with arguments they do not "
+            f"services.py calls {variable} methods with arguments they do not "
             f"accept: {bad_arity}"
         )
 

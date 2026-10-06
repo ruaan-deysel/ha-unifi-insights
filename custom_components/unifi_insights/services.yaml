@@ -604,6 +604,7 @@ carrier_suspend_subscriber:
   target:
     device:
       integration: unifi_insights
+      model: Subscriber
     entity:
       integration: unifi_insights
   fields:
@@ -624,5 +625,6 @@ carrier_resume_subscriber:
   target:
     device:
       integration: unifi_insights
+      model: Subscriber
     entity:
       integration: unifi_insights

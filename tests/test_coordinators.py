@@ -7301,7 +7301,15 @@ class TestProtectSecurityDeviceFamilies:
     @pytest.mark.parametrize(
         ("collection", "fetch_method", "model", "sample"), _SECURITY_FAMILIES
     )
-    async def test_404_marks_family_unsupported_and_logs_once(
+    @pytest.mark.parametrize(
+        "error",
+        [
+            UniFiNotFoundError("Not Found", 404),
+            UniFiResponseError("API returned non-JSON response (status 200)", 200),
+        ],
+        ids=["404", "non-json-200"],
+    )
+    async def test_unsupported_answer_marks_family_unsupported_and_logs_once(
         self,
         coordinator: UnifiProtectCoordinator,
         caplog: pytest.LogCaptureFixture,
@@ -7310,13 +7318,15 @@ class TestProtectSecurityDeviceFamilies:
         fetch_method: str,
         model: type,
         sample: dict[str, Any],
+        error: Exception,
     ) -> None:
-        """An older Protect answering 404 is polled hourly and logged once.
+        """An older Protect without the endpoint is polled hourly, logged once.
 
-        Without this every 30s poll spends a request on an endpoint the
+        It may answer 404 or serve its HTML page with a 200. Without this
+        every 30s poll spends a request (and a warning) on an endpoint the
         console does not have.
         """
-        get_all = AsyncMock(side_effect=UniFiNotFoundError("Not Found", 404))
+        get_all = AsyncMock(side_effect=error)
         getattr(coordinator.protect_client, collection).get_all = get_all
         clock = 1000.0
 
@@ -7338,6 +7348,56 @@ class TestProtectSecurityDeviceFamilies:
         unsupported = [r for r in caplog.records if "does not expose" in r.getMessage()]
         assert len(unsupported) == 1
         assert unsupported[0].levelno == logging.INFO
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        # Never answered, so the HTML page is expected and logged at DEBUG.
+        get_all.assert_awaited_with(expected_unsupported=True)
+
+    @pytest.mark.asyncio
+    async def test_non_json_after_success_warns_and_keeps_polling(
+        self, coordinator: UnifiProtectCoordinator, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A family that answered before is not written off on an HTML page.
+
+        It stopped being an "unsupported endpoint" signal once the family
+        answered, so the call opts out and the error warns like any other.
+        """
+        endpoint = coordinator.protect_client.link_stations
+        endpoint.get_all = AsyncMock(
+            return_value=[LinkStation.model_validate(SAMPLE_THREAD_LINK_STATION)]
+        )
+        await coordinator._fetch_link_stations()
+        endpoint.get_all.assert_awaited_once_with(expected_unsupported=True)
+
+        endpoint.get_all = AsyncMock(
+            side_effect=UniFiResponseError(
+                "API returned non-JSON response (status 200)", 200
+            )
+        )
+        await coordinator._fetch_link_stations()
+        await coordinator._fetch_link_stations()
+
+        assert "link_station_thread" in coordinator.data["link_stations"]
+        assert endpoint.get_all.await_count == 2
+        endpoint.get_all.assert_awaited_with(expected_unsupported=False)
+        assert "Error fetching link_stations" in caplog.text
+        assert "does not expose" not in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_http_400_before_first_answer_is_not_unsupported(
+        self, coordinator: UnifiProtectCoordinator, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A 400 is a request problem, not a missing endpoint: warn, keep polling."""
+        endpoint = coordinator.protect_client.fobs
+        endpoint.get_all = AsyncMock(
+            side_effect=UniFiResponseError("API error (status 400)", 400)
+        )
+
+        await coordinator._fetch_fobs()
+        await coordinator._fetch_fobs()
+
+        assert endpoint.get_all.await_count == 2
+        assert "Error fetching fobs" in caplog.text
+        assert "does not expose" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_unsupported_family_recovers_once_endpoint_answers(
@@ -7781,7 +7841,9 @@ class TestProtectSecurityDeviceFamilies:
         """
         self._seed_hub(coordinator)
 
-        async def get_all_with_tamper_mid_flight() -> list[LinkStation]:
+        async def get_all_with_tamper_mid_flight(
+            *, expected_unsupported: bool
+        ) -> list[LinkStation]:
             coordinator._handle_event_update(
                 "alarmHubDeviceTamper", copy.deepcopy(SAMPLE_ALARM_HUB_TAMPER_EVENT)
             )

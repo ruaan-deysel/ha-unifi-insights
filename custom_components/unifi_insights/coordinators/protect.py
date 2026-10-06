@@ -8,6 +8,7 @@ import logging
 import math
 import time
 from datetime import UTC, datetime, timedelta
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
@@ -2539,12 +2540,14 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         ``collection`` is both the data key and the protect_client endpoint
         attribute ("fobs", "link_stations", "alarm_hubs").
 
-        A 404 before the family has ever answered means this Protect version
-        does not have the endpoint (it is not "no devices": an empty family
-        answers ``[]``). That is logged once at INFO and the family is skipped
-        until UNSUPPORTED_RESOURCE_RETRY has passed. A 404 after a successful
-        answer goes through the bounded 404 cache path like every other
-        collection. Any other error keeps the cached devices, as for chimes.
+        A 404, or a 2xx web page instead of JSON, before the family has ever
+        answered means this Protect version does not have the endpoint (it is
+        not "no devices": an empty family answers ``[]``). That is logged once
+        at INFO and the family is skipped until UNSUPPORTED_RESOURCE_RETRY has
+        passed. A 404 after a successful answer goes through the bounded 404
+        cache path like every other collection. Any other error - including a
+        web page after a successful answer, or a 400 - keeps the cached
+        devices, as for chimes.
         """
         if not self.protect_client:
             return
@@ -2554,24 +2557,23 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             return
 
         endpoint = getattr(self.protect_client, collection)
+        answered = collection in self._answered_families
         _LOGGER.debug("Protect coordinator: Fetching %s", collection)
         try:
-            models = await endpoint.get_all()
+            models = await endpoint.get_all(expected_unsupported=not answered)
         except UniFiNotFoundError:
-            if collection in self._answered_families:
+            if answered:
                 self._update_device_collection(collection, {}, is_404=True)
                 return
-            self._unsupported_until[collection] = (
-                time.monotonic() + UNSUPPORTED_RESOURCE_RETRY.total_seconds()
-            )
-            if collection not in self._unsupported_logged:
-                self._unsupported_logged.add(collection)
-                _LOGGER.info(
-                    "Protect coordinator: this Protect version does not expose "
-                    "%s (HTTP 404); checking again every %s",
-                    collection,
-                    UNSUPPORTED_RESOURCE_RETRY,
+            self._mark_family_unsupported(collection, "HTTP 404")
+            return
+        except UniFiResponseError as err:
+            if answered or err.status_code >= HTTPStatus.MULTIPLE_CHOICES:
+                _LOGGER.warning(
+                    "Protect coordinator: Error fetching %s: %s", collection, err
                 )
+                return
+            self._mark_family_unsupported(collection, "non-JSON response")
             return
         except Exception as err:
             _LOGGER.warning(
@@ -2593,6 +2595,21 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         _LOGGER.debug(
             "Protect coordinator: Successfully fetched %d %s", len(devices), collection
         )
+
+    def _mark_family_unsupported(self, collection: str, reason: str) -> None:
+        """Skip a family this Protect version lacks until the next re-probe."""
+        self._unsupported_until[collection] = (
+            time.monotonic() + UNSUPPORTED_RESOURCE_RETRY.total_seconds()
+        )
+        if collection not in self._unsupported_logged:
+            self._unsupported_logged.add(collection)
+            _LOGGER.info(
+                "Protect coordinator: this Protect version does not expose "
+                "%s (%s); checking again every %s",
+                collection,
+                reason,
+                UNSUPPORTED_RESOURCE_RETRY,
+            )
 
     def _cleanup_stale_devices(self) -> None:
         """

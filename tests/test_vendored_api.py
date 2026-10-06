@@ -1250,7 +1250,9 @@ async def test_alarm_hubs_get_all_wrapped_and_unwrapped() -> None:
     assert len(wrapped) == 1
     assert wrapped[0].id == "hub-1"
     assert wrapped[0].is_alarm_hub is True
-    client._get.assert_awaited_once_with(client.build_api_path("/alarm-hubs"))
+    client._get.assert_awaited_once_with(
+        client.build_api_path("/alarm-hubs"), expected_unsupported=False
+    )
 
     client._get = AsyncMock(return_value=[{"id": "hub-2", "modelKey": "linkStation"}])
     unwrapped = await client.alarm_hubs.get_all()
@@ -1356,7 +1358,9 @@ async def test_bridges_get_all_uses_base_endpoint() -> None:
 
     assert result[0].id == "bridge-1"
     assert result[0].max_clients == 4
-    client._get.assert_awaited_once_with(client.build_api_path("/bridges"))
+    client._get.assert_awaited_once_with(
+        client.build_api_path("/bridges"), expected_unsupported=False
+    )
 
 
 async def test_link_stations_get_returns_model() -> None:
@@ -1678,6 +1682,54 @@ async def test_probe_listing_expected_unsupported_log_level(
     assert exc.value.status_code == 200
     warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
     if case == "opted-in":
+        assert warnings == []
+    else:
+        assert warnings == [f"Response is not JSON for GET {path}: {_UNIFI_OS_HTML}"]
+
+
+@pytest.mark.parametrize(
+    ("family", "resource"),
+    [
+        ("fobs", "fobs"),
+        ("link_stations", "link-stations"),
+        ("alarm_hubs", "alarm-hubs"),
+    ],
+)
+@pytest.mark.parametrize("opted_in", [True, False])
+async def test_security_family_listing_expected_unsupported_log_level(
+    caplog: pytest.LogCaptureFixture,
+    family: str,
+    resource: str,
+    *,
+    opted_in: bool,
+) -> None:
+    """The Protect 7.3.70 family listings can opt into DEBUG for an HTML page.
+
+    The coordinator opts in until a family first answers, so an older Protect
+    that serves its web page instead of a 404 does not warn every poll.
+    """
+    client = _protect_client()
+    path = f"/proxy/protect/integration/v1/{resource}"
+    response = _make_response(
+        status=200,
+        text=_UNIFI_OS_HTML,
+        json_side_effect=aiohttp.ContentTypeError(MagicMock(), MagicMock()),
+        path=path,
+    )
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=response)
+    context.__aexit__ = AsyncMock(return_value=None)
+    session = MagicMock()
+    session.request = MagicMock(return_value=context)
+    client._ensure_session = AsyncMock(return_value=session)
+    client._throttle = AsyncMock()
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(UniFiResponseError) as exc:
+        await getattr(client, family).get_all(expected_unsupported=opted_in)
+
+    assert exc.value.status_code == 200
+    warnings = [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING]
+    if opted_in:
         assert warnings == []
     else:
         assert warnings == [f"Response is not JSON for GET {path}: {_UNIFI_OS_HTML}"]

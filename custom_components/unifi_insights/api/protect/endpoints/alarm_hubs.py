@@ -33,12 +33,21 @@ class AlarmHubsEndpoint:
         # adopted, and must not be treated as removed.
         self.last_result_complete: bool = True
 
-    async def get_all(self, site_id: str | None = None) -> list[AlarmHub]:
+    async def get_all(
+        self,
+        site_id: str | None = None,
+        *,
+        expected_unsupported: bool = False,
+    ) -> list[AlarmHub]:
         """
         List all alarm hubs.
 
         Args:
             site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
+            expected_unsupported: Whether a non-JSON 2xx response is an
+                expected unsupported-endpoint signal - a Protect version
+                without this endpoint serving its web page. Only lowers the
+                log level of an unredirected response; the call still raises.
 
         Returns:
             List of alarm hubs.
@@ -46,7 +55,9 @@ class AlarmHubsEndpoint:
         """
         path = self._client.build_api_path("/alarm-hubs", site_id)
         self.last_result_complete = True
-        response = await self._client._get(path)
+        response = await self._client._get(
+            path, expected_unsupported=expected_unsupported
+        )
 
         if response is None:
             return []

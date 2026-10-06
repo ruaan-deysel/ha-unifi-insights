@@ -46,19 +46,18 @@ _LOGGER = logging.getLogger(__name__)
 
 _T = TypeVar("_T")
 
+# Group 1 keeps the key and separator. The value pattern consumes escaped
+# quotes, so a secret containing a colon or an escaped quote is replaced whole.
 _SENSITIVE_KEYS_RE = re.compile(
-    r'"(?:password|psk|passphrase|token|apiKey|api_key|secret|credential|'
-    r'x-api-key|authorization|code|voucher|fingerprint)"\s*:\s*"[^"]*"',
+    r'("(?:password|psk|passphrase|token|apiKey|api_key|secret|credential|'
+    r'x-api-key|authorization|code|voucher|fingerprint)"\s*:\s*)"(?:[^"\\]|\\.)*"',
     re.IGNORECASE,
 )
 
 
 def _redact(text: str) -> str:
     """Replace sensitive JSON field values with a redaction placeholder."""
-    return _SENSITIVE_KEYS_RE.sub(
-        lambda m: m.group(0).rsplit(":", 1)[0] + ': "**REDACTED**"',
-        text,
-    )
+    return _SENSITIVE_KEYS_RE.sub(r'\1"**REDACTED**"', text)
 
 
 def _retry_after_seconds(value: str | None) -> int:

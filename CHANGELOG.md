@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Guarded `carrier_suspend_subscriber` and `carrier_resume_subscriber` service actions with scope validation and write-conflict retry.
   - Diagnostics support with allowlisted fields only; subscriber names and subscriber numbers are redacted.
 
+### Fixed
+
+- Secrets in logged API responses are now fully redacted. Before, a password, Wi-Fi passphrase, token or API key containing a colon (`:`) or an escaped quote was only partly hidden: debug logs and "Response is not JSON" warnings showed the value up to its last colon, for example `"passphrase": "my:secret: "**REDACTED**"`. Now the whole value is replaced: `"passphrase": "**REDACTED**"`.
+
 ## [2026.10.1] - 2026-10-04
 
 ### Fixed

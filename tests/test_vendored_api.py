@@ -1406,6 +1406,44 @@ def _make_response(
     return response
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('{"password": "plain"}', '{"password": "**REDACTED**"}'),
+        ('{"password": "my:secret:pw"}', '{"password": "**REDACTED**"}'),
+        ('{"token":"abc:def"}', '{"token":"**REDACTED**"}'),
+        ('{"psk" : "a:b"}', '{"psk" : "**REDACTED**"}'),
+        ('{"passphrase": "ab\\"cd:ef"}', '{"passphrase": "**REDACTED**"}'),
+        (
+            '{"apiKey": "x:y", "name": "Home:1"}',
+            '{"apiKey": "**REDACTED**", "name": "Home:1"}',
+        ),
+        ('{"name": "a:b"}', '{"name": "a:b"}'),
+    ],
+)
+def test_redact_replaces_whole_sensitive_value(text: str, expected: str) -> None:
+    """Colons or escaped quotes inside a secret must not leave part of it."""
+    assert api_base._redact(text) == expected
+
+
+async def test_handle_response_debug_body_redacts_secret_with_colons(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The DEBUG response body must not leak the start of a colon-containing secret."""
+    client = _network_client()
+    response = _make_response(
+        status=200,
+        text='{"data": [{"name": "Home", "passphrase": "LEAK-a:LEAK-b:tail"}]}',
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        await client._handle_response(response)
+
+    assert "**REDACTED**" in caplog.text
+    assert "LEAK-" not in caplog.text
+    assert "tail" not in caplog.text
+
+
 async def test_handle_response_2xx_non_json_raises() -> None:
     """A 2xx status with a non-JSON body must raise, not be treated as success.
 

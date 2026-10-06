@@ -257,6 +257,87 @@ async def test_carrier_fabric_device_removal(hass, carrier_entry):
     assert not await async_remove_config_entry_device(hass, carrier_entry, other_device)
 
 
+async def test_carrier_fabric_device_removal_ignores_other_integrations_identifiers(
+    hass, carrier_entry
+):
+    """Identifiers of other integrations on a shared device are never ours to judge."""
+    mock_coordinator = MagicMock()
+    mock_coordinator.data = {"subscribers": {}}
+    carrier_entry.runtime_data = CarrierFabricData(
+        client=MagicMock(), coordinator=mock_coordinator
+    )
+    dev_reg = dr.async_get(hass)
+
+    # A device only another integration identifies is refused, not removed.
+    foreign_only = dev_reg.async_get_or_create(
+        config_entry_id=carrier_entry.entry_id,
+        identifiers={("other_integration", "carrier_subscriber_sub_gone")},
+    )
+    assert not await async_remove_config_entry_device(hass, carrier_entry, foreign_only)
+
+    # A stale subscriber device that another integration also identifies is still
+    # removable, whichever identifier is looked at first.
+    shared_stale = dev_reg.async_get_or_create(
+        config_entry_id=carrier_entry.entry_id,
+        identifiers={
+            ("other_integration", "some_serial"),
+            (DOMAIN, "carrier_subscriber_sub_gone"),
+        },
+    )
+    assert await async_remove_config_entry_device(hass, carrier_entry, shared_stale)
+
+
+async def test_carrier_fabric_setup_backfills_missing_org_id_from_probe(
+    hass,
+):
+    """An entry stored without an organisation learns it from the setup probe."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Carrier Fabric",
+        unique_id="carrier_key_abc123",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            CONF_API_KEY: "isp_secret_key",
+            CONF_CARRIER_ORG_ID: None,
+        },
+    )
+    entry.add_to_hass(hass)
+
+    mock_client = MagicMock()
+    mock_client.close = AsyncMock()
+    mock_client.service_plans = MagicMock()
+    mock_client.service_plans.get_all = AsyncMock(return_value=[])
+    mock_client.subscribers = MagicMock()
+    mock_client.subscribers.get_all = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "custom_components.unifi_insights.UniFiCarrierFabricClient",
+            return_value=mock_client,
+        ),
+        patch(
+            "custom_components.unifi_insights.async_probe_carrier_fabric",
+            return_value=ProbeResult(
+                status=ProbeStatus.AVAILABLE,
+                org_id="org_discovered",
+            ),
+        ),
+        patch(
+            "homeassistant.config_entries.ConfigEntries.async_forward_entry_setups",
+            new_callable=AsyncMock,
+        ),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state == ConfigEntryState.LOADED
+    assert entry.data[CONF_CARRIER_ORG_ID] == "org_discovered"
+    assert entry.data[CONF_API_KEY] == "isp_secret_key"
+    assert entry.data[CONF_CONNECTION_TYPE] == CONNECTION_TYPE_CARRIER_FABRIC
+    # The coordinator resolves the same organisation from the updated entry.
+    assert entry.runtime_data.coordinator.data["org_id"] == "org_discovered"
+
+
 async def test_carrier_fabric_setup_probe_unsupported(hass, carrier_entry):
     """Test setup raises ConfigEntryNotReady when probe reports UNSUPPORTED."""
     mock_client = MagicMock()

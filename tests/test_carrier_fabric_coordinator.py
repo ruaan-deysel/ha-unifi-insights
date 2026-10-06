@@ -605,6 +605,44 @@ async def test_coordinator_org_id_fallback_discovery(hass, mock_carrier_client):
     assert data["summary"]["subscribers_by_state"]["unknown"] == 1
 
 
+async def test_coordinator_org_id_unknown_when_no_resource_carries_one(
+    hass, mock_carrier_client
+):
+    """Without a stored or discoverable organisation the id stays unknown."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CARRIER_ORG_ID: None},
+    )
+    coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, entry)
+
+    # Neither the plan nor the subscribers name an organisation.
+    mock_carrier_client.service_plans.get_all.return_value = [
+        ServicePlan.model_validate({"id": "plan_1"})
+    ]
+    mock_carrier_client.subscribers.get_all.return_value = [
+        Subscriber.model_validate({"id": "sub_1"}),
+        Subscriber.model_validate({"id": "sub_2"}),
+    ]
+    data = await coord._async_update_data()
+    assert data["org_id"] is None
+    assert set(data["subscribers"]) == {"sub_1", "sub_2"}
+
+    # An empty account has nothing to discover from either.
+    mock_carrier_client.service_plans.get_all.return_value = []
+    mock_carrier_client.subscribers.get_all.return_value = []
+    data = await coord._async_update_data()
+    assert data["org_id"] is None
+
+    # A later subscriber that does carry the id is still found past those that
+    # do not.
+    mock_carrier_client.subscribers.get_all.return_value = [
+        Subscriber.model_validate({"id": "sub_1"}),
+        Subscriber.model_validate({"id": "sub_2", "orgId": "org_late"}),
+    ]
+    data = await coord._async_update_data()
+    assert data["org_id"] == "org_late"
+
+
 async def test_coordinator_validate_subscriber_uuid_non_string(
     hass, mock_carrier_client
 ):

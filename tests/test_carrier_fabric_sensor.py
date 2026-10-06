@@ -491,6 +491,58 @@ async def test_carrier_fabric_dynamic_discovery(
     assert "carrier_subscriber_sub_new_service_plan" in new_uids
 
 
+async def test_carrier_fabric_refresh_without_new_resources_adds_nothing(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """A refresh that finds nothing new must not add entities, nor re-add old ones."""
+    hass.config_entries.async_update_entry(
+        carrier_entry,
+        options={CONF_TRACK_SUBSCRIBERS: True},
+    )
+
+    added_batches = []
+    await async_setup_entry(hass, carrier_entry, added_batches.append)
+    assert len(added_batches) == 1
+
+    # Same plans and subscribers as at setup.
+    for listener in mock_carrier_coordinator._listeners:
+        listener()
+    assert len(added_batches) == 1
+
+    # A genuinely new plan is added once; the refresh after it adds nothing again.
+    mock_carrier_coordinator.data["service_plans"]["plan_new"] = {
+        "id": "plan_new",
+        "name": "Gigabit Ultra",
+        "status": "active",
+    }
+    for listener in mock_carrier_coordinator._listeners:
+        listener()
+    assert len(added_batches) == 2
+    assert {e.unique_id for e in added_batches[1]} == {
+        f"{carrier_entry.unique_id}_plan_plan_new_subscribers"
+    }
+
+    for listener in mock_carrier_coordinator._listeners:
+        listener()
+    assert len(added_batches) == 2
+
+
+async def test_carrier_fabric_plan_sensor_unavailable_when_update_fails(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """A plan present in the last data is still unavailable while refreshes fail."""
+    plan_sensor = UnifiCarrierFabricPlanSubscribersSensor(
+        mock_carrier_coordinator, carrier_entry, "plan_1"
+    )
+    assert plan_sensor.available is True
+
+    mock_carrier_coordinator.last_update_success = False
+    assert plan_sensor.available is False
+
+    mock_carrier_coordinator.last_update_success = True
+    assert plan_sensor.available is True
+
+
 async def test_carrier_fabric_sensor_defensive_fallbacks(
     hass, carrier_entry, mock_carrier_coordinator
 ):

@@ -4,6 +4,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_API_KEY
 from homeassistant.exceptions import ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -63,6 +64,8 @@ def carrier_entry_with_runtime_data(hass):
         },
     )
     entry.add_to_hass(hass)
+    # Loaded, as a running entry is: only loaded entries are ever enumerated.
+    entry.mock_state(hass, ConfigEntryState.LOADED)
     entry.runtime_data = CarrierFabricData(
         client=mock_client,
         coordinator=mock_coordinator,

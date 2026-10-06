@@ -4,6 +4,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import voluptuous as vol
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import (
@@ -355,16 +356,40 @@ async def test_rejection_invalid_subscriber_id(hass, setup_carrier_services):
 async def test_rejection_reason_too_long(hass, setup_carrier_services):
     """Test rejection when suspend reason exceeds 1024 characters."""
     sub_device = setup_carrier_services["sub_device"]
-    with pytest.raises(
-        (ServiceValidationError, Exception),
-        match="1024",
-    ):
+    coord = setup_carrier_services["coordinator"]
+    with pytest.raises(vol.Invalid, match="1024"):
         await hass.services.async_call(
             DOMAIN,
             SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
             {"device_id": sub_device.id, "reason": "a" * 1025},
             blocking=True,
         )
+    coord.async_suspend_subscriber.assert_not_called()
+
+    # The limit is inclusive: exactly 1024 characters goes through untouched.
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+        {"device_id": sub_device.id, "reason": "a" * 1024},
+        blocking=True,
+    )
+    coord.async_suspend_subscriber.assert_called_once_with(
+        VALID_SUB_ID, reason="a" * 1024
+    )
+
+
+async def test_non_string_reason_is_coerced_by_the_schema(hass, setup_carrier_services):
+    """A numeric reason reaches the coordinator as text."""
+    sub_device = setup_carrier_services["sub_device"]
+    coord = setup_carrier_services["coordinator"]
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+        {"device_id": sub_device.id, "reason": 42},
+        blocking=True,
+    )
+    coord.async_suspend_subscriber.assert_called_once_with(VALID_SUB_ID, reason="42")
 
 
 async def test_suspend_403_maps_to_scope_message(hass, setup_carrier_services):
@@ -534,6 +559,174 @@ async def test_area_only_target_is_ignored(hass, setup_carrier_services):
             blocking=True,
         )
     assert exc_info.value.translation_key == "carrier_target_required"
+    coord.async_suspend_subscriber.assert_not_called()
+
+
+async def test_repeated_target_is_one_target(hass, setup_carrier_services):
+    """The same subscriber named twice (device_id and target) is not "multiple"."""
+    coord = setup_carrier_services["coordinator"]
+    sub_device = setup_carrier_services["sub_device"]
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+        {"device_id": sub_device.id, "target": {"device_id": sub_device.id}},
+        blocking=True,
+    )
+    coord.async_suspend_subscriber.assert_called_once_with(VALID_SUB_ID, reason=None)
+
+
+@pytest.mark.parametrize(
+    "target", [f"carrier_subscriber_{VALID_SUB_ID}", VALID_SUB_ID], ids=["full", "bare"]
+)
+async def test_subscriber_targeted_by_identifier(hass, setup_carrier_services, target):
+    """A subscriber can be targeted by its device identifier or bare id."""
+    coord = setup_carrier_services["coordinator"]
+
+    await hass.services.async_call(
+        DOMAIN,
+        SERVICE_CARRIER_RESUME_SUBSCRIBER,
+        {"device_id": target},
+        blocking=True,
+    )
+    coord.async_resume_subscriber.assert_called_once_with(VALID_SUB_ID)
+
+
+async def test_rejection_unknown_device_target(hass, setup_carrier_services):
+    """A device id that matches no device, identifier or subscriber is refused."""
+    coord = setup_carrier_services["coordinator"]
+
+    with pytest.raises(
+        ServiceValidationError, match="not found in device registry"
+    ) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"device_id": "no-such-device"},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_target_not_found"
+    assert exc_info.value.translation_placeholders == {"target": "no-such-device"}
+    coord.async_suspend_subscriber.assert_not_called()
+
+
+async def test_rejection_unknown_entity_target(hass, setup_carrier_services):
+    """An entity id that is not in the entity registry is refused."""
+    coord = setup_carrier_services["coordinator"]
+
+    with pytest.raises(
+        ServiceValidationError, match="not found in entity registry"
+    ) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"entity_id": "sensor.not_registered"},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_target_not_found"
+    assert exc_info.value.translation_placeholders == {
+        "target": "sensor.not_registered"
+    }
+    coord.async_suspend_subscriber.assert_not_called()
+
+
+async def test_rejection_entity_of_another_integration(hass, setup_carrier_services):
+    """An entity that belongs to another integration is not a subscriber."""
+    coord = setup_carrier_services["coordinator"]
+    foreign_entity = er.async_get(hass).async_get_or_create(
+        domain="light", platform="other_integration", unique_id="foreign-light-1"
+    )
+
+    with pytest.raises(
+        ServiceValidationError, match="is not a UniFi Insights entity"
+    ) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"entity_id": foreign_entity.entity_id},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_target_not_subscriber"
+    coord.async_suspend_subscriber.assert_not_called()
+
+
+async def test_rejection_entity_without_device(hass, setup_carrier_services):
+    """An entity of ours that is attached to no device has no subscriber behind it."""
+    carrier_entry = setup_carrier_services["carrier_entry"]
+    coord = setup_carrier_services["coordinator"]
+    deviceless = er.async_get(hass).async_get_or_create(
+        domain="sensor",
+        platform=DOMAIN,
+        unique_id="carrier_subscriber_deviceless_state",
+        config_entry=carrier_entry,
+    )
+    assert deviceless.device_id is None
+
+    with pytest.raises(
+        ServiceValidationError, match="not found in device registry"
+    ) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"entity_id": deviceless.entity_id},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_target_not_found"
+    coord.async_suspend_subscriber.assert_not_called()
+
+
+async def test_rejection_device_of_another_integration(hass, setup_carrier_services):
+    """A device that carries no UniFi Insights identifier is not a subscriber."""
+    coord = setup_carrier_services["coordinator"]
+    other_entry = MockConfigEntry(domain="other_integration", entry_id="other_entry_1")
+    other_entry.add_to_hass(hass)
+    foreign_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=other_entry.entry_id,
+        identifiers={("other_integration", "serial-123")},
+    )
+
+    with pytest.raises(
+        ServiceValidationError, match="is not a UniFi Insights device"
+    ) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"device_id": foreign_device.id},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_target_not_subscriber"
+    coord.async_suspend_subscriber.assert_not_called()
+
+
+async def test_rejection_subscriber_device_owned_by_another_integrations_entry(
+    hass, setup_carrier_services
+):
+    """A device carrying our identifier but owned by a foreign entry is refused."""
+    coord = setup_carrier_services["coordinator"]
+
+    # A device belongs to one config entry. This one keeps a UniFi Insights
+    # identifier but is owned by another integration's entry, so there is no
+    # UniFi Insights entry behind it to act through.
+    other_entry = MockConfigEntry(domain="other_integration", entry_id="other_entry_2")
+    other_entry.add_to_hass(hass)
+    foreign_owned = dr.async_get(hass).async_get_or_create(
+        config_entry_id=other_entry.entry_id,
+        identifiers={
+            (DOMAIN, "carrier_subscriber_99999999-2222-3333-4444-555555555555")
+        },
+    )
+    assert foreign_owned.config_entry_id == other_entry.entry_id
+
+    with pytest.raises(
+        ServiceValidationError, match="Target config entry is not loaded"
+    ) as exc_info:
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_CARRIER_SUSPEND_SUBSCRIBER,
+            {"device_id": foreign_owned.id},
+            blocking=True,
+        )
+    assert exc_info.value.translation_key == "carrier_entry_not_loaded"
     coord.async_suspend_subscriber.assert_not_called()
 
 

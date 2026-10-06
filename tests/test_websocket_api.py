@@ -15,10 +15,16 @@ from pytest_homeassistant_custom_component.common import (
     MockConfigEntry as MockConfigEntryForTest,
 )
 
-from custom_components.unifi_insights.const import DOMAIN
+from custom_components.unifi_insights import CarrierFabricData
+from custom_components.unifi_insights.const import (
+    CONF_CONNECTION_TYPE,
+    CONNECTION_TYPE_CARRIER_FABRIC,
+    DOMAIN,
+)
 from custom_components.unifi_insights.helpers import async_get_device_entry
 from custom_components.unifi_insights.topology import build_site_topology
 from custom_components.unifi_insights.websocket_api import (
+    ERR_ENTRY_NOT_LOADED,
     ws_topology_sources,
     ws_topology_subscribe,
 )
@@ -121,6 +127,48 @@ async def test_sources_skips_loaded_entry_without_runtime_data(
 
     (sources,) = connection.send_result.call_args.args[1:]
     assert [source["entry_id"] for source in sources] == [init_integration.entry_id]
+
+
+async def test_dashboard_commands_skip_loaded_carrier_fabric_entry(
+    hass: HomeAssistant, init_integration: MockConfigEntry, hass_ws_client
+) -> None:
+    """A loaded Carrier Fabric entry has no topology or Protect data to offer."""
+    _seed(init_integration)
+    carrier_entry = MockConfigEntryForTest(
+        domain=DOMAIN,
+        entry_id="carrier_entry",
+        unique_id="carrier_org_1",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC,
+            "api_key": "isp_key",
+        },
+    )
+    carrier_entry.add_to_hass(hass)
+    carrier_entry.runtime_data = CarrierFabricData(client=Mock(), coordinator=Mock())
+    carrier_entry.mock_state(hass, ConfigEntryState.LOADED)
+    client = await hass_ws_client(hass)
+
+    for msg_id, msg_type in (
+        (1, "unifi_insights/topology/sources"),
+        (2, "unifi_insights/protect/sources"),
+    ):
+        await client.send_json({"id": msg_id, "type": msg_type})
+        msg = await client.receive_json()
+        assert msg["success"], msg_type
+        assert [source["entry_id"] for source in msg["result"]] == [
+            init_integration.entry_id
+        ], msg_type
+
+    await client.send_json(
+        {
+            "id": 3,
+            "type": "unifi_insights/protect/get",
+            "entry_id": carrier_entry.entry_id,
+        }
+    )
+    msg = await client.receive_json()
+    assert not msg["success"]
+    assert msg["error"]["code"] == ERR_ENTRY_NOT_LOADED
 
 
 async def test_get_returns_snapshot(

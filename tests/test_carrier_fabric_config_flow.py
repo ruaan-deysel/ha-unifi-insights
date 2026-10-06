@@ -72,6 +72,7 @@ async def test_carrier_fabric_flow_success_with_org_id(hass):
 async def test_carrier_fabric_flow_success_fallback_unique_id(hass):
     """Test successful setup without org_id generates carrier_key_<hash> unique_id."""
     api_key = "secret_isp_key_no_org"
+    # First 16 hex chars of SHA-256("secret_isp_key_no_org"), used as test fixture.
     expected_hash = "ea04d5e823c90f95"
     expected_unique_id = f"carrier_key_{expected_hash}"
 

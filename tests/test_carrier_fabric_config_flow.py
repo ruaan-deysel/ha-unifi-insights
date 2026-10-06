@@ -1,7 +1,6 @@
 # Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Carrier Fabric config flow."""
 
-import hashlib
 from unittest.mock import patch
 
 import pytest
@@ -73,7 +72,7 @@ async def test_carrier_fabric_flow_success_with_org_id(hass):
 async def test_carrier_fabric_flow_success_fallback_unique_id(hass):
     """Test successful setup without org_id generates carrier_key_<hash> unique_id."""
     api_key = "secret_isp_key_no_org"
-    expected_hash = hashlib.sha256(api_key.encode()).hexdigest()[:16]
+    expected_hash = "ea04d5e823c90f95"
     expected_unique_id = f"carrier_key_{expected_hash}"
 
     with patch(

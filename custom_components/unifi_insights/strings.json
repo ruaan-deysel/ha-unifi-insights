@@ -704,22 +704,22 @@
       "message": "Multiple targets specified for {service}; action only supports a single target."
     },
     "carrier_target_not_subscriber": {
-      "message": "Target '{target}' is not a Carrier Fabric subscriber."
+      "message": "Target {target} is not a Carrier Fabric subscriber."
     },
     "carrier_target_not_found": {
-      "message": "Target '{target}' not found."
+      "message": "Target {target} not found."
     },
     "carrier_entry_not_loaded": {
       "message": "Carrier Fabric integration entry is not loaded."
     },
     "carrier_missing_scope": {
-      "message": "Carrier Fabric API key missing required scope '{scope}' to {action} subscriber {subscriber_id}."
+      "message": "Carrier Fabric API key missing required scope {scope} to {action} subscriber {subscriber_id}."
     },
     "carrier_reason_too_long": {
       "message": "Suspend reason must not exceed 1024 characters."
     },
     "carrier_invalid_subscriber_id": {
-      "message": "Invalid subscriber ID format '{target}' (valid UUID expected)."
+      "message": "Invalid subscriber ID format {target} (valid UUID expected)."
     },
     "carrier_action_failed": {
       "message": "Failed to {action} subscriber."

@@ -602,9 +602,6 @@ carrier_suspend_subscriber:
     option to be enabled on the Carrier Fabric integration entry, and an ISP
     API key with the suspend:service scope.
   target:
-    device:
-      integration: unifi_insights
-      model: Subscriber
     entity:
       integration: unifi_insights
   fields:
@@ -623,8 +620,5 @@ carrier_resume_subscriber:
     option to be enabled on the Carrier Fabric integration entry, and an ISP
     API key with the resume:service scope.
   target:
-    device:
-      integration: unifi_insights
-      model: Subscriber
     entity:
       integration: unifi_insights

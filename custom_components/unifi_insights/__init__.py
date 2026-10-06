@@ -35,6 +35,7 @@ from .console_identity import (
     resolve_console_identity,
 )
 from .const import (
+    CARRIER_FABRIC_REQUEST_TIMEOUT,
     CONF_CARRIER_ORG_ID,
     CONF_CONNECTION_TYPE,
     CONF_CONSOLE_ID,
@@ -303,7 +304,9 @@ async def _async_setup_carrier_fabric_entry(
     api_key = entry.data[CONF_API_KEY]
     session = async_get_clientsession(hass)
     auth = ApiKeyAuth(api_key=api_key)
-    client = UniFiCarrierFabricClient(auth=auth, session=session, timeout=30)
+    client = UniFiCarrierFabricClient(
+        auth=auth, session=session, timeout=CARRIER_FABRIC_REQUEST_TIMEOUT
+    )
 
     # Register client cleanup via entry.async_on_unload BEFORE anything can fail
     entry.async_on_unload(client.close)
@@ -685,10 +688,10 @@ async def async_unload_entry(
     _LOGGER.debug("Unloading UniFi Insights config entry")
     _clear_setup_probe_attempts(hass, entry.entry_id)
 
-    if (
+    is_carrier_fabric = (
         entry.data.get(CONF_CONNECTION_TYPE) == CONNECTION_TYPE_CARRIER_FABRIC
-        or isinstance(entry.runtime_data, CarrierFabricData)
-    ):
+    )
+    if is_carrier_fabric or isinstance(entry.runtime_data, CarrierFabricData):
         return await hass.config_entries.async_unload_platforms(
             entry, CARRIER_FABRIC_PLATFORMS
         )

@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Carrier Fabric coordinator."""
 
 from typing import NamedTuple
@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
+    UniFiError,
     UniFiResponseError,
     UniFiTimeoutError,
 )
@@ -20,6 +21,7 @@ from custom_components.unifi_insights.api.carrier_fabric.models import (
     Subscriber,
 )
 from custom_components.unifi_insights.const import (
+    CARRIER_FABRIC_SCAN_INTERVAL,
     CONF_CARRIER_ORG_ID,
     CONNECTION_TYPE_CARRIER_FABRIC,
     DOMAIN,
@@ -102,9 +104,8 @@ async def test_coordinator_data_ingestion_and_allowlist(
                 "uploadMbps": 20,
             }
         ),
-        # Invalid item without id - must be skipped
-        {"name": "No ID Plan"},
-        "not a dict plan",
+        # Empty id - cannot be keyed, must be skipped
+        ServicePlan.model_validate({"id": "", "name": "No ID Plan"}),
     ]
 
     # Real Subscriber model instances containing sensitive fields
@@ -191,9 +192,8 @@ async def test_coordinator_data_ingestion_and_allowlist(
                 "name": "Alice Duplicate",
             }
         ),
-        # Invalid item without id
-        {"name": "No ID Subscriber"},
-        12345,
+        # Empty id - cannot be keyed, must be skipped
+        Subscriber.model_validate({"id": "", "name": "No ID Subscriber"}),
     ]
 
     mock_carrier_client.service_plans.get_all.return_value = raw_plans
@@ -518,8 +518,25 @@ async def test_coordinator_resume_write_conflict_retry_exhausted_propagates(
     assert exc_info.value.api_error_code == "write_conflict_retryable"
 
 
-async def test_coordinator_refresh_unexpected_exception(hass, mock_carrier_client):
-    """Test unexpected exception raises UpdateFailed."""
+async def test_coordinator_refresh_unexpected_unifi_error(hass, mock_carrier_client):
+    """A library error without a more specific type raises UpdateFailed."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_CARRIER_ORG_ID: "org_1"},
+    )
+    coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, entry)
+    mock_carrier_client.service_plans.get_all.side_effect = UniFiError("odd failure")
+
+    with pytest.raises(
+        UpdateFailed, match="Unexpected error communicating with Carrier Fabric API"
+    ):
+        await coord._async_update_data()
+
+
+async def test_coordinator_refresh_programming_error_surfaces(
+    hass, mock_carrier_client
+):
+    """A non-library exception is a bug: it propagates and fails the refresh."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_CARRIER_ORG_ID: "org_1"},
@@ -527,10 +544,35 @@ async def test_coordinator_refresh_unexpected_exception(hass, mock_carrier_clien
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, entry)
     mock_carrier_client.service_plans.get_all.side_effect = RuntimeError("Disk full")
 
-    with pytest.raises(
-        UpdateFailed, match="Unexpected error communicating with Carrier Fabric API"
-    ):
+    with pytest.raises(RuntimeError, match="Disk full"):
         await coord._async_update_data()
+
+    # Home Assistant's own refresh wrapper still marks the update as failed.
+    await coord.async_refresh()
+    assert coord.last_update_success is False
+    assert isinstance(coord.last_exception, RuntimeError)
+
+
+async def test_coordinator_matches_data_update_coordinator_contract(
+    hass, mock_carrier_entry, mock_carrier_client
+):
+    """Entities and diagnostics rely on config_entry, interval and last_update_*."""
+    coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
+
+    assert coord.config_entry is mock_carrier_entry
+    assert coord.update_interval == CARRIER_FABRIC_SCAN_INTERVAL
+    assert coord.name == f"{DOMAIN}_carrier_fabric"
+    assert coord.data == {}
+
+    await coord.async_refresh()
+    assert coord.last_update_success is True
+    assert coord.data["org_id"] == "org_123"
+
+    mock_carrier_client.service_plans.get_all.side_effect = UniFiConnectionError("down")
+    await coord.async_refresh()
+    assert coord.last_update_success is False
+    # The last good snapshot is kept while the update is failing.
+    assert coord.data["org_id"] == "org_123"
 
 
 async def test_coordinator_org_id_fallback_discovery(hass, mock_carrier_client):
@@ -543,16 +585,20 @@ async def test_coordinator_org_id_fallback_discovery(hass, mock_carrier_client):
 
     # 1. From service plan
     mock_carrier_client.service_plans.get_all.return_value = [
-        {"id": "plan_1", "orgId": "org_from_plan"}
+        ServicePlan.model_validate({"id": "plan_1", "orgId": "org_from_plan"})
     ]
     mock_carrier_client.subscribers.get_all.return_value = []
     data = await coord._async_update_data()
     assert data["org_id"] == "org_from_plan"
 
     # 2. From subscriber when plans have no orgId
-    mock_carrier_client.service_plans.get_all.return_value = [{"id": "plan_2"}]
+    mock_carrier_client.service_plans.get_all.return_value = [
+        ServicePlan.model_validate({"id": "plan_2"})
+    ]
     mock_carrier_client.subscribers.get_all.return_value = [
-        {"id": "sub_1", "orgId": "org_from_sub", "state": "unknown_status"}
+        Subscriber.model_validate(
+            {"id": "sub_1", "orgId": "org_from_sub", "state": "unknown_status"}
+        )
     ]
     data = await coord._async_update_data()
     assert data["org_id"] == "org_from_sub"

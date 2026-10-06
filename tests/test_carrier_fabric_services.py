@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Carrier Fabric service actions."""
 
 from unittest.mock import AsyncMock, MagicMock

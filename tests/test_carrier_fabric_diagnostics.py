@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for Carrier Fabric diagnostics."""
 
 from unittest.mock import MagicMock

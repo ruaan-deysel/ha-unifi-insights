@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Pydantic models for the UniFi Carrier Fabric API."""
 
 from __future__ import annotations
@@ -87,56 +87,6 @@ class Subscriber(CarrierFabricBaseModel):
             data["suspended"] = False
         return data
 
-    @property
-    def orgId(self) -> str | None:  # noqa: N802
-        """Alias for org_id."""
-        return self.org_id
-
-    @property
-    def subscriberNumber(self) -> str | None:  # noqa: N802
-        """Alias for subscriber_number."""
-        return self.subscriber_number
-
-    @property
-    def planId(self) -> str | None:  # noqa: N802
-        """Alias for plan_id."""
-        return self.plan_id
-
-    @property
-    def hostId(self) -> str | None:  # noqa: N802
-        """Alias for host_id."""
-        return self.host_id
-
-    @property
-    def serviceAddress(self) -> str | None:  # noqa: N802
-        """Alias for service_address."""
-        return self.service_address
-
-    @property
-    def suspendReason(self) -> str | None:  # noqa: N802
-        """Alias for suspend_reason."""
-        return self.suspend_reason
-
-    @property
-    def suspendedAt(self) -> str | None:  # noqa: N802
-        """Alias for suspended_at."""
-        return self.suspended_at
-
-    @property
-    def activatedAt(self) -> str | None:  # noqa: N802
-        """Alias for activated_at."""
-        return self.activated_at
-
-    @property
-    def createdAt(self) -> str | None:  # noqa: N802
-        """Alias for created_at."""
-        return self.created_at
-
-    @property
-    def updatedAt(self) -> str | None:  # noqa: N802
-        """Alias for updated_at."""
-        return self.updated_at
-
 
 class ServicePlan(CarrierFabricBaseModel):
     """UniFi Carrier Fabric Service Plan model."""
@@ -175,36 +125,6 @@ class ServicePlan(CarrierFabricBaseModel):
         serialization_alias="updatedAt",
     )
     metadata: dict[str, Any] | None = None
-
-    @property
-    def orgId(self) -> str | None:  # noqa: N802
-        """Alias for org_id."""
-        return self.org_id
-
-    @property
-    def downloadMbps(self) -> float | None:  # noqa: N802
-        """Alias for download_mbps."""
-        return self.download_mbps
-
-    @property
-    def uploadMbps(self) -> float | None:  # noqa: N802
-        """Alias for upload_mbps."""
-        return self.upload_mbps
-
-    @property
-    def archivedAt(self) -> str | None:  # noqa: N802
-        """Alias for archived_at."""
-        return self.archived_at
-
-    @property
-    def createdAt(self) -> str | None:  # noqa: N802
-        """Alias for created_at."""
-        return self.created_at
-
-    @property
-    def updatedAt(self) -> str | None:  # noqa: N802
-        """Alias for updated_at."""
-        return self.updated_at
 
 
 class CarrierFabricMeta(CarrierFabricBaseModel):

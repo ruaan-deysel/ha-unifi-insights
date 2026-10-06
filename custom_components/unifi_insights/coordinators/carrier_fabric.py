@@ -1,18 +1,20 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """UniFi Carrier Fabric coordinator."""
 
 from __future__ import annotations
 
 import logging
 import uuid
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
-from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
+    UniFiError,
     UniFiRateLimitError,
     UniFiResponseError,
     UniFiTimeoutError,
@@ -20,9 +22,8 @@ from custom_components.unifi_insights.api import (
 from custom_components.unifi_insights.const import (
     CARRIER_FABRIC_SCAN_INTERVAL,
     CONF_CARRIER_ORG_ID,
+    DOMAIN,
 )
-
-from .base import UnifiBaseCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -33,8 +34,6 @@ if TYPE_CHECKING:
     )
 
 _LOGGER = logging.getLogger(__name__)
-
-HTTP_STATUS_FORBIDDEN: Final = 403
 
 SUBSCRIBER_ALLOWLIST: Final = frozenset(
     {
@@ -78,8 +77,10 @@ class InvalidSubscriberIdError(HomeAssistantError, ValueError):
     """Raised when a subscriber ID is not a valid UUID string."""
 
 
-class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
+class UnifiCarrierFabricCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for UniFi Carrier Fabric API."""
+
+    config_entry: ConfigEntry
 
     def __init__(
         self,
@@ -89,14 +90,14 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
     ) -> None:
         """Initialize the Carrier Fabric coordinator."""
         super().__init__(
-            hass=hass,
-            network_client=None,  # type: ignore[arg-type]
-            protect_client=None,
-            entry=entry,
-            name="carrier_fabric",
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN}_carrier_fabric",
             update_interval=CARRIER_FABRIC_SCAN_INTERVAL,
         )
         self.client = client
+        self.data: dict[str, Any] = {}
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch all data from Carrier Fabric API."""
@@ -104,11 +105,15 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
             raw_plans = await self.client.service_plans.get_all()
             raw_subs = await self.client.subscribers.get_all()
         except (UniFiAuthenticationError, UniFiResponseError) as err:
-            self._available = False
-            status = getattr(err, "status_code", None)
-            api_code = getattr(err, "api_error_code", None)
-            if isinstance(err, UniFiAuthenticationError) or status in (401, 403):
-                if status == HTTP_STATUS_FORBIDDEN or api_code == "insufficient_scope":
+            status = err.status_code
+            if isinstance(err, UniFiAuthenticationError) or status in (
+                HTTPStatus.UNAUTHORIZED,
+                HTTPStatus.FORBIDDEN,
+            ):
+                if (
+                    status == HTTPStatus.FORBIDDEN
+                    or err.api_error_code == "insufficient_scope"
+                ):
                     msg = (
                         "Carrier Fabric API key missing required scope "
                         f"(insufficient_scope): {err}"
@@ -116,28 +121,30 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
                     raise ConfigEntryAuthFailed(msg) from err
                 msg = f"Carrier Fabric authentication failed: {err}"
                 raise ConfigEntryAuthFailed(msg) from err
-            if isinstance(err, UniFiRateLimitError) or status == 429:  # noqa: PLR2004
+            if (
+                isinstance(err, UniFiRateLimitError)
+                or status == HTTPStatus.TOO_MANY_REQUESTS
+            ):
                 msg = f"Carrier Fabric API rate limited: {err}"
                 raise UpdateFailed(msg) from err
             msg = f"Carrier Fabric API error: {err}"
             raise UpdateFailed(msg) from err
         except UniFiConnectionError as err:
-            self._available = False
             msg = f"Error connecting to Carrier Fabric API: {err}"
             raise UpdateFailed(msg) from err
         except UniFiTimeoutError as err:
-            self._available = False
             msg = f"Timeout connecting to Carrier Fabric API: {err}"
             raise UpdateFailed(msg) from err
-        except Exception as err:
-            self._available = False
+        except UniFiError as err:
+            # Every transport failure reaches here as a UniFiError subclass, so
+            # anything else is a bug and is left to surface.
             msg = f"Unexpected error communicating with Carrier Fabric API: {err}"
             raise UpdateFailed(msg) from err
 
         # Ingest and deduplicate service plans, filtering by allowlist
         service_plans: dict[str, dict[str, Any]] = {}
         for plan in raw_plans:
-            plan_dict = self._model_to_dict(plan)
+            plan_dict = plan.model_dump(by_alias=True)
             plan_id = plan_dict.get("id")
             if not isinstance(plan_id, str) or not plan_id or plan_id in service_plans:
                 continue
@@ -149,7 +156,7 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
         # Ingest and deduplicate subscribers, filtering by allowlist
         subscribers: dict[str, dict[str, Any]] = {}
         for sub in raw_subs:
-            sub_dict = self._model_to_dict(sub)
+            sub_dict = sub.model_dump(by_alias=True)
             sub_id = sub_dict.get("id")
             if not isinstance(sub_id, str) or not sub_id or sub_id in subscribers:
                 continue
@@ -211,7 +218,6 @@ class UnifiCarrierFabricCoordinator(UnifiBaseCoordinator):
             "unassigned_subscribers": unassigned_count,
         }
 
-        self._available = True
         return {
             "org_id": org_id,
             "service_plans": service_plans,

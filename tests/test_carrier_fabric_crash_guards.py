@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for crash guards protecting Carrier Fabric entries."""
 
 from unittest.mock import AsyncMock, MagicMock

@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for the UniFi Carrier Fabric API client and models."""
 
 from __future__ import annotations
@@ -307,12 +307,12 @@ async def test_service_plans_get_all_unpaginated() -> None:
     assert len(plans) == 2
     assert plans[0].id == VALID_PLAN_ID_1
     assert plans[0].org_id == "org-1"
-    assert plans[0].orgId == "org-1"
+    assert plans[0].org_id == "org-1"
     assert plans[0].name == "Gigabit"
     assert plans[0].download_mbps == 1000.0
-    assert plans[0].downloadMbps == 1000.0
+    assert plans[0].download_mbps == 1000.0
     assert plans[0].upload_mbps == 500.0
-    assert plans[0].uploadMbps == 500.0
+    assert plans[0].upload_mbps == 500.0
     assert plans[1].id == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
     assert plans[1].download_mbps == 100.0
 
@@ -492,7 +492,7 @@ def test_models_omitted_and_null_fields() -> None:
     assert sub.id == VALID_SUB_ID_1
     assert sub.suspended is False
     assert sub.org_id is None
-    assert sub.orgId is None
+    assert sub.org_id is None
     assert sub.name is None
     assert sub.email is None
     assert sub.notes is None
@@ -620,6 +620,76 @@ async def test_resume() -> None:
         == f"https://api.ui.com/v1/carrier/subscribers/{VALID_SUB_ID_1}/resume"
     )
     assert session.requests[0]["json"] is None
+
+
+@pytest.mark.parametrize("action", ["suspend", "resume"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"data": []},
+        {"data": "unexpected"},
+        {"data": {"suspended": True}},  # no id: not a valid Subscriber
+        {"unrelated": 1},
+        [1, 2],
+        "",
+    ],
+)
+async def test_write_with_unreadable_success_body_returns_none(
+    action: str, body: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A 2xx means the write was applied: a bad body is not a failure."""
+    session = _Session([_Response(body)])
+    client = _client(session)
+
+    with caplog.at_level(logging.DEBUG):
+        result = await getattr(client.subscribers, action)(VALID_SUB_ID_1)
+
+    assert result is None
+    assert len(session.requests) == 1
+    assert "succeeded without a readable subscriber body" in caplog.text
+
+
+@pytest.mark.parametrize("action", ["suspend", "resume"])
+async def test_write_with_error_status_still_raises(action: str) -> None:
+    """Only a 2xx is success: a rejected write must still raise."""
+    session = _Session([_Response({"error": {"code": "internal_error"}}, status=500)])
+    client = _client(session)
+
+    with pytest.raises(UniFiResponseError):
+        await getattr(client.subscribers, action)(VALID_SUB_ID_1)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "{11111111-1111-1111-1111-111111111111}",
+        "urn:uuid:11111111-1111-1111-1111-111111111111",
+        "11111111111111111111111111111111",
+        "11111111-1111-1111-1111-111111111111".upper(),
+    ],
+)
+async def test_subscriber_paths_use_the_canonical_uuid(spelling: str) -> None:
+    """Non-canonical UUID spellings never reach the request path."""
+    session = _Session(
+        [
+            {"data": {"id": VALID_SUB_ID_1}},
+            {"data": {"id": VALID_SUB_ID_1}},
+            {"data": {"id": VALID_SUB_ID_1}},
+        ]
+    )
+    client = _client(session)
+
+    await client.subscribers.get(spelling)
+    await client.subscribers.suspend(spelling)
+    await client.subscribers.resume(spelling)
+
+    base = f"https://api.ui.com/v1/carrier/subscribers/{VALID_SUB_ID_1}"
+    assert [r["url"] for r in session.requests] == [
+        base,
+        f"{base}/suspend",
+        f"{base}/resume",
+    ]
 
 
 async def test_error_code_extraction_403_insufficient_scope() -> None:

@@ -71,6 +71,7 @@ SCAN_INTERVAL_CONFIG = timedelta(minutes=5)
 SCAN_INTERVAL_INNERSPACE = timedelta(minutes=5)
 SCAN_INTERVAL_SITE_MANAGER = timedelta(minutes=10)
 CARRIER_FABRIC_SCAN_INTERVAL = timedelta(minutes=5)
+CARRIER_FABRIC_REQUEST_TIMEOUT: Final = 30  # seconds
 # Site Manager response sections shared by the coordinator and diagnostics.
 SITE_MANAGER_COLLECTIONS: Final = (
     "hosts",

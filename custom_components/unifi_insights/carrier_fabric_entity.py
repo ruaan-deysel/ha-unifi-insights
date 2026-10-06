@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Base entity classes for UniFi Carrier Fabric integration."""
 
 from __future__ import annotations

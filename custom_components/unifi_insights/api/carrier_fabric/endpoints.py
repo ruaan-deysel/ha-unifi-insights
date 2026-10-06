@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Endpoints for UniFi Carrier Fabric API."""
 
 from __future__ import annotations
@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from custom_components.unifi_insights.api.const import (
     CARRIER_FABRIC_MAX_PAGE_SIZE,
@@ -24,13 +24,70 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _validate_subscriber_uuid(subscriber_id: str) -> None:
-    """Validate that subscriber_id conforms to UUID format."""
+def _canonical_subscriber_id(subscriber_id: str) -> str:
+    """
+    Return the canonical text form of a subscriber UUID.
+
+    ``uuid.UUID`` also accepts braces, ``urn:uuid:`` and dash-less hex, so only
+    the canonical form is ever placed in a request path.
+
+    Raises:
+        ValueError: If ``subscriber_id`` is not a UUID.
+
+    """
     try:
-        uuid.UUID(str(subscriber_id))
-    except (ValueError, TypeError, AttributeError) as err:
+        return str(uuid.UUID(str(subscriber_id)))
+    except ValueError as err:
         msg = f"Invalid subscriber ID format (UUID required): {subscriber_id!r}"
         raise ValueError(msg) from err
+
+
+def _subscriber_path(subscriber_id: str) -> str:
+    """Return the request path of one subscriber (validating the id first)."""
+    canonical = _canonical_subscriber_id(subscriber_id)
+    return f"{CARRIER_FABRIC_PATH}/subscribers/{canonical}"
+
+
+def _list_envelope(path: str, response: object) -> dict[str, Any]:
+    """
+    Return a list response, requiring the ``{"data": [...]}`` envelope.
+
+    Raises:
+        UniFiResponseError: If the envelope is malformed. A 2xx with a bad shape
+            must not look like an empty list: that would publish wrong counts.
+
+    """
+    if not isinstance(response, dict):
+        msg = f"{path} returned unexpected response"
+        raise UniFiResponseError(msg, status_code=200)
+    if not isinstance(response.get("data"), list):
+        msg = f"{path} returned malformed data"
+        raise UniFiResponseError(msg, status_code=200)
+    return response
+
+
+def _object_data(response: object) -> dict[str, Any] | None:
+    """Return the record of a single-object response, or None if there is none."""
+    if isinstance(response, dict):
+        data = response.get("data", response)
+        if isinstance(data, dict):
+            return data
+    return None
+
+
+def _parse_items[ModelT: BaseModel](
+    model: type[ModelT], items: list[Any], label: str
+) -> list[ModelT]:
+    """Validate list items, skipping malformed ones without logging their content."""
+    parsed: list[ModelT] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            parsed.append(model.model_validate(item))
+        except ValidationError:
+            _LOGGER.debug("Skipping invalid %s item", label)
+    return parsed
 
 
 class ServicePlansEndpoint:
@@ -52,25 +109,8 @@ class ServicePlansEndpoint:
 
         """
         path = f"{CARRIER_FABRIC_PATH}/service-plans"
-        response = await self._client._get(path)
-        if not isinstance(response, dict):
-            msg = f"{path} returned unexpected response"
-            raise UniFiResponseError(msg, status_code=200)
-
-        data = response.get("data")
-        if not isinstance(data, list):
-            msg = f"{path} returned malformed data"
-            raise UniFiResponseError(msg, status_code=200)
-
-        plans: list[ServicePlan] = []
-        for item in data:
-            if not isinstance(item, dict):
-                continue
-            try:
-                plans.append(ServicePlan.model_validate(item))
-            except ValidationError:
-                _LOGGER.debug("Skipping invalid service plan item")
-        return plans
+        envelope = _list_envelope(path, await self._client._get(path))
+        return _parse_items(ServicePlan, envelope["data"], "service plan")
 
     async def get(self, plan_id: str) -> ServicePlan:
         """
@@ -88,13 +128,11 @@ class ServicePlansEndpoint:
 
         """
         path = f"{CARRIER_FABRIC_PATH}/service-plans/{plan_id}"
-        response = await self._client._get(path)
-        if isinstance(response, dict):
-            data = response.get("data", response)
-            if isinstance(data, dict):
-                return ServicePlan.model_validate(data)
-        msg = f"{path} returned unexpected response"
-        raise UniFiResponseError(msg, status_code=200)
+        data = _object_data(await self._client._get(path))
+        if data is None:
+            msg = f"{path} returned unexpected response"
+            raise UniFiResponseError(msg, status_code=200)
+        return ServicePlan.model_validate(data)
 
 
 class SubscribersEndpoint:
@@ -160,6 +198,9 @@ class SubscribersEndpoint:
         if suspended is not None:
             base_params["suspended"] = "true" if suspended else "false"
 
+        # First page wins on duplicate ids, in the order the API returned them.
+        subscribers: dict[str, Subscriber] = {}
+
         # Explicit limit or cursor requested: return a single page.
         if limit is not None or cursor is not None:
             params = dict(base_params)
@@ -168,34 +209,15 @@ class SubscribersEndpoint:
             if cursor is not None:
                 params["cursor"] = cursor
 
-            response = await self._client._get(path, params=params or None)
-            if not isinstance(response, dict):
-                msg = f"{path} returned unexpected response"
-                raise UniFiResponseError(msg, status_code=200)
-            data = response.get("data")
-            if not isinstance(data, list):
-                msg = f"{path} returned malformed data"
-                raise UniFiResponseError(msg, status_code=200)
-
-            seen_ids: set[str] = set()
-            single_page_items: list[Subscriber] = []
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                try:
-                    sub = Subscriber.model_validate(item)
-                except ValidationError:
-                    _LOGGER.debug("Skipping invalid subscriber item")
-                    continue
-                if sub.id not in seen_ids:
-                    seen_ids.add(sub.id)
-                    single_page_items.append(sub)
-            return single_page_items
+            envelope = _list_envelope(
+                path, await self._client._get(path, params=params or None)
+            )
+            for sub in _parse_items(Subscriber, envelope["data"], "subscriber"):
+                subscribers.setdefault(sub.id, sub)
+            return list(subscribers.values())
 
         # Cursor pagination loop
-        seen_ids = set()
         seen_cursors: set[str] = set()
-        subscribers: list[Subscriber] = []
         current_cursor: str | None = None
 
         for _ in range(CARRIER_FABRIC_MAX_PAGES):
@@ -204,29 +226,13 @@ class SubscribersEndpoint:
             if current_cursor is not None:
                 page_params["cursor"] = current_cursor
 
-            response = await self._client._get(path, params=page_params)
-            if not isinstance(response, dict):
-                msg = f"{path} returned unexpected response"
-                raise UniFiResponseError(msg, status_code=200)
+            envelope = _list_envelope(
+                path, await self._client._get(path, params=page_params)
+            )
+            for sub in _parse_items(Subscriber, envelope["data"], "subscriber"):
+                subscribers.setdefault(sub.id, sub)
 
-            data = response.get("data")
-            if not isinstance(data, list):
-                msg = f"{path} returned malformed data"
-                raise UniFiResponseError(msg, status_code=200)
-
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                try:
-                    sub = Subscriber.model_validate(item)
-                except ValidationError:
-                    _LOGGER.debug("Skipping invalid subscriber item")
-                    continue
-                if sub.id not in seen_ids:
-                    seen_ids.add(sub.id)
-                    subscribers.append(sub)
-
-            meta = response.get("meta")
+            meta = envelope.get("meta")
             if not isinstance(meta, dict):
                 msg = f"{path} returned malformed meta"
                 raise UniFiResponseError(msg, status_code=200)
@@ -246,7 +252,7 @@ class SubscribersEndpoint:
                 else bool(next_cursor and isinstance(next_cursor, str))
             )
             if not should_continue or not next_cursor:
-                return subscribers
+                return list(subscribers.values())
 
             if next_cursor in seen_cursors:
                 msg = f"{path} repeated pagination cursor"
@@ -274,66 +280,66 @@ class SubscribersEndpoint:
             UniFiResponseError: If the response envelope is invalid.
 
         """
-        _validate_subscriber_uuid(subscriber_id)
-        path = f"{CARRIER_FABRIC_PATH}/subscribers/{subscriber_id}"
-        response = await self._client._get(path)
-        if isinstance(response, dict):
-            data = response.get("data", response)
-            if isinstance(data, dict):
-                return Subscriber.model_validate(data)
-        msg = f"{path} returned unexpected response"
-        raise UniFiResponseError(msg, status_code=200)
+        path = _subscriber_path(subscriber_id)
+        data = _object_data(await self._client._get(path))
+        if data is None:
+            msg = f"{path} returned unexpected response"
+            raise UniFiResponseError(msg, status_code=200)
+        return Subscriber.model_validate(data)
 
     async def suspend(
         self, subscriber_id: str, reason: str | None = None
-    ) -> Subscriber:
+    ) -> Subscriber | None:
         """
         Suspend a subscriber.
+
+        Any 2xx response means the change was applied, so a response body that
+        cannot be read as a subscriber is not an error.
 
         Args:
             subscriber_id: The subscriber ID to suspend.
             reason: Optional explanation (max 1024 characters).
 
         Returns:
-            The updated subscriber model.
+            The updated subscriber model, or None if the response carried none.
 
         Raises:
             ValueError: If the subscriber ID is not a valid UUID.
-            UniFiResponseError: If the operation fails or response is invalid.
+            UniFiError: If the API rejects the request (non-2xx).
 
         """
-        _validate_subscriber_uuid(subscriber_id)
-        path = f"{CARRIER_FABRIC_PATH}/subscribers/{subscriber_id}/suspend"
+        path = f"{_subscriber_path(subscriber_id)}/suspend"
         json_data = {"reason": reason} if reason is not None else None
         response = await self._client._post(path, json_data=json_data)
-        if isinstance(response, dict):
-            data = response.get("data", response)
-            if isinstance(data, dict):
-                return Subscriber.model_validate(data)
-        msg = f"{path} returned unexpected response"
-        raise UniFiResponseError(msg, status_code=200)
+        return self._write_result(path, response)
 
-    async def resume(self, subscriber_id: str) -> Subscriber:
+    async def resume(self, subscriber_id: str) -> Subscriber | None:
         """
         Resume a suspended subscriber.
+
+        Any 2xx response means the change was applied, so a response body that
+        cannot be read as a subscriber is not an error.
 
         Args:
             subscriber_id: The subscriber ID to resume.
 
         Returns:
-            The updated subscriber model.
+            The updated subscriber model, or None if the response carried none.
 
         Raises:
             ValueError: If the subscriber ID is not a valid UUID.
-            UniFiResponseError: If the operation fails or response is invalid.
+            UniFiError: If the API rejects the request (non-2xx).
 
         """
-        _validate_subscriber_uuid(subscriber_id)
-        path = f"{CARRIER_FABRIC_PATH}/subscribers/{subscriber_id}/resume"
+        path = f"{_subscriber_path(subscriber_id)}/resume"
         response = await self._client._post(path)
-        if isinstance(response, dict):
-            data = response.get("data", response)
-            if isinstance(data, dict):
-                return Subscriber.model_validate(data)
-        msg = f"{path} returned unexpected response"
-        raise UniFiResponseError(msg, status_code=200)
+        return self._write_result(path, response)
+
+    @staticmethod
+    def _write_result(path: str, response: object) -> Subscriber | None:
+        """Parse the body of a successful write without ever failing it."""
+        try:
+            return Subscriber.model_validate(_object_data(response))
+        except ValidationError:
+            _LOGGER.debug("%s succeeded without a readable subscriber body", path)
+            return None

@@ -1,10 +1,10 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Sensor platform for UniFi Carrier Fabric integration."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -104,6 +104,32 @@ AGGREGATE_SENSOR_DESCRIPTIONS: tuple[CarrierFabricAggregateSensorDescription, ..
 )
 
 
+# State attribute name -> key in the coordinator data (always the API's camelCase).
+_PLAN_ATTRIBUTES: Final = (
+    ("status", "status"),
+    ("download_mbps", "downloadMbps"),
+    ("upload_mbps", "uploadMbps"),
+    ("archived_at", "archivedAt"),
+)
+_PLAN_SPEED_ATTRIBUTES: Final = (
+    ("download_mbps", "downloadMbps"),
+    ("upload_mbps", "uploadMbps"),
+)
+_SUBSCRIBER_STATE_ATTRIBUTES: Final = (
+    ("suspended_at", "suspendedAt"),
+    ("activated_at", "activatedAt"),
+)
+
+
+def _attributes(
+    data: dict[str, Any], mapping: tuple[tuple[str, str], ...]
+) -> dict[str, Any]:
+    """Return the set values of ``data`` under their state attribute names."""
+    return {
+        attribute: data[key] for attribute, key in mapping if data.get(key) is not None
+    }
+
+
 class UnifiCarrierFabricAggregateSensor(UnifiCarrierFabricEntity, SensorEntity):
     """Aggregate organisation-level sensor for UniFi Carrier Fabric."""
 
@@ -181,12 +207,7 @@ class UnifiCarrierFabricPlanSubscribersSensor(UnifiCarrierFabricEntity, SensorEn
         """Default disabled if archived."""
         plan = self._plan_data
         return not (
-            plan
-            and (
-                plan.get("status") == "archived"
-                or plan.get("archivedAt")
-                or plan.get("archived_at")
-            )
+            plan and (plan.get("status") == "archived" or plan.get("archivedAt"))
         )
 
     @property
@@ -205,20 +226,7 @@ class UnifiCarrierFabricPlanSubscribersSensor(UnifiCarrierFabricEntity, SensorEn
         plan = self._plan_data
         if not plan:
             return {}
-        attrs: dict[str, Any] = {}
-        for key in ("status", "download_mbps", "upload_mbps", "archived_at"):
-            val = plan.get(key)
-            if val is None:
-                camel_key = {
-                    "download_mbps": "downloadMbps",
-                    "upload_mbps": "uploadMbps",
-                    "archived_at": "archivedAt",
-                }.get(key)
-                if camel_key:
-                    val = plan.get(camel_key)
-            if val is not None:
-                attrs[key] = val
-        return attrs
+        return _attributes(plan, _PLAN_ATTRIBUTES)
 
 
 SUBSCRIBER_STATES: tuple[str, ...] = (
@@ -268,19 +276,7 @@ class UnifiCarrierFabricSubscriberStateSensor(
         sub = self._subscriber_data
         if not sub:
             return {}
-        attrs: dict[str, Any] = {}
-        for key in ("suspended_at", "activated_at"):
-            val = sub.get(key)
-            if val is None:
-                camel_key = {
-                    "suspended_at": "suspendedAt",
-                    "activated_at": "activatedAt",
-                }.get(key)
-                if camel_key:
-                    val = sub.get(camel_key)
-            if val is not None:
-                attrs[key] = val
-        return attrs
+        return _attributes(sub, _SUBSCRIBER_STATE_ATTRIBUTES)
 
 
 class UnifiCarrierFabricSubscriberPlanSensor(
@@ -302,49 +298,32 @@ class UnifiCarrierFabricSubscriberPlanSensor(
         self._attr_unique_id = f"carrier_subscriber_{subscriber_id}_service_plan"
 
     @property
-    def native_value(self) -> str | None:
-        """Return the plan name or None."""
+    def _plan(self) -> dict[str, Any] | None:
+        """Return the subscriber's plan, or None if unassigned or not visible."""
         sub = self._subscriber_data
-        if not sub:
-            return None
-        plan_id = sub.get("planId") or sub.get("plan_id")
+        plan_id = sub.get("planId") if sub else None
         if not plan_id:
             return None
         plans = self.coordinator.data.get("service_plans", {})
-        if isinstance(plans, dict):
-            plan = plans.get(str(plan_id))
-            if plan and plan.get("name"):
-                return str(plan["name"])
-        return str(plan_id)
+        if not isinstance(plans, dict):
+            return None
+        return plans.get(str(plan_id))
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the plan name, or None when the plan is unknown."""
+        plan = self._plan
+        if plan and plan.get("name"):
+            return str(plan["name"])
+        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return plan speed attributes."""
-        sub = self._subscriber_data
-        if not sub:
-            return {}
-        plan_id = sub.get("planId") or sub.get("plan_id")
-        if not plan_id:
-            return {}
-        plans = self.coordinator.data.get("service_plans", {})
-        if not isinstance(plans, dict):
-            return {}
-        plan = plans.get(str(plan_id))
+        plan = self._plan
         if not plan:
             return {}
-        attrs: dict[str, Any] = {}
-        for key in ("download_mbps", "upload_mbps"):
-            val = plan.get(key)
-            if val is None:
-                camel_key = {
-                    "download_mbps": "downloadMbps",
-                    "upload_mbps": "uploadMbps",
-                }.get(key)
-                if camel_key:
-                    val = plan.get(camel_key)
-            if val is not None:
-                attrs[key] = val
-        return attrs
+        return _attributes(plan, _PLAN_SPEED_ATTRIBUTES)
 
 
 def reconcile_subscriber_registry(hass: HomeAssistant, entry_id: str) -> None:

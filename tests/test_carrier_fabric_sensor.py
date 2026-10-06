@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Carrier Fabric sensors."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -324,8 +324,10 @@ async def test_carrier_fabric_subscriber_sensors_opt_in(
     assert s3_state.device_info["name"] == "Subscriber sub_3_12"
     assert s3_state.native_value == "unknown"
 
+    # A plan this key cannot see is unknown, not a raw plan UUID
     s3_plan = plans_by_sub["sub_3_12345678"]
-    assert s3_plan.native_value == "unknown_plan_id"
+    assert s3_plan.native_value is None
+    assert s3_plan.extra_state_attributes == {}
 
     # Subscriber disappearance marks entity unavailable without deleting
     del mock_carrier_coordinator.data["subscribers"]["sub_1"]
@@ -404,6 +406,43 @@ async def test_carrier_fabric_track_subscribers_disabled_reconciliation(
         )
         is not None
     )
+
+
+async def test_reconcile_does_not_touch_another_entrys_subscriber_device(
+    hass, carrier_entry, mock_carrier_coordinator
+):
+    """Two entries (same org via the key-hash fallback) keep separate devices.
+
+    Home Assistant gives every device exactly one config entry, even when the
+    identifiers match, so cleaning up one entry cannot remove the other's.
+    """
+    dev_reg = dr.async_get(hass)
+    other_entry = MockConfigEntry(
+        domain=DOMAIN,
+        entry_id="other_carrier_entry",
+        unique_id="carrier_key_other",
+        data={CONF_CONNECTION_TYPE: CONNECTION_TYPE_CARRIER_FABRIC},
+    )
+    other_entry.add_to_hass(hass)
+
+    identifier = (DOMAIN, "carrier_subscriber_shared")
+    ours = dev_reg.async_get_or_create(
+        config_entry_id=carrier_entry.entry_id, identifiers={identifier}
+    )
+    theirs = dev_reg.async_get_or_create(
+        config_entry_id=other_entry.entry_id, identifiers={identifier}
+    )
+    assert ours.id != theirs.id
+
+    hass.config_entries.async_update_entry(
+        carrier_entry, options={CONF_TRACK_SUBSCRIBERS: False}
+    )
+    await async_setup_entry(hass, carrier_entry, lambda entities: None)
+
+    assert dev_reg.async_get(ours.id) is None
+    survivor = dev_reg.async_get(theirs.id)
+    assert survivor is not None
+    assert survivor.config_entry_id == other_entry.entry_id
 
 
 async def test_carrier_fabric_dynamic_discovery(
@@ -487,7 +526,7 @@ async def test_carrier_fabric_sensor_defensive_fallbacks(
     assert ghost_sub_plan.native_value is None
     assert ghost_sub_plan.extra_state_attributes == {}
 
-    # Test snake_case attribute variants
+    # Coordinator data is always the API's camelCase: snake_case keys are ignored
     mock_carrier_coordinator.data["subscribers"]["sub_snake"] = {
         "id": "sub_snake",
         "state": "provisioned",
@@ -496,30 +535,40 @@ async def test_carrier_fabric_sensor_defensive_fallbacks(
         "activated_at": "2026-03-02T00:00:00Z",
         "plan_id": "plan_snake",
     }
+    mock_carrier_coordinator.data["subscribers"]["sub_snake_plan"] = {
+        "id": "sub_snake_plan",
+        "planId": "plan_snake",
+    }
     mock_carrier_coordinator.data["service_plans"]["plan_snake"] = {
         "id": "plan_snake",
         "name": "Snake Plan",
         "download_mbps": 500.0,
         "upload_mbps": 250.0,
         "archived_at": "2026-03-03T00:00:00Z",
-        "status": "archived",
+        "status": "active",
     }
     snake_state = UnifiCarrierFabricSubscriberStateSensor(
         mock_carrier_coordinator, carrier_entry, "sub_snake"
     )
-    assert snake_state.extra_state_attributes == {
-        "suspended_at": "2026-03-01T00:00:00Z",
-        "activated_at": "2026-03-02T00:00:00Z",
-    }
+    assert snake_state.extra_state_attributes == {}
 
-    snake_plan = UnifiCarrierFabricSubscriberPlanSensor(
+    snake_unassigned = UnifiCarrierFabricSubscriberPlanSensor(
         mock_carrier_coordinator, carrier_entry, "sub_snake"
     )
+    assert snake_unassigned.native_value is None
+    assert snake_unassigned.extra_state_attributes == {}
+
+    snake_plan = UnifiCarrierFabricSubscriberPlanSensor(
+        mock_carrier_coordinator, carrier_entry, "sub_snake_plan"
+    )
     assert snake_plan.native_value == "Snake Plan"
-    assert snake_plan.extra_state_attributes == {
-        "download_mbps": 500.0,
-        "upload_mbps": 250.0,
-    }
+    assert snake_plan.extra_state_attributes == {}
+
+    snake_plan_sensor = UnifiCarrierFabricPlanSubscribersSensor(
+        mock_carrier_coordinator, carrier_entry, "plan_snake"
+    )
+    assert snake_plan_sensor.extra_state_attributes == {"status": "active"}
+    assert snake_plan_sensor.entity_registry_enabled_default is True
 
     # Test aggregate sensor when summary is malformed
     mock_carrier_coordinator.data["summary"] = None

@@ -1,4 +1,4 @@
-# Copyright 2026 UniFi Insights contributors
+# Copyright (c) 2026 Ruaan Deysel
 """Runtime data models and type aliases for UniFi Carrier Fabric."""
 
 from __future__ import annotations

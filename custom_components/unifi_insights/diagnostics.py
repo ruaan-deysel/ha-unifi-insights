@@ -442,9 +442,7 @@ async def async_get_config_entry_diagnostics(
     if isinstance(entry.runtime_data, CarrierFabricData):
         carrier_data = entry.runtime_data
         carrier_coordinator = carrier_data.coordinator
-        coord_data = getattr(carrier_coordinator, "data", {})
-        if not isinstance(coord_data, dict):
-            coord_data = {}
+        coord_data = carrier_coordinator.data
 
         summary = (
             coord_data.get("summary", {})
@@ -457,30 +455,25 @@ async def async_get_config_entry_diagnostics(
 
         # Only allowlisted keys are exported: a field the API adds later never
         # reaches a diagnostics file until it has been reviewed for privacy.
-        raw_plans = coord_data.get("service_plans", {})
-        exported_plans: dict[str, Any] = {}
-        if isinstance(raw_plans, dict):
-            for plan_id, plan_data in raw_plans.items():
-                if isinstance(plan_data, dict):
-                    exported_plans[plan_id] = {
-                        key: value
-                        for key, value in plan_data.items()
-                        if key in SERVICE_PLAN_ALLOWLIST
-                    }
-
-        raw_subs = coord_data.get("subscribers", {})
-        exported_subs: dict[str, Any] = {}
-        if isinstance(raw_subs, dict):
-            for sub_id, sub_data in raw_subs.items():
-                if isinstance(sub_data, dict):
-                    exported_subs[sub_id] = async_redact_data(
-                        {
-                            key: value
-                            for key, value in sub_data.items()
-                            if key in SUBSCRIBER_ALLOWLIST
-                        },
-                        CARRIER_REDACT_KEYS,
-                    )
+        exported_plans: dict[str, Any] = {
+            plan_id: {
+                key: value
+                for key, value in plan_data.items()
+                if key in SERVICE_PLAN_ALLOWLIST
+            }
+            for plan_id, plan_data in coord_data.get("service_plans", {}).items()
+        }
+        exported_subs: dict[str, Any] = {
+            sub_id: async_redact_data(
+                {
+                    key: value
+                    for key, value in sub_data.items()
+                    if key in SUBSCRIBER_ALLOWLIST
+                },
+                CARRIER_REDACT_KEYS,
+            )
+            for sub_id, sub_data in coord_data.get("subscribers", {}).items()
+        }
 
         return {
             "entry": async_redact_data(entry.as_dict(), TO_REDACT),

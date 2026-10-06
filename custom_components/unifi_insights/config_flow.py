@@ -420,18 +420,12 @@ class UnifiInsightsConfigFlow(ConfigFlow, domain=DOMAIN):
         Returns the probe result and the form errors for it (empty when the
         key works). Shared by setup, reauth and reconfigure.
         """
-        try:
-            client = UniFiCarrierFabricClient(
-                auth=ApiKeyAuth(api_key=api_key),
-                session=async_get_clientsession(self.hass),
-                timeout=CARRIER_FABRIC_REQUEST_TIMEOUT,
-            )
-            probe_res = await async_probe_with_client(
-                client, async_probe_carrier_fabric
-            )
-        except Exception as err:
-            _LOGGER.exception("Unexpected exception validating Carrier Fabric key")
-            return ProbeResult(ProbeStatus.ERROR, err), {"base": "unknown"}
+        client = UniFiCarrierFabricClient(
+            auth=ApiKeyAuth(api_key=api_key),
+            session=async_get_clientsession(self.hass),
+            timeout=CARRIER_FABRIC_REQUEST_TIMEOUT,
+        )
+        probe_res = await async_probe_with_client(client, async_probe_carrier_fabric)
 
         if probe_res.status in (ProbeStatus.AVAILABLE, ProbeStatus.EMPTY):
             return probe_res, {}

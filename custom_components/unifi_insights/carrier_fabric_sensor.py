@@ -189,10 +189,10 @@ class UnifiCarrierFabricPlanSubscribersSensor(UnifiCarrierFabricEntity, SensorEn
     @property
     def _plan_data(self) -> dict[str, Any] | None:
         """Get service plan data from coordinator."""
-        plans = self.coordinator.data.get("service_plans", {})
-        if isinstance(plans, dict):
-            return plans.get(self._plan_id)
-        return None
+        plans: dict[str, dict[str, Any]] = self.coordinator.data.get(
+            "service_plans", {}
+        )
+        return plans.get(self._plan_id)
 
     @property
     def available(self) -> bool:
@@ -214,11 +214,7 @@ class UnifiCarrierFabricPlanSubscribersSensor(UnifiCarrierFabricEntity, SensorEn
     def native_value(self) -> int:
         """Return the number of subscribers on this plan."""
         summary = self.coordinator.data.get("summary", {})
-        if isinstance(summary, dict):
-            subscribers_by_plan = summary.get("subscribers_by_plan", {})
-            if isinstance(subscribers_by_plan, dict):
-                return int(subscribers_by_plan.get(self._plan_id, 0))
-        return 0
+        return int(summary.get("subscribers_by_plan", {}).get(self._plan_id, 0))
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -304,9 +300,9 @@ class UnifiCarrierFabricSubscriberPlanSensor(
         plan_id = sub.get("planId") if sub else None
         if not plan_id:
             return None
-        plans = self.coordinator.data.get("service_plans", {})
-        if not isinstance(plans, dict):
-            return None
+        plans: dict[str, dict[str, Any]] = self.coordinator.data.get(
+            "service_plans", {}
+        )
         return plans.get(str(plan_id))
 
     @property
@@ -375,39 +371,35 @@ async def async_setup_carrier_fabric_sensors(
     def async_discover_sensors() -> None:
         """Discover and add new plan and subscriber sensors."""
         new_entities: list[SensorEntity] = []
-        plans = coordinator.data.get("service_plans", {})
-        if isinstance(plans, dict):
-            for plan_id in plans:
-                plan_uid = f"{config_entry.unique_id}_plan_{plan_id}_subscribers"
-                if plan_uid not in known_keys:
-                    known_keys.add(plan_uid)
+        for plan_id in coordinator.data.get("service_plans", {}):
+            plan_uid = f"{config_entry.unique_id}_plan_{plan_id}_subscribers"
+            if plan_uid not in known_keys:
+                known_keys.add(plan_uid)
+                new_entities.append(
+                    UnifiCarrierFabricPlanSubscribersSensor(
+                        coordinator, config_entry, str(plan_id)
+                    )
+                )
+
+        if track_subscribers:
+            for sub_id in coordinator.data.get("subscribers", {}):
+                state_uid = f"carrier_subscriber_{sub_id}_state"
+                if state_uid not in known_keys:
+                    known_keys.add(state_uid)
                     new_entities.append(
-                        UnifiCarrierFabricPlanSubscribersSensor(
-                            coordinator, config_entry, str(plan_id)
+                        UnifiCarrierFabricSubscriberStateSensor(
+                            coordinator, config_entry, str(sub_id)
                         )
                     )
 
-        if track_subscribers:
-            subs = coordinator.data.get("subscribers", {})
-            if isinstance(subs, dict):
-                for sub_id in subs:
-                    state_uid = f"carrier_subscriber_{sub_id}_state"
-                    if state_uid not in known_keys:
-                        known_keys.add(state_uid)
-                        new_entities.append(
-                            UnifiCarrierFabricSubscriberStateSensor(
-                                coordinator, config_entry, str(sub_id)
-                            )
+                plan_uid = f"carrier_subscriber_{sub_id}_service_plan"
+                if plan_uid not in known_keys:
+                    known_keys.add(plan_uid)
+                    new_entities.append(
+                        UnifiCarrierFabricSubscriberPlanSensor(
+                            coordinator, config_entry, str(sub_id)
                         )
-
-                    plan_uid = f"carrier_subscriber_{sub_id}_service_plan"
-                    if plan_uid not in known_keys:
-                        known_keys.add(plan_uid)
-                        new_entities.append(
-                            UnifiCarrierFabricSubscriberPlanSensor(
-                                coordinator, config_entry, str(sub_id)
-                            )
-                        )
+                    )
 
         if not setup_complete:
             initial_entities.extend(new_entities)

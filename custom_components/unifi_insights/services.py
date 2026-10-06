@@ -1529,16 +1529,9 @@ async def _async_handle_carrier_suspend_subscriber(
 ) -> None:
     """Handle carrier_suspend_subscriber service call."""
     carrier_coordinator, subscriber_id = _resolve_carrier_subscriber_target(hass, call)
+    # CARRIER_SUSPEND_SUBSCRIBER_SCHEMA already made this a str of at most
+    # MAX_SUSPEND_REASON_LENGTH characters.
     reason = call.data.get("reason")
-    if reason is not None and not isinstance(reason, str):
-        reason = str(reason)
-    if reason is not None and len(reason) > MAX_SUSPEND_REASON_LENGTH:
-        msg = "Suspend reason must not exceed 1024 characters"
-        raise ServiceValidationError(
-            msg,
-            translation_domain=DOMAIN,
-            translation_key="carrier_reason_too_long",
-        )
     try:
         await carrier_coordinator.async_suspend_subscriber(subscriber_id, reason=reason)
     except (UniFiError, InvalidSubscriberIdError) as err:

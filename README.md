@@ -61,6 +61,13 @@ This project overlaps with and complements Home Assistant's official integration
 - NVR storage monitoring (when available)
 - Motion, ring, and smart detection events
 
+### UniFi Mobility
+
+- Mobile router (UMR) monitoring for remote entries: connection state, clients, WAN source, LTE signal, and cellular data usage
+- VPN and data-plan subscription status
+- GPS location as a device tracker
+- Router counts per Mobility workspace
+
 ## Requirements
 
 - Home Assistant 2026.6.0 or newer
@@ -112,6 +119,29 @@ available in the integration's coordinator and as a limited summary in the
 downloadable diagnostics report; it does not create additional entities. A Site
 Manager error does not stop the console connection, and collection availability
 is shown in diagnostics.
+
+#### UniFi Mobility
+
+Remote entries also read [UniFi Mobility](https://unifi.ui.com) workspaces and
+mobile routers (UMR, UMR Industrial, UMR Ultra) when the API key allows it. To
+use it, create the key at [unifi.ui.com](https://unifi.ui.com) with Mobility read
+access (the `mobility` scope with `read:mobility`). Local entries cannot use
+Mobility: it is only offered by the UniFi cloud.
+
+- Mobility data is refreshed every 5 minutes. Accounts with many routers are
+  polled less often, so the integration averages no more than half of the key's
+  100 requests per minute.
+- A key without Mobility access is normal: the integration logs one message,
+  creates no Mobility entities, does not ask you to re-authenticate, and checks
+  again every hour. Accounts without routers are also checked hourly, so a new
+  router can take up to an hour to appear (reload the entry to pick it up now).
+- If several remote entries use the same API key, only one of them polls
+  Mobility and creates its devices, so they are not duplicated: the oldest
+  enabled entry when Home Assistant starts. If that entry is disabled or
+  deleted, the next one takes over. If it is enabled but cannot load (for
+  example, its console is offline), Mobility is not polled until it does.
+- Mobility is read-only: router names, LAN, and Wi-Fi settings cannot be
+  changed from Home Assistant, and the per-router client list is not read.
 
 ### Options
 
@@ -187,13 +217,36 @@ After setup, open the integration's options flow (**Settings** → **Devices & S
 | -------------- | --------------------------------------------------------------------- |
 | Button         | Restart device, reconnect client, play chime, PTZ patrol start/stop   |
 | Camera         | Live view, snapshots, RTSPS streaming                                 |
-| Device Tracker | Client presence detection                                             |
+| Device Tracker | Client presence detection, Mobility router GPS location               |
 | Event          | Motion, doorbell ring, and smart detection events                     |
 | Image          | WiFi QR codes for each broadcast network                              |
 | Light          | Protect floodlight brightness control                                 |
 | Number         | Microphone volume, chime volume, light brightness level               |
 | Select         | Recording mode, HDR mode, video mode, ringtone, PTZ preset, live view |
 | Update         | Firmware update management                                            |
+
+### UniFi Mobility
+
+Each active Mobility workspace is a service device with **Routers** and
+**Online routers** counts. Each mobile router is its own device under its
+workspace, with these entities:
+
+| Entity                                 | Notes                                                               |
+| -------------------------------------- | ------------------------------------------------------------------- |
+| Connectivity                           | On while the router is connected to the UniFi cloud                 |
+| State                                  | Connected, disconnected, adopting, upgrading, restarting, and so on |
+| Clients                                | Connected client count                                              |
+| WAN source                             | LTE, Ethernet WAN, or Wi-Fi WAN                                     |
+| LTE signal                             | No signal, poor, fair, or strong                                    |
+| Cellular data usage                    | Data used in the current billing cycle (resets each cycle)          |
+| VPN status, Subscription status        | Unknown when no VPN or subscription is configured                   |
+| Location                               | GPS device tracker; unknown while the router has no GPS fix         |
+| Memory usage, Firmware                 | Diagnostic                                                          |
+| Cellular data limit, Subscription plan | Diagnostic; the limit is unknown for unlimited plans                |
+| Uptime, WAN IP address, ISP            | Diagnostic, disabled by default                                     |
+
+A router that Mobility stops reporting becomes unavailable. You can then
+delete its device from the device page.
 
 ## Services
 
@@ -415,7 +468,9 @@ The report is sanitized before it is written: API keys, passwords and Wi-Fi
 secrets, host names and IP addresses, SSIDs, and the names of your clients are
 redacted, and every MAC address is replaced with a placeholder that stays
 consistent within a single report. Device, site and camera names are kept so
-the report remains readable.
+the report remains readable. UniFi Mobility is summarized with counts only (for
+example routers by state and model); no workspace or router names, addresses, or
+locations are included.
 
 ## Contributing
 

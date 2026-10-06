@@ -70,6 +70,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Tracking disabled by default (options is empty dict)
@@ -90,6 +91,7 @@ class TestAsyncSetupEntry:
         """Test setup when no clients present but tracking is enabled."""
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable WiFi client tracking with new option
@@ -122,6 +124,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable wired client tracking with new option
@@ -163,6 +166,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable WiFi only tracking
@@ -205,6 +209,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable wired only tracking
@@ -245,6 +250,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable both tracking options
@@ -286,6 +292,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Use old option - should track all clients as fallback
@@ -331,6 +338,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable both client tracking options
@@ -371,6 +379,7 @@ class TestAsyncSetupEntry:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         # Enable wired tracking
@@ -765,6 +774,7 @@ class TestUnifiClientTrackerEdgeCases:
 
         mock_entry = MagicMock()
         mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.mobility_coordinator = None
         mock_entry.runtime_data.coordinator = mock_coordinator
         mock_entry.async_on_unload = MagicMock()
         mock_entry.options = {"track_wired_clients": True}
@@ -872,6 +882,7 @@ class TestRegistryReconciliation:
         )
         entry.add_to_hass(hass)
         entry.runtime_data = MagicMock()
+        entry.runtime_data.mobility_coordinator = None
         entry.runtime_data.coordinator = coordinator
         return entry
 

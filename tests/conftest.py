@@ -214,6 +214,42 @@ def mock_innerspace_client() -> Generator[MagicMock]:
         yield client
 
 
+@pytest.fixture(autouse=True)
+def mock_mobility_client() -> Generator[MagicMock]:
+    """Keep remote entries off the Mobility cloud API: an account without routers."""
+    client = MagicMock()
+    client.list_workspaces = AsyncMock(return_value=[])
+    client.list_devices = AsyncMock(return_value=[])
+    client.get_device = AsyncMock(return_value={})
+    client.close = AsyncMock()
+
+    with patch(
+        "custom_components.unifi_insights.coordinators.mobility.UniFiMobilityClient",
+        MagicMock(return_value=client),
+    ):
+        yield client
+
+
+@pytest.fixture
+def mock_site_manager_client() -> Generator[MagicMock]:
+    """Keep the account-wide Site Manager poller of remote entries off the network."""
+    with patch(
+        "custom_components.unifi_insights.coordinators.site_manager."
+        "UniFiSiteManagerClient"
+    ) as client_class:
+        client = client_class.return_value
+        for method in (
+            "list_hosts",
+            "list_sites",
+            "list_devices",
+            "get_isp_metrics",
+            "list_sd_wan_configs",
+        ):
+            setattr(client, method, AsyncMock(return_value=[]))
+        client.close = AsyncMock()
+        yield client
+
+
 @pytest.fixture
 def mock_network_client() -> Generator[MagicMock]:
     """Return a mocked UniFi Network client."""

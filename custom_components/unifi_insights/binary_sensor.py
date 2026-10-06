@@ -51,6 +51,7 @@ from .entity import (
     is_device_online,
     is_gateway_device,
 )
+from .mobility_entity import async_setup_mobility_binary_sensors
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -636,6 +637,11 @@ async def async_setup_entry(
     config_entry.async_on_unload(
         coordinator.async_add_listener(async_discover_binary_sensors)
     )
+
+    if mobility_coordinator := config_entry.runtime_data.mobility_coordinator:
+        async_setup_mobility_binary_sensors(
+            hass, config_entry, mobility_coordinator, async_add_entities
+        )
 
 
 class UnifiInsightsBinarySensor(UnifiInsightsEntity, BinarySensorEntity):

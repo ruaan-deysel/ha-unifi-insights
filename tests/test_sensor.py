@@ -218,6 +218,7 @@ def mock_config_entry():
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     entry.runtime_data = MagicMock()
+    entry.runtime_data.mobility_coordinator = None
     return entry
 
 
@@ -3210,6 +3211,7 @@ class TestAsyncSetupEntrySiteClientSensors:
 
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
         config_entry.entry_id = "test_entry"
 
@@ -3249,6 +3251,7 @@ class TestAsyncSetupEntrySiteClientSensors:
 
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
         config_entry.entry_id = "test_entry"
 
@@ -3284,6 +3287,7 @@ class TestAsyncSetupEntrySiteClientSensors:
 
         config_entry = MagicMock()
         config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
         config_entry.runtime_data.coordinator = mock_coordinator
         config_entry.entry_id = "test_entry"
 

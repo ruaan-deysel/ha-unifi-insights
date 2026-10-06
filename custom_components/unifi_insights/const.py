@@ -386,7 +386,6 @@ API_PATH_NETWORK_DEVICE: Final = "/v1/sites/{siteId}/devices/{deviceId}"
 API_PATH_NETWORK_DEVICE_STATS: Final = (
     "/v1/sites/{siteId}/devices/{deviceId}/statistics/latest"
 )
-API_PATH_NETWORK_DEVICE_ACTION: Final = "/v1/sites/{siteId}/devices/{deviceId}/actions"
 API_PATH_NETWORK_PORT_ACTION: Final = (
     "/v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/{portIdx}/actions"
 )

@@ -1415,6 +1415,28 @@ async def test_devices_get_pending_adoption_skips_malformed_items() -> None:
     assert result[0].id == "pend-1"
 
 
+async def test_device_restart_posts_documented_action() -> None:
+    """restart() must use the spec's actions endpoint, not /restart."""
+    client = _network_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert await client.devices.restart("site-1", "dev-1") is True
+    client._post.assert_awaited_once_with(
+        client.build_api_path("/sites/site-1/devices/dev-1/actions"),
+        json_data={"action": "RESTART"},
+    )
+
+
+async def test_device_execute_action_rejects_undocumented_action() -> None:
+    """Only actions the spec defines may be sent."""
+    client = _network_client()
+    client._post = AsyncMock(return_value=None)
+
+    with pytest.raises(ValueError, match="RESTART"):
+        await client.devices.execute_action("site-1", "dev-1", "locate")
+    client._post.assert_not_awaited()
+
+
 def _make_response(
     *,
     status: int = 200,

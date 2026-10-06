@@ -715,9 +715,6 @@
     "carrier_missing_scope": {
       "message": "Carrier Fabric API key missing required scope {scope} to {action} subscriber {subscriber_id}."
     },
-    "carrier_reason_too_long": {
-      "message": "Suspend reason must not exceed 1024 characters."
-    },
     "carrier_invalid_subscriber_id": {
       "message": "Invalid subscriber ID format {target} (valid UUID expected)."
     },

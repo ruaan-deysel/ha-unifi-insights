@@ -244,7 +244,7 @@ class UnifiCarrierFabricCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._validate_subscriber_uuid(subscriber_id)
         try:
             await self.client.subscribers.suspend(subscriber_id, reason=reason)
-        except Exception as err:
+        except UniFiError as err:
             if getattr(err, "api_error_code", None) == "write_conflict_retryable":
                 _LOGGER.debug(
                     "Write conflict suspending subscriber %s, retrying once",
@@ -253,14 +253,14 @@ class UnifiCarrierFabricCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.client.subscribers.suspend(subscriber_id, reason=reason)
             else:
                 raise
-        await self.async_request_refresh()
+        await self.async_refresh()
 
     async def async_resume_subscriber(self, subscriber_id: str) -> None:
         """Resume a subscriber with retry on write conflict."""
         self._validate_subscriber_uuid(subscriber_id)
         try:
             await self.client.subscribers.resume(subscriber_id)
-        except Exception as err:
+        except UniFiError as err:
             if getattr(err, "api_error_code", None) == "write_conflict_retryable":
                 _LOGGER.debug(
                     "Write conflict resuming subscriber %s, retrying once",
@@ -269,4 +269,4 @@ class UnifiCarrierFabricCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.client.subscribers.resume(subscriber_id)
             else:
                 raise
-        await self.async_request_refresh()
+        await self.async_refresh()

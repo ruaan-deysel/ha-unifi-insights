@@ -326,12 +326,11 @@ async def _async_setup_carrier_fabric_entry(
     if probe_res.status is ProbeStatus.AUTH_FAILED:
         msg = f"Carrier Fabric authentication failed: {probe_res.error}"
         raise ConfigEntryAuthFailed(msg) from probe_res.error
-    if probe_res.status in (
-        ProbeStatus.UNREACHABLE,
-        ProbeStatus.ERROR,
-        ProbeStatus.UNSUPPORTED,
-    ):
+    if probe_res.status is ProbeStatus.UNREACHABLE:
         msg = f"Carrier Fabric API unreachable: {probe_res.error}"
+        raise ConfigEntryNotReady(msg) from probe_res.error
+    if probe_res.status in (ProbeStatus.ERROR, ProbeStatus.UNSUPPORTED):
+        msg = f"Carrier Fabric API probe failed ({probe_res.status}): {probe_res.error}"
         raise ConfigEntryNotReady(msg) from probe_res.error
 
     if probe_res.org_id and not entry.data.get(CONF_CARRIER_ORG_ID):

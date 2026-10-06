@@ -345,7 +345,7 @@ async def test_coordinator_suspend_success(
 ):
     """Test successful suspend calls client and refreshes coordinator."""
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
-    coord.async_request_refresh = AsyncMock()
+    coord.async_refresh = AsyncMock()
 
     valid_id = "11111111-2222-3333-4444-555555555555"
     await coord.async_suspend_subscriber(valid_id)
@@ -353,7 +353,7 @@ async def test_coordinator_suspend_success(
     mock_carrier_client.subscribers.suspend.assert_called_once_with(
         valid_id, reason=None
     )
-    coord.async_request_refresh.assert_called_once()
+    coord.async_refresh.assert_called_once()
 
 
 async def test_coordinator_suspend_retry_on_write_conflict(
@@ -361,7 +361,7 @@ async def test_coordinator_suspend_retry_on_write_conflict(
 ):
     """Test suspend retries exactly once on write_conflict_retryable."""
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
-    coord.async_request_refresh = AsyncMock()
+    coord.async_refresh = AsyncMock()
 
     mock_carrier_client.subscribers.suspend.side_effect = [
         UniFiResponseError(
@@ -376,7 +376,7 @@ async def test_coordinator_suspend_retry_on_write_conflict(
     await coord.async_suspend_subscriber(valid_id)
 
     assert mock_carrier_client.subscribers.suspend.call_count == 2
-    coord.async_request_refresh.assert_called_once()
+    coord.async_refresh.assert_called_once()
 
 
 class ErrorCase(NamedTuple):
@@ -472,13 +472,13 @@ async def test_coordinator_resume_success(
 ):
     """Test successful resume calls client and refreshes coordinator."""
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, mock_carrier_entry)
-    coord.async_request_refresh = AsyncMock()
+    coord.async_refresh = AsyncMock()
 
     valid_id = "11111111-2222-3333-4444-555555555555"
     await coord.async_resume_subscriber(valid_id)
 
     mock_carrier_client.subscribers.resume.assert_called_once_with(valid_id)
-    coord.async_request_refresh.assert_called_once()
+    coord.async_refresh.assert_called_once()
 
 
 @pytest.mark.parametrize("case", ERROR_CASES)
@@ -668,17 +668,18 @@ async def test_coordinator_resume_retry_on_write_conflict(hass, mock_carrier_cli
     coord = UnifiCarrierFabricCoordinator(hass, mock_carrier_client, entry)
 
     valid_id = "11111111-2222-3333-4444-555555555555"
-    conflict_err = Exception("Write conflict")
-    conflict_err.api_error_code = "write_conflict_retryable"
+    conflict_err = UniFiResponseError(
+        "Write conflict",
+        status_code=503,
+        api_error_code="write_conflict_retryable",
+    )
 
     mock_carrier_client.subscribers.resume.side_effect = [
         conflict_err,
         {"id": valid_id, "suspended": False},
     ]
 
-    with patch.object(
-        coord, "async_request_refresh", new_callable=AsyncMock
-    ) as mock_refresh:
+    with patch.object(coord, "async_refresh", new_callable=AsyncMock) as mock_refresh:
         await coord.async_resume_subscriber(valid_id)
         assert mock_carrier_client.subscribers.resume.call_count == 2
         mock_refresh.assert_awaited_once()

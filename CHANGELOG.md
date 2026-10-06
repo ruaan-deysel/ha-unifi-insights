@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Per-plan subscriber count diagnostic sensors (archived plans disabled by default).
   - Optional subscriber tracking with state and service plan sensors per subscriber device.
   - Guarded `carrier_suspend_subscriber` and `carrier_resume_subscriber` service actions with scope validation and write-conflict retry.
-  - Diagnostics support with full PII redaction (names, subscriber numbers, email, addresses, notes, metadata).
+  - Diagnostics support with allowlisted fields only; subscriber names and subscriber numbers are redacted.
 
 ## [2026.10.1] - 2026-10-04
 

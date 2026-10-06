@@ -360,6 +360,10 @@ async def test_carrier_fabric_setup_probe_unsupported(hass, carrier_entry):
         await hass.async_block_till_done()
 
         assert carrier_entry.state == ConfigEntryState.SETUP_RETRY
+        # A 4xx is not an outage: the retry reason names the real probe status.
+        assert carrier_entry.reason is not None
+        assert "probe failed (unsupported)" in carrier_entry.reason
+        assert "unreachable" not in carrier_entry.reason
 
 
 async def test_carrier_fabric_unload_with_connection_type_in_entry_data(

@@ -488,7 +488,7 @@ async def test_transport_change_preserves_device_and_entity_registry(
     )
     assert registered_device is not None
     assert registered_device.id == device.id
-    assert entry.entry_id in registered_device.config_entries
+    assert registered_device.config_entry_id == entry.entry_id
 
     registered_entity = entity_registry.async_get(original_entity_id)
     assert registered_entity is not None

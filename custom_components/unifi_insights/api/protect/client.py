@@ -35,6 +35,7 @@ from .endpoints import (
     LinkStationsEndpoint,
     LiveViewsEndpoint,
     NVREndpoint,
+    POSEndpoint,
     RelaysEndpoint,
     SensorsEndpoint,
     SirensEndpoint,
@@ -156,6 +157,7 @@ class UniFiProtectClient(BaseUniFiClient):
         self._lights = LightsEndpoint(self)
         self._chimes = ChimesEndpoint(self)
         self._nvr = NVREndpoint(self)
+        self._pos = POSEndpoint(self)
         self._liveviews = LiveViewsEndpoint(self)
         self._viewers = ViewersEndpoint(self)
         self._application = ApplicationEndpoint(self)
@@ -290,6 +292,11 @@ class UniFiProtectClient(BaseUniFiClient):
     def link_stations(self) -> LinkStationsEndpoint:
         """Access link station management endpoints."""
         return self._link_stations
+
+    @property
+    def pos(self) -> POSEndpoint:
+        """Access point of sale (POS) transaction ingestion endpoints."""
+        return self._pos
 
     @property
     def users(self) -> UsersEndpoint:

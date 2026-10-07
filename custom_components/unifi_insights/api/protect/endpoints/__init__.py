@@ -13,6 +13,7 @@ from .lights import LightsEndpoint
 from .link_stations import LinkStationsEndpoint
 from .liveviews import LiveViewsEndpoint
 from .nvr import NVREndpoint
+from .pos import POSEndpoint
 from .relays import RelaysEndpoint
 from .sensors import SensorsEndpoint
 from .sirens import SirensEndpoint
@@ -33,6 +34,7 @@ __all__ = [
     "LinkStationsEndpoint",
     "LiveViewsEndpoint",
     "NVREndpoint",
+    "POSEndpoint",
     "RelaysEndpoint",
     "SensorsEndpoint",
     "SirensEndpoint",

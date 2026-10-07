@@ -46,6 +46,10 @@ from custom_components.unifi_insights.api.network.models.firewall import (
     OrderedFirewallPolicyIds,
 )
 from custom_components.unifi_insights.api.protect import (
+    PosLineItem,
+    PosLocation,
+    PosTransactionRequest,
+    PosTransactionType,
     UlpUserStatus,
     UniFiProtectClient,
 )
@@ -3468,3 +3472,63 @@ async def test_protect_ulp_users_deactivated_and_malformed() -> None:
     assert users[0].status == UlpUserStatus.DEACTIVATED
     assert users[0].email == ""
     assert client.ulp_users.last_result_complete is False
+
+
+async def test_protect_pos_ingest_transaction() -> None:
+    """POS endpoint should POST to /pos/cameras/{id}/transactions and parse response."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value={"created": True, "eventId": "evt-pos-123"})
+
+    request = PosTransactionRequest(
+        type=PosTransactionType.SALE,
+        external_id="tx-987",
+        amount=19.99,
+        currency="USD",
+        line_items=[PosLineItem(title="Coffee", quantity=2)],
+        location=PosLocation(id="reg-1", name="Main Register"),
+        payment_types=["credit_card"],
+        timestamp=1700000000000,
+    )
+
+    response = await client.pos.ingest_transaction("cam-1", request)
+    assert response.created is True
+    assert response.event_id == "evt-pos-123"
+
+    client._post.assert_awaited_once_with(
+        client.build_api_path("/pos/cameras/cam-1/transactions"),
+        json_data={
+            "type": "sale",
+            "externalId": "tx-987",
+            "amount": 19.99,
+            "currency": "USD",
+            "lineItems": [{"title": "Coffee", "quantity": 2}],
+            "location": {"id": "reg-1", "name": "Main Register"},
+            "paymentTypes": ["credit_card"],
+            "timestamp": 1700000000000,
+        },
+    )
+
+
+async def test_protect_pos_ingest_transaction_dict_and_duplicate() -> None:
+    """POS endpoint should accept dict payload and handle idempotency response."""
+    client = _protect_client()
+    # Duplicate transaction returns created=False with existing eventId
+    client._post = AsyncMock(
+        return_value={"data": {"created": False, "eventId": "evt-existing-1"}}
+    )
+
+    payload = {
+        "type": "refund",
+        "externalId": "tx-dup-1",
+        "amount": 5.0,
+    }
+    response = await client.pos.ingest_transaction("cam-2", payload)
+    assert response.created is False
+    assert response.event_id == "evt-existing-1"
+
+    # Error handling
+    client._post = AsyncMock(return_value=None)
+    with pytest.raises(
+        ValueError, match="Failed to ingest POS transaction for camera cam-2"
+    ):
+        await client.pos.ingest_transaction("cam-2", payload)

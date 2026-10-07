@@ -107,22 +107,18 @@ class UniFiSiteManagerClient(BaseUniFiClient):
 
     async def get_isp_metrics(
         self,
-        begin: datetime | None = None,
-        end: datetime | None = None,
-        *,
         begin_timestamp: datetime | None = None,
         end_timestamp: datetime | None = None,
+        *,
         metric_type: Literal["5m", "1h"] = "5m",
         duration: str | None = None,
     ) -> list[dict[str, Any]]:
         """Return ISP metrics for the supplied time range or duration."""
-        effective_begin = begin if begin is not None else begin_timestamp
-        effective_end = end if end is not None else end_timestamp
         params: dict[str, Any] = {}
-        if effective_begin is not None:
-            params["beginTimestamp"] = self._format_timestamp(effective_begin)
-        if effective_end is not None:
-            params["endTimestamp"] = self._format_timestamp(effective_end)
+        if begin_timestamp is not None:
+            params["beginTimestamp"] = self._format_timestamp(begin_timestamp)
+        if end_timestamp is not None:
+            params["endTimestamp"] = self._format_timestamp(end_timestamp)
         if duration is not None:
             params["duration"] = duration
 

@@ -230,7 +230,7 @@ async def test_get_host_pins_verb_path_and_unwraps_data() -> None:
 
 
 async def test_get_isp_metrics_options_and_query_parameters() -> None:
-    """get_isp_metrics supports metric_type, duration, and begin/end timestamps."""
+    """get_isp_metrics supports metric_type, duration, and timestamps."""
     session = _Session(
         [
             {"data": [{"hostId": "host-1", "metricType": "1h", "periods": []}]},
@@ -243,8 +243,10 @@ async def test_get_isp_metrics_options_and_query_parameters() -> None:
     dt1 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
     dt2 = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
-    # 1. begin and end with 1h metric_type
-    res1 = await client.get_isp_metrics(begin=dt1, end=dt2, metric_type="1h")
+    # 1. begin_timestamp and end_timestamp with 1h metric_type
+    res1 = await client.get_isp_metrics(
+        begin_timestamp=dt1, end_timestamp=dt2, metric_type="1h"
+    )
     assert res1 == [{"hostId": "host-1", "metricType": "1h", "periods": []}]
     assert session.requests[0]["method"] == "GET"
     assert session.requests[0]["url"] == "https://api.ui.com/v1/isp-metrics/1h"
@@ -260,7 +262,7 @@ async def test_get_isp_metrics_options_and_query_parameters() -> None:
     assert session.requests[1]["url"] == "https://api.ui.com/v1/isp-metrics/5m"
     assert session.requests[1]["params"] == {"duration": "24h"}
 
-    # 3. positional begin and end
+    # 3. positional begin_timestamp and end_timestamp
     res3 = await client.get_isp_metrics(dt1, dt2)
     assert res3 == [{"hostId": "host-3", "metricType": "5m", "periods": []}]
     assert session.requests[2]["method"] == "GET"
@@ -270,7 +272,7 @@ async def test_get_isp_metrics_options_and_query_parameters() -> None:
         "endTimestamp": "2026-01-01T12:00:00Z",
     }
 
-    # 4. keyword begin_timestamp and end_timestamp backwards compatibility
+    # 4. keyword begin_timestamp and end_timestamp with default metric_type
     res4 = await client.get_isp_metrics(begin_timestamp=dt1, end_timestamp=dt2)
     assert res4 == [{"hostId": "host-4", "metricType": "5m", "periods": []}]
     assert session.requests[3]["method"] == "GET"

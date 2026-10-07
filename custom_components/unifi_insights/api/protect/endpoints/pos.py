@@ -45,6 +45,10 @@ class POSEndpoint:
             ValueError: If the response cannot be parsed.
 
         """
+        if not isinstance(camera_id, str) or not camera_id.strip():
+            msg = "Camera ID must be a non-empty string"
+            raise ValueError(msg)
+
         path = self._client.build_api_path(
             f"/pos/cameras/{camera_id}/transactions", site_id
         )

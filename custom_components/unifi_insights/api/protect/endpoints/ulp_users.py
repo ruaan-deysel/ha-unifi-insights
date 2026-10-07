@@ -90,6 +90,10 @@ class UlpUsersEndpoint:
             ValueError: If the ULP user is not found.
 
         """
+        if not isinstance(user_id, str) or not user_id.strip():
+            msg = "ULP user ID must be a non-empty string"
+            raise ValueError(msg)
+
         path = self._client.build_api_path(f"/ulp-users/{user_id}", site_id)
         response = await self._client._get(path)
 
@@ -97,7 +101,5 @@ class UlpUsersEndpoint:
             data = response.get("data", response)
             if isinstance(data, dict):
                 return UlpUser.model_validate(data)
-            if isinstance(data, list) and len(data) > 0:
-                return UlpUser.model_validate(data[0])
         msg = f"ULP user {user_id} not found"
         raise ValueError(msg)

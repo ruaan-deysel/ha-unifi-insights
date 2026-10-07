@@ -3532,3 +3532,63 @@ async def test_protect_pos_ingest_transaction_dict_and_duplicate() -> None:
         ValueError, match="Failed to ingest POS transaction for camera cam-2"
     ):
         await client.pos.ingest_transaction("cam-2", payload)
+
+
+@pytest.mark.parametrize("invalid_id", ["", "   ", None, 123])
+async def test_protect_users_get_invalid_id_raises(invalid_id: Any) -> None:
+    """Users get should reject invalid or blank user ID without calling _get."""
+    client = _protect_client()
+    client._get = AsyncMock()
+    with pytest.raises(ValueError, match="User ID must be a non-empty string"):
+        await client.users.get(invalid_id)
+    client._get.assert_not_called()
+
+
+async def test_protect_users_get_list_response_raises() -> None:
+    """Users get should raise ValueError if response is a list."""
+    client = _protect_client()
+    user_payload = {"id": "user-1", "name": "Jane"}
+    client._get = AsyncMock(return_value=[user_payload])
+    with pytest.raises(ValueError, match="User user-1 not found"):
+        await client.users.get("user-1")
+
+    client._get = AsyncMock(return_value={"data": [user_payload]})
+    with pytest.raises(ValueError, match="User user-1 not found"):
+        await client.users.get("user-1")
+
+
+@pytest.mark.parametrize("invalid_id", ["", "   ", None, 123])
+async def test_protect_ulp_users_get_invalid_id_raises(invalid_id: Any) -> None:
+    """ULP users get should reject invalid or blank user ID without calling _get."""
+    client = _protect_client()
+    client._get = AsyncMock()
+    with pytest.raises(ValueError, match="ULP user ID must be a non-empty string"):
+        await client.ulp_users.get(invalid_id)
+    client._get.assert_not_called()
+
+
+async def test_protect_ulp_users_get_list_response_raises() -> None:
+    """ULP users get should raise ValueError if response is a list."""
+    client = _protect_client()
+    ulp_payload = {"id": "ulp-1", "fullName": "John"}
+    client._get = AsyncMock(return_value=[ulp_payload])
+    with pytest.raises(ValueError, match="ULP user ulp-1 not found"):
+        await client.ulp_users.get("ulp-1")
+
+    client._get = AsyncMock(return_value={"data": [ulp_payload]})
+    with pytest.raises(ValueError, match="ULP user ulp-1 not found"):
+        await client.ulp_users.get("ulp-1")
+
+
+@pytest.mark.parametrize("invalid_id", ["", "   ", None, 123])
+async def test_protect_pos_ingest_transaction_invalid_camera_id_raises(
+    invalid_id: Any,
+) -> None:
+    """POS ingest should reject invalid or blank camera ID without calling _post."""
+    client = _protect_client()
+    client._post = AsyncMock()
+    with pytest.raises(ValueError, match="Camera ID must be a non-empty string"):
+        await client.pos.ingest_transaction(
+            invalid_id, {"type": "sale", "externalId": "1", "amount": 1.0}
+        )
+    client._post.assert_not_called()

@@ -178,8 +178,8 @@ class TestUnifiInsightsButton:
             await button.async_press()
 
     async def test_button_press_uses_facade_restart(
-        self, hass: HomeAssistant, mock_coordinator
-    ):
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
         """The facade coroutine runs when present (no fallback)."""
         mock_coordinator.async_restart_device = AsyncMock(return_value=True)
         button = UnifiInsightsButton(

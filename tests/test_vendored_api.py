@@ -1434,7 +1434,7 @@ async def test_device_execute_action_rejects_undocumented_action() -> None:
 
     with pytest.raises(ValueError, match="RESTART"):
         await client.devices.execute_action("site-1", "dev-1", "locate")
-    client._post.assert_not_awaited()
+    client._post.assert_not_called()
 
 
 def _make_response(

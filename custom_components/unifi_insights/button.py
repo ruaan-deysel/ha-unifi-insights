@@ -418,11 +418,10 @@ class UnifiInsightsPoePowerCycleButton(UnifiInsightsEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        _LOGGER.debug(
-            "Power cycling PoE port %d on device %s in site %s",
+        _LOGGER.info(
+            "Power cycling PoE port %d on device %s",
             self._port_idx,
             self._device_id,
-            self._site_id,
         )
         err_msg = (
             f"Unable to power cycle PoE port {self._port_idx} on device"

@@ -25,7 +25,7 @@
     "@types/d3-hierarchy": "3.1.7",
     "@types/d3-selection": "3.0.12",
     "@types/d3-transition": "3.0.9",
-    "@types/d3-zoom": "3.0.8",
+    "@types/d3-zoom": "3.0.9",
     "@vitest/coverage-v8": "5.0.2",
     "axe-core": "4.13.0",
     "eslint": "10.11.0",

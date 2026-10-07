@@ -912,7 +912,7 @@ class TestChimePlayButtonEdgeCases:
     async def test_chime_button_press_with_empty_ring_settings(
         self, hass: HomeAssistant, mock_coordinator
     ):
-        """Test chime button press with empty ring settings uses default."""
+        """Chime press still plays when the chime has no ring settings."""
         button = UnifiProtectChimePlayButton(
             coordinator=mock_coordinator,
             chime_id="chime1",

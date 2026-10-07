@@ -1377,7 +1377,7 @@ async def test_link_stations_get_returns_model() -> None:
 
 
 async def test_chime_play_posts_undocumented_play_route() -> None:
-    """chimes.play() uses a route absent from the v7.3.70 spec; live-verified."""
+    """chimes.play() posts to a route the v7.3.70 spec lacks; not live-verified."""
     client = _protect_client()
     client._post = AsyncMock(return_value=None)
 

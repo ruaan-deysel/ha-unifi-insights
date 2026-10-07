@@ -21,7 +21,7 @@ import json
 import os
 import ssl
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -575,31 +575,6 @@ async def query_protect(
             except Exception as e:
                 print(f"    {RED}Error: {e}{RESET}")
 
-        # ── Recent Events ────────────────────────────────────────────────
-        if hasattr(client, "events") and (not sections or "events" in sections):
-            section("Recent Events (last 1 hour)")
-            try:
-                now = datetime.now(timezone.utc)
-                one_hour_ago = now - timedelta(hours=1)
-                events = await client.events.get_all(
-                    start=one_hour_ago,
-                    end=now,
-                )
-                results["events"] = [_model_to_dict(e) for e in events]
-                print(f"    {count_label(len(events), 'event')}")
-                for ev in results["events"][:20]:
-                    ev_type = ev.get("type", "?")
-                    camera = ev.get("camera", ev.get("cameraId", ""))
-                    ts = ev.get("start") or ev.get("timestamp")
-                    print(f"      {DIM}{_fmt_timestamp(ts)}{RESET}  "
-                          f"{YELLOW}{ev_type}{RESET}  {camera}")
-                if len(results["events"]) > 20:
-                    print(f"      {DIM}... and {len(results['events']) - 20} more{RESET}")
-                if raw and results["events"]:
-                    print(json.dumps(results["events"][:5], indent=2, default=str))
-            except Exception as e:
-                print(f"    {RED}Error: {e}{RESET}")
-
     return results
 
 
@@ -660,7 +635,7 @@ async def main() -> None:
         "--section", "-s", action="append", dest="sections",
         help="Query specific section(s): sites, devices, legacy, stats, clients, "
              "wifi, networks, firewall, resources, vouchers, nvr, cameras, lights, "
-             "sensors, chimes, events",
+             "sensors, chimes",
     )
     parser.add_argument("--raw", action="store_true", help="Print raw JSON responses")
     parser.add_argument("--save", action="store_true", help="Save responses to .ai-scratch/api-dump/")
@@ -713,7 +688,6 @@ async def main() -> None:
         item("Lights", len(prot.get("lights", [])), 4)
         item("Sensors", len(prot.get("sensors", [])), 4)
         item("Chimes", len(prot.get("chimes", [])), 4)
-        item("Recent events", len(prot.get("events", [])), 4)
 
     if save_dir:
         out_file = save_dir / f"api-dump-{datetime.now().strftime('%Y%m%d-%H%M%S')}.json"

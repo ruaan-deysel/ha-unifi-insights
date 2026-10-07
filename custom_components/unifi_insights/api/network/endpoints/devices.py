@@ -191,12 +191,12 @@ class DevicesEndpoint:
         port_idx: int,
         action: str,
     ) -> bool:
-        """
-        Execute an adopted-device port action.
+        """Execute an adopted-device port action.
 
         Spec:
-        ``POST /v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/{portIdx}/actions``
-        with ``{"action": ...}``; Network v10.6.106 defines only ``POWER_CYCLE``.
+        ``POST /v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/``
+        ``{portIdx}/actions`` with ``{"action": ...}``; Network v10.6.106
+        defines only ``POWER_CYCLE``.
         """
         if action not in PORT_ACTIONS:
             msg = f"Action must be one of: {', '.join(sorted(PORT_ACTIONS))}"

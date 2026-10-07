@@ -5936,7 +5936,8 @@ class TestUnifiFacadeCoordinator:
         )
         result = await facade_coordinator.async_power_cycle_port("site1", "dev1", 3)
         assert result is True
-        facade_coordinator.network_client.devices.execute_port_action.assert_called_once_with(
+        devices_api = facade_coordinator.network_client.devices
+        devices_api.execute_port_action.assert_called_once_with(
             "site1", "dev1", 3, "POWER_CYCLE"
         )
 

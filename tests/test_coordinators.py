@@ -6274,9 +6274,9 @@ class TestUnifiFacadeCoordinator:
     ):
         """Test async_set_light_brightness delegates correctly."""
         facade_coordinator.protect_client.lights.set_brightness = AsyncMock()
-        await facade_coordinator.async_set_light_brightness("light1", 75)
+        await facade_coordinator.async_set_light_brightness("light1", 5)
         facade_coordinator.protect_client.lights.set_brightness.assert_called_once_with(
-            "light1", 75
+            "light1", 5
         )
 
     @pytest.mark.asyncio
@@ -6326,7 +6326,7 @@ class TestUnifiFacadeCoordinator:
         )
         facade_coordinator.protect_client = client
         facade_coordinator._protect_coordinator.protect_client = client
-        await facade_coordinator.async_set_light_brightness("light1", 100)
+        await facade_coordinator.async_set_light_brightness("light1", 6)
         client._patch.assert_awaited_once_with(
             client.build_api_path("/lights/light1"),
             json_data={"lightDeviceSettings": {"ledLevel": 6}},

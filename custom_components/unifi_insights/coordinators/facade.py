@@ -841,14 +841,14 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             volume,
         )
 
-    async def async_set_light_brightness(self, light_id: str, level: int) -> None:
+    async def async_set_light_brightness(self, light_id: str, led_level: int) -> None:
         """Set light brightness for a Protect light."""
         protect_client = self._require_protect_client()
         await self._async_execute_api_action(
             f"Unable to set brightness for light {light_id}",
             protect_client.lights.set_brightness,
             light_id,
-            level,
+            led_level,
         )
 
     async def async_set_light_mode(self, light_id: str, mode: str) -> None:

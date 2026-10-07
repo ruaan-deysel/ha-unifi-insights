@@ -142,8 +142,20 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
         self._attr_is_on = light_mode != LIGHT_MODE_OFF
 
         # Set brightness
-        led_level = light_data.get("lightDeviceSettings", {}).get("ledLevel", 100)
-        self._attr_brightness = int(led_level * 255 / 100)
+        device_settings = light_data.get("lightDeviceSettings")
+        led_level = (
+            device_settings.get("ledLevel")
+            if isinstance(device_settings, dict)
+            else None
+        )
+        if (
+            isinstance(led_level, int)
+            and not isinstance(led_level, bool)
+            and 1 <= led_level <= 6
+        ):
+            self._attr_brightness = round(led_level * 255 / 6)
+        else:
+            self._attr_brightness = None
 
         # Set attributes
         self._attr_extra_state_attributes = {
@@ -163,18 +175,23 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
         # Set brightness if provided
         if ATTR_BRIGHTNESS in kwargs:
             brightness = kwargs[ATTR_BRIGHTNESS]
-            level = int(brightness * 100 / 255)
-            _LOGGER.debug("Setting light %s brightness to %s", self._device_id, level)
+            led_level = max(1, min(6, round(brightness * 6 / 255)))
+            _LOGGER.debug(
+                "Setting light %s brightness to %s (led_level %s)",
+                self._device_id,
+                brightness,
+                led_level,
+            )
             await async_call_coordinator_action(
                 self.coordinator,
                 "async_set_light_brightness",
                 f"Unable to set brightness for light {self._device_id}",
                 self._device_id,
-                level,
+                led_level,
                 fallback_factory=lambda: (
-                    self.coordinator.protect_client.set_light_brightness(  # type: ignore[union-attr]
-                        light_id=self._device_id,
-                        level=level,
+                    self.coordinator.protect_client.lights.set_brightness(  # type: ignore[union-attr]
+                        self._device_id,
+                        led_level,
                     )
                 ),
             )

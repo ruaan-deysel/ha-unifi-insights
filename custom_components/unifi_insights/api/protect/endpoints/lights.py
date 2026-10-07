@@ -214,7 +214,7 @@ class LightsEndpoint:
     async def set_brightness(
         self,
         light_id: str,
-        brightness: int,
+        led_level: int,
         site_id: str | None = None,
     ) -> Light:
         """
@@ -222,24 +222,19 @@ class LightsEndpoint:
 
         Args:
             light_id: The light ID.
-            brightness: Brightness level (0-100 or 1-6).
+            led_level: Brightness level (1-6).
             site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
 
         Returns:
             The updated light.
 
         """
-        if not 0 <= brightness <= 100:
-            raise ValueError("Brightness must be between 0 and 100")
-        if MIN_LED_LEVEL <= brightness <= MAX_LED_LEVEL:
-            led_level = brightness
-        elif brightness <= 0:
-            led_level = MIN_LED_LEVEL
-        else:
-            led_level = max(
-                MIN_LED_LEVEL,
-                min(MAX_LED_LEVEL, round(brightness * MAX_LED_LEVEL / 100)),
-            )
+        if (
+            not isinstance(led_level, int)
+            or isinstance(led_level, bool)
+            or not (MIN_LED_LEVEL <= led_level <= MAX_LED_LEVEL)
+        ):
+            raise ValueError("led_level must be between 1 and 6")
         return await self.update(
             light_id,
             site_id,

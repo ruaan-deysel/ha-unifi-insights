@@ -3862,24 +3862,26 @@ async def test_lights_set_brightness_patch_body() -> None:
     """Test lights.set_brightness sends spec lightDeviceSettings PATCH body."""
     client = _protect_client()
     client._patch = AsyncMock(return_value={"id": "light1", "mac": "00:11:22:33:44:66"})
-    await client.lights.set_brightness("light1", 100)
+
+    with pytest.raises(ValueError, match="led_level must be between 1 and 6"):
+        await client.lights.set_brightness("light1", 0)
+    client._patch.assert_not_called()
+
+    with pytest.raises(ValueError, match="led_level must be between 1 and 6"):
+        await client.lights.set_brightness("light1", 7)
+    client._patch.assert_not_called()
+
+    await client.lights.set_brightness("light1", 1)
+    client._patch.assert_awaited_once_with(
+        client.build_api_path("/lights/light1"),
+        json_data={"lightDeviceSettings": {"ledLevel": 1}},
+    )
+
+    client._patch.reset_mock()
+    await client.lights.set_brightness("light1", 6)
     client._patch.assert_awaited_once_with(
         client.build_api_path("/lights/light1"),
         json_data={"lightDeviceSettings": {"ledLevel": 6}},
-    )
-
-    client._patch.reset_mock()
-    await client.lights.set_brightness("light1", 50)
-    client._patch.assert_awaited_once_with(
-        client.build_api_path("/lights/light1"),
-        json_data={"lightDeviceSettings": {"ledLevel": 3}},
-    )
-
-    client._patch.reset_mock()
-    await client.lights.set_brightness("light1", 4)
-    client._patch.assert_awaited_once_with(
-        client.build_api_path("/lights/light1"),
-        json_data={"lightDeviceSettings": {"ledLevel": 4}},
     )
 
 

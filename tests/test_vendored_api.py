@@ -3592,3 +3592,15 @@ async def test_protect_pos_ingest_transaction_invalid_camera_id_raises(
             invalid_id, {"type": "sale", "externalId": "1", "amount": 1.0}
         )
     client._post.assert_not_called()
+
+
+async def test_protect_validate_connection() -> None:
+    """Validate connection should query /cameras and return boolean."""
+    client = _protect_client()
+    client._get = AsyncMock(return_value=[])
+    assert await client.validate_connection() is True
+    client._get.assert_awaited_once_with(client.build_api_path("/cameras"))
+
+    client._get = AsyncMock(return_value=None)
+    assert await client.validate_connection() is False
+    client._get.assert_awaited_once_with(client.build_api_path("/cameras"))

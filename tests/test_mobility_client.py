@@ -396,25 +396,6 @@ async def test_update_device_name_pins_verb_path_and_body() -> None:
     assert session.requests[0]["json"] == {"name": "Branch Office Router"}
 
 
-async def test_update_device_name_accepts_positional_and_typed_dict() -> None:
-    """update_device_name accepts name positionally or as a typed payload dict."""
-    session1 = _Session([_Response(status=204)])
-    await _client(session1).update_device_name(_WORKSPACE_ID, _DEVICE_ID, "New Name 1")
-    assert session1.requests[0]["json"] == {"name": "New Name 1"}
-
-    session2 = _Session([_Response(status=204)])
-    await _client(session2).update_device_name(
-        _WORKSPACE_ID, _DEVICE_ID, {"name": "New Name 2"}
-    )
-    assert session2.requests[0]["json"] == {"name": "New Name 2"}
-
-    session3 = _Session([_Response(status=204)])
-    await _client(session3).update_device_name(
-        _WORKSPACE_ID, _DEVICE_ID, payload={"name": "New Name 3"}
-    )
-    assert session3.requests[0]["json"] == {"name": "New Name 3"}
-
-
 @pytest.mark.parametrize("missing_name", [None, 123, ["name"]])
 async def test_update_device_name_validates_required_name(
     missing_name: Any,
@@ -424,13 +405,7 @@ async def test_update_device_name_validates_required_name(
     client = _client(session)
 
     with pytest.raises(UniFiValidationError):
-        await client.update_device_name(_WORKSPACE_ID, _DEVICE_ID, missing_name)
-    with pytest.raises(UniFiValidationError):
-        await client.update_device_name(
-            _WORKSPACE_ID,
-            _DEVICE_ID,
-            payload={"name": missing_name},  # type: ignore[dict-item]
-        )
+        await client.update_device_name(_WORKSPACE_ID, _DEVICE_ID, name=missing_name)
     assert session.requests == []
 
 
@@ -477,8 +452,8 @@ async def test_update_device_network_pins_verb_path_and_body() -> None:
     }
 
 
-async def test_update_device_network_accepts_partial_kwargs_and_typed_dict() -> None:
-    """update_device_network accepts partial fields or a typed payload dict."""
+async def test_update_device_network_accepts_partial_fields() -> None:
+    """update_device_network sends non-None fields, preserving lease time 0."""
     session1 = _Session([_Response(status=204)])
     await _client(session1).update_device_network(
         _WORKSPACE_ID, _DEVICE_ID, dhcp_mode="none"
@@ -487,7 +462,7 @@ async def test_update_device_network_accepts_partial_kwargs_and_typed_dict() -> 
 
     session2 = _Session([_Response(status=204)])
     await _client(session2).update_device_network(
-        _WORKSPACE_ID, _DEVICE_ID, {"host_address": "192.168.10.1"}
+        _WORKSPACE_ID, _DEVICE_ID, host_address="192.168.10.1"
     )
     assert session2.requests[0]["json"] == {"host_address": "192.168.10.1"}
 
@@ -495,18 +470,17 @@ async def test_update_device_network_accepts_partial_kwargs_and_typed_dict() -> 
     await _client(session3).update_device_network(
         _WORKSPACE_ID,
         _DEVICE_ID,
-        payload={"dhcp_mode": "dhcp", "dhcp_lease_time": 3600},
+        dhcp_mode="dhcp",
+        dhcp_lease_time=0,
     )
     assert session3.requests[0]["json"] == {
         "dhcp_mode": "dhcp",
-        "dhcp_lease_time": 3600,
+        "dhcp_lease_time": 0,
     }
 
     session4 = _Session([_Response(status=204)])
-    await _client(session4).update_device_network(
-        _WORKSPACE_ID, _DEVICE_ID, "192.168.20.1"
-    )
-    assert session4.requests[0]["json"] == {"host_address": "192.168.20.1"}
+    await _client(session4).update_device_network(_WORKSPACE_ID, _DEVICE_ID)
+    assert session4.requests[0]["json"] == {}
 
 
 @pytest.mark.parametrize("unsafe", ["", "../network", "a/b", "a?b", "x" * 65, None])
@@ -548,29 +522,6 @@ async def test_update_device_wireless_pins_verb_path_and_body() -> None:
     }
 
 
-async def test_update_device_wireless_accepts_positional_and_typed_dict() -> None:
-    """update_device_wireless accepts positional args or a typed payload dict."""
-    session1 = _Session([_Response(status=204)])
-    await _client(session1).update_device_wireless(
-        _WORKSPACE_ID, _DEVICE_ID, "MyNet1", "pass1"
-    )
-    assert session1.requests[0]["json"] == {"ssid": "MyNet1", "password": "pass1"}
-
-    session2 = _Session([_Response(status=204)])
-    await _client(session2).update_device_wireless(
-        _WORKSPACE_ID, _DEVICE_ID, {"ssid": "MyNet2", "password": "pass2"}
-    )
-    assert session2.requests[0]["json"] == {"ssid": "MyNet2", "password": "pass2"}
-
-    session3 = _Session([_Response(status=204)])
-    await _client(session3).update_device_wireless(
-        _WORKSPACE_ID,
-        _DEVICE_ID,
-        payload={"ssid": "MyNet3", "password": "pass3"},
-    )
-    assert session3.requests[0]["json"] == {"ssid": "MyNet3", "password": "pass3"}
-
-
 @pytest.mark.parametrize(
     ("ssid", "password"),
     [
@@ -592,11 +543,25 @@ async def test_update_device_wireless_validates_required_fields(
         await client.update_device_wireless(
             _WORKSPACE_ID, _DEVICE_ID, ssid=ssid, password=password
         )
-    with pytest.raises(UniFiValidationError):
-        await client.update_device_wireless(
-            _WORKSPACE_ID,
-            _DEVICE_ID,
-            payload={"ssid": ssid, "password": password},  # type: ignore[dict-item]
+    assert session.requests == []
+
+
+async def test_update_endpoints_enforce_keyword_only_arguments() -> None:
+    """Update endpoints reject positional arguments for update fields."""
+    session = _Session([])
+    client = _client(session)
+
+    with pytest.raises(TypeError):
+        await client.update_device_name(  # type: ignore[misc]
+            _WORKSPACE_ID, _DEVICE_ID, "Branch Office Router"
+        )
+    with pytest.raises(TypeError):
+        await client.update_device_network(  # type: ignore[call-arg]
+            _WORKSPACE_ID, _DEVICE_ID, "192.168.10.1"
+        )
+    with pytest.raises(TypeError):
+        await client.update_device_wireless(  # type: ignore[misc]
+            _WORKSPACE_ID, _DEVICE_ID, "MyNetwork", "test-password"
         )
     assert session.requests == []
 

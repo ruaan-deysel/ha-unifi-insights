@@ -889,25 +889,25 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         site_id: str,
         *,
+        name: str,
+        time_limit_minutes: int,
         count: int = 1,
-        time_limit_minutes: int | None = None,
         tx_rate_limit_kbps: int | None = None,
         rx_rate_limit_kbps: int | None = None,
         data_usage_limit_mbytes: int | None = None,
-        name: str | None = None,
     ) -> None:
         """Generate voucher(s) for a site."""
-        kwargs: dict[str, Any] = {"count": count}
-        if time_limit_minutes is not None:
-            kwargs["time_limit_minutes"] = time_limit_minutes
+        kwargs: dict[str, Any] = {
+            "name": name,
+            "time_limit_minutes": time_limit_minutes,
+            "count": count,
+        }
         if tx_rate_limit_kbps is not None:
             kwargs["tx_rate_limit_kbps"] = tx_rate_limit_kbps
         if rx_rate_limit_kbps is not None:
             kwargs["rx_rate_limit_kbps"] = rx_rate_limit_kbps
         if data_usage_limit_mbytes is not None:
             kwargs["data_usage_limit_mbytes"] = data_usage_limit_mbytes
-        if name is not None:
-            kwargs["name"] = name
         await self._async_execute_api_action(
             f"Unable to generate voucher in site {site_id}",
             self.network_client.vouchers.create,

@@ -3206,8 +3206,8 @@ async def test_vouchers_delete_by_filter() -> None:
     )
 
 
-async def test_vouchers_create_defaults_name_and_duration() -> None:
-    """create() defaults name and timeLimitMinutes to satisfy spec requirements."""
+async def test_vouchers_create_pins_required_name_and_duration() -> None:
+    """create() pins that name and timeLimitMinutes are sent in the body."""
     client = _network_client()
     client._post = AsyncMock(
         return_value={
@@ -3215,21 +3215,25 @@ async def test_vouchers_create_defaults_name_and_duration() -> None:
                 {
                     "id": "v-1",
                     "code": "12345-67890",
-                    "name": "Home Assistant",
-                    "timeLimitMinutes": 480,
+                    "name": "Guest Voucher",
+                    "timeLimitMinutes": 120,
                 }
             ]
         }
     )
 
-    vouchers = await client.vouchers.create("site-1")
+    vouchers = await client.vouchers.create(
+        "site-1",
+        name="Guest Voucher",
+        time_limit_minutes=120,
+    )
     assert len(vouchers) == 1
     assert vouchers[0].id == "v-1"
     client._post.assert_awaited_once_with(
         client.build_api_path("/sites/site-1/hotspot/vouchers"),
         json_data={
             "count": 1,
-            "name": "Home Assistant",
-            "timeLimitMinutes": 480,
+            "name": "Guest Voucher",
+            "timeLimitMinutes": 120,
         },
     )

@@ -4,17 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from custom_components.unifi_insights.api.network.models import (
-    FirewallRule,
-    FirewallZone,
-)
-from custom_components.unifi_insights.api.network.models.firewall import (
+from ..models import FirewallRule, FirewallZone
+from ..models.firewall import (
     FirewallPolicyOrdering,
     OrderedFirewallPolicyIds,
 )
 
 if TYPE_CHECKING:
-    from custom_components.unifi_insights.api.network.client import UniFiNetworkClient
+    from ..client import UniFiNetworkClient
 
 
 class FirewallEndpoint:

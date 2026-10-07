@@ -91,10 +91,10 @@ class VouchersEndpoint:
         self,
         site_id: str,
         *,
+        name: str,
+        time_limit_minutes: int,
         count: int = 1,
-        name: str = "Home Assistant",
         authorized_guest_limit: int | None = None,
-        time_limit_minutes: int = 480,
         data_usage_limit_mbytes: int | None = None,
         rx_rate_limit_kbps: int | None = None,
         tx_rate_limit_kbps: int | None = None,
@@ -104,10 +104,10 @@ class VouchersEndpoint:
 
         Args:
             site_id: The site ID.
+            name: Voucher note/label.
+            time_limit_minutes: Access duration in minutes.
             count: Number of vouchers to create (1-10000).
-            name: Voucher note/label (defaults to 'Home Assistant').
             authorized_guest_limit: Maximum guests per voucher.
-            time_limit_minutes: Access duration in minutes (defaults to 480).
             data_usage_limit_mbytes: Download limit in megabytes.
             rx_rate_limit_kbps: Download speed limit.
             tx_rate_limit_kbps: Upload speed limit.
@@ -119,10 +119,8 @@ class VouchersEndpoint:
         path = self._client.build_api_path(f"/sites/{site_id}/hotspot/vouchers")
         data: dict[str, Any] = {
             "count": count,
-            "name": name if name is not None else "Home Assistant",
-            "timeLimitMinutes": (
-                time_limit_minutes if time_limit_minutes is not None else 480
-            ),
+            "name": name,
+            "timeLimitMinutes": time_limit_minutes,
         }
         if authorized_guest_limit is not None:
             data["authorizedGuestLimit"] = authorized_guest_limit

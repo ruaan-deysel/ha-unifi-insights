@@ -881,6 +881,40 @@ class TestNetworkServices:
 
         await async_unload_services(hass)
 
+    async def test_generate_voucher_with_note(self, hass: HomeAssistant) -> None:
+        """Test generate_voucher uses provided note and schema duration default."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_generate_voucher = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "generate_voucher",
+                {"site_id": "site1", "note": "Event Guest"},
+                blocking=True,
+            )
+
+        mock_coordinator.async_generate_voucher.assert_called_once_with(
+            "site1",
+            count=1,
+            time_limit_minutes=480,
+            tx_rate_limit_kbps=None,
+            rx_rate_limit_kbps=None,
+            data_usage_limit_mbytes=None,
+            name="Event Guest",
+        )
+
+        await async_unload_services(hass)
+
     async def test_generate_voucher_custom_note_and_duration(
         self, hass: HomeAssistant
     ) -> None:

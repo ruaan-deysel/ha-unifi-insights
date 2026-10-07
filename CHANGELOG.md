@@ -30,7 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Generating hotspot vouchers () now defaults the voucher name to "Home Assistant" when no note is provided and ensures access duration is always passed, satisfying Network API schema requirements.
+- Generating hotspot vouchers (`unifi_insights.generate_voucher`) without a note no longer fails: the voucher name the Network API requires now defaults to "Home Assistant".
 - Restarting a UniFi Network device (Restart button or `unifi_insights.restart_device`) now uses the documented device-actions endpoint (`POST …/devices/{id}/actions`) instead of the undocumented `…/restart` path.
 - Secrets in logged API responses are now fully redacted. Before, a password, Wi-Fi passphrase, token or API key containing a colon (`:`) or an escaped quote was only partly hidden: debug logs and "Response is not JSON" warnings showed the value up to its last colon, for example `"passphrase": "my:secret: "**REDACTED**"`. Now the whole value is replaced: `"passphrase": "**REDACTED**"`.
 

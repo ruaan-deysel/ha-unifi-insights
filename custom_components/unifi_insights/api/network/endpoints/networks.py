@@ -140,10 +140,14 @@ class NetworksEndpoint:
         """
         Update a network via full object replacement (PUT).
 
+        The OpenAPI spec requires `name`, `management`, `vlanId`, and
+        `enabled`. Keys in kwargs must match the API's camelCase names. Callers
+        should read the existing network first and send the complete object.
+
         Args:
             site_id: The site ID.
             network_id: The network ID.
-            **kwargs: Complete network parameters for replacement.
+            **kwargs: Complete network parameters for replacement (camelCase).
 
         Returns:
             The updated network.

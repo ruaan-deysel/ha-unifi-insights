@@ -35,6 +35,7 @@ from .const import (
     CONF_CONNECTION_TYPE,
     CONNECTION_TYPE_CARRIER_FABRIC,
     DEFAULT_CARRIER_ACTIONS,
+    DEFAULT_VOUCHER_NAME,
     DOMAIN,
     HDR_MODE_AUTO,
     HDR_MODE_OFF,
@@ -1994,22 +1995,23 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle the generate_voucher service call."""
         site_id = call.data["site_id"]
         count = call.data.get("count", 1)
-        duration_minutes = call.data.get("duration_minutes") or 480
+        time_limit_minutes = call.data["duration_minutes"]
         upload_limit_kbps = call.data.get("upload_limit_kbps")
         download_limit_kbps = call.data.get("download_limit_kbps")
         data_limit_mb = call.data.get("data_limit_mb")
-        note = call.data.get("note") or "Home Assistant"
+        # The Network API requires a voucher name.
+        name = call.data.get("note") or DEFAULT_VOUCHER_NAME
 
         coordinator, _ = _get_coordinator_for_network_resource(hass, site_id=site_id)
 
         await coordinator.async_generate_voucher(
             site_id,
             count=count,
-            time_limit_minutes=duration_minutes,
+            time_limit_minutes=time_limit_minutes,
             tx_rate_limit_kbps=upload_limit_kbps,
             rx_rate_limit_kbps=download_limit_kbps,
             data_usage_limit_mbytes=data_limit_mb,
-            name=note,
+            name=name,
         )
 
     async def async_handle_delete_voucher(call: ServiceCall) -> None:

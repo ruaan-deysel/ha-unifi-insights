@@ -6337,17 +6337,6 @@ class TestUnifiFacadeCoordinator:
         )
 
     @pytest.mark.asyncio
-    async def test_async_generate_voucher_minimal(
-        self, facade_coordinator: UnifiFacadeCoordinator
-    ):
-        """Test async_generate_voucher with minimal args."""
-        facade_coordinator.network_client.vouchers.create = AsyncMock()
-        await facade_coordinator.async_generate_voucher("site1")
-        facade_coordinator.network_client.vouchers.create.assert_called_once_with(
-            "site1", count=1
-        )
-
-    @pytest.mark.asyncio
     async def test_async_delete_voucher(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):

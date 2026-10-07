@@ -461,6 +461,8 @@ SERVICE_AUTHORIZE_GUEST: Final = "authorize_guest"
 SERVICE_GENERATE_VOUCHER: Final = "generate_voucher"
 SERVICE_DELETE_VOUCHER: Final = "delete_voucher"
 SERVICE_LIST_VOUCHERS: Final = "list_vouchers"
+# Default voucher name required by UniFi Network API when note is omitted
+DEFAULT_VOUCHER_NAME: Final = "Home Assistant"
 
 # UniFi Protect Services
 SERVICE_PTZ_GOTO_PRESET: Final = "ptz_goto_preset"

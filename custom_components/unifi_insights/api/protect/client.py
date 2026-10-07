@@ -347,7 +347,7 @@ class UniFiProtectClient(BaseUniFiClient):
             ```python
             # Get host_id for WebSocket subscriptions
             host_id = await client.get_host_id()
-            site_id = "your-site-id"  # Or get from client.get_sites()
+            site_id = "your-site-id"  # From the config entry
 
             async with client.websocket.subscribe_events(host_id, site_id) as events:
                 async for event in events:

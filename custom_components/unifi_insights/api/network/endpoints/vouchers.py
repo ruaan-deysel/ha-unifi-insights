@@ -135,6 +135,9 @@ class VouchersEndpoint:
 
         if isinstance(response, dict):
             result = response.get("data", response)
+            # The spec's creation result wraps the list: {"vouchers": [...]}.
+            if isinstance(result, dict) and isinstance(result.get("vouchers"), list):
+                result = result["vouchers"]
             if isinstance(result, list) and len(result) > 0:
                 return [Voucher.model_validate(item) for item in result]
             if isinstance(result, dict):

@@ -3250,6 +3250,30 @@ async def test_vouchers_delete_by_filter() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        pytest.param({"vouchers": [{"id": "v-1", "code": "12345-67890"}]}, id="spec"),
+        pytest.param(
+            {"data": {"vouchers": [{"id": "v-1", "code": "12345-67890"}]}},
+            id="data-wrapped",
+        ),
+    ],
+)
+async def test_vouchers_create_reads_the_spec_creation_result(
+    response: dict[str, Any],
+) -> None:
+    """create() unwraps the spec's {"vouchers": [...]} creation result."""
+    client = _network_client()
+    client._post = AsyncMock(return_value=response)
+
+    vouchers = await client.vouchers.create(
+        "site-1", name="Home Assistant", time_limit_minutes=480
+    )
+
+    assert [v.id for v in vouchers] == ["v-1"]
+
+
 async def test_vouchers_create_pins_required_name_and_duration() -> None:
     """create() pins that name and timeLimitMinutes are sent in the body."""
     client = _network_client()

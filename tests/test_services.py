@@ -467,7 +467,7 @@ class _PowerCycleTestContext:
     def __init__(
         self,
         hass: HomeAssistant,
-        coordinator_data: dict[str, Any] | None = None,
+        coordinator_data: dict | None = None,
     ) -> None:
         self.hass = hass
         self.coordinator = MagicMock()
@@ -507,8 +507,8 @@ class TestPowerCyclePortService:
     async def _call_service(
         self,
         hass: HomeAssistant,
-        service_data: dict[str, Any],
-        coordinator_data: dict[str, Any] | None = None,
+        service_data: dict,
+        coordinator_data: dict | None = None,
     ) -> MagicMock:
         """Call power_cycle_port service within managed test context."""
         async with _PowerCycleTestContext(hass, coordinator_data) as coord:
@@ -696,13 +696,13 @@ class TestPowerCyclePortService:
     async def test_power_cycle_port_validation_errors(
         self,
         hass: HomeAssistant,
-        device_data: Any,
-        call_data: dict[str, Any],
-        expected_key: str | None,
+        device_data,
+        call_data,
+        expected_key,
     ) -> None:
         """Test power cycle port validation errors raise ServiceValidationError."""
         if device_data is ...:
-            devices: dict[str, Any] = {"site1": {"device1": None}}
+            devices = {"site1": {"device1": None}}
         elif device_data is None:
             devices = {"site1": {}}
         else:

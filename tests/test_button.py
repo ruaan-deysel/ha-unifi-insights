@@ -17,9 +17,6 @@ from custom_components.unifi_insights.button import (
     UnifiProtectPTZPatrolStopButton,
     _get_port_label,
     async_setup_entry,
-    get_device_port,
-    get_device_ports,
-    port_can_be_power_cycled,
 )
 from custom_components.unifi_insights.const import CONF_CLIENT_CONTROL
 

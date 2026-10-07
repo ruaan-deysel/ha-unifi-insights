@@ -191,7 +191,8 @@ class DevicesEndpoint:
         port_idx: int,
         action: str,
     ) -> bool:
-        """Execute an adopted-device port action.
+        """
+        Execute an adopted-device port action.
 
         Spec:
         ``POST /v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/``

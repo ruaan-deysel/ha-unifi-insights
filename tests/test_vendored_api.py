@@ -3604,3 +3604,79 @@ async def test_protect_validate_connection() -> None:
     client._get = AsyncMock(return_value=None)
     assert await client.validate_connection() is False
     client._get.assert_awaited_once_with(client.build_api_path("/cameras"))
+
+
+async def test_protect_pos_ingest_transaction_payload_variants_and_invalid_type() -> (
+    None
+):
+    """POS ingest should produce identical payloads for snake, camel, and model."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value={"created": True, "eventId": "evt-1"})
+
+    model_req = PosTransactionRequest(
+        type=PosTransactionType.SALE,
+        external_id="tx-100",
+        amount=42.50,
+        currency="USD",
+        line_items=[PosLineItem(title="Widget", quantity=3)],
+        location=PosLocation(id="reg-2", name="Counter"),
+        payment_types=["cash"],
+        timestamp=1700000001000,
+    )
+
+    snake_dict = {
+        "type": "sale",
+        "external_id": "tx-100",
+        "amount": 42.50,
+        "currency": "USD",
+        "line_items": [{"title": "Widget", "quantity": 3}],
+        "location": {"id": "reg-2", "name": "Counter"},
+        "payment_types": ["cash"],
+        "timestamp": 1700000001000,
+    }
+
+    camel_dict = {
+        "type": "sale",
+        "externalId": "tx-100",
+        "amount": 42.50,
+        "currency": "USD",
+        "lineItems": [{"title": "Widget", "quantity": 3}],
+        "location": {"id": "reg-2", "name": "Counter"},
+        "paymentTypes": ["cash"],
+        "timestamp": 1700000001000,
+    }
+
+    expected_payload = {
+        "type": "sale",
+        "externalId": "tx-100",
+        "amount": 42.50,
+        "currency": "USD",
+        "lineItems": [{"title": "Widget", "quantity": 3}],
+        "location": {"id": "reg-2", "name": "Counter"},
+        "paymentTypes": ["cash"],
+        "timestamp": 1700000001000,
+    }
+
+    # Model request
+    await client.pos.ingest_transaction("cam-1", model_req)
+    assert client._post.call_args[1]["json_data"] == expected_payload
+
+    # Snake-case dict
+    await client.pos.ingest_transaction("cam-1", snake_dict)
+    assert client._post.call_args[1]["json_data"] == expected_payload
+
+    # Camel-case dict
+    await client.pos.ingest_transaction("cam-1", camel_dict)
+    assert client._post.call_args[1]["json_data"] == expected_payload
+
+    # Invalid type raises TypeError without calling _post
+    client._post.reset_mock()
+    with pytest.raises(
+        TypeError,
+        match="Transaction must be a PosTransactionRequest or dict, got str",
+    ):
+        await client.pos.ingest_transaction(
+            "cam-1",
+            "invalid_string_payload",  # type: ignore[arg-type]
+        )
+    client._post.assert_not_called()

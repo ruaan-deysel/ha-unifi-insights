@@ -166,13 +166,17 @@ action: unifi_insights.restart_device
 data:
   site_id: "your-site-id"
   device_id: "device-id"
+```
 
+```yaml
 # Authorize a guest client
 action: unifi_insights.authorize_guest
 data:
   site_id: "your-site-id"
   client_id: "client-id"
+```
 
+```yaml
 # Create a hotspot voucher
 action: unifi_insights.generate_voucher
 data:
@@ -247,20 +251,26 @@ action: unifi_insights.ptz_move
 data:
   camera_id: "camera-id"
   preset: 0 # 0–15
+```
 
+```yaml
 # Start or stop a PTZ patrol
 action: unifi_insights.ptz_patrol
 data:
   camera_id: "camera-id"
   action: "start" # start, stop
   slot: 0 # 0–15
+```
 
+```yaml
 # Set a Protect light's mode
 action: unifi_insights.set_light_mode
 data:
   light_id: "light-id"
   mode: "motion" # always, motion, off
+```
 
+```yaml
 # Play a ringtone on a chime
 action: unifi_insights.play_chime_ringtone
 data:

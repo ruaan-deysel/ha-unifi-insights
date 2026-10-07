@@ -293,9 +293,11 @@ class UnifiProtectVideoModeSelect(UnifiProtectEntity, SelectEntity):
             f"Unable to set video mode for camera {self._device_id}",
             self._device_id,
             option,
-            fallback_factory=lambda: self.coordinator.protect_client.set_video_mode(  # type: ignore[union-attr]
-                camera_id=self._device_id,
-                mode=option,
+            fallback_factory=lambda: (
+                self.coordinator.protect_client.cameras.set_video_mode(  # type: ignore[union-attr]
+                    self._device_id,
+                    option,
+                )
             ),
         )
         self._attr_current_option = option

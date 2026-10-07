@@ -35,6 +35,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+MIN_LED_LEVEL = 1
+MAX_LED_LEVEL = 6
+
 # Lights are action-based, allow parallel execution
 PARALLEL_UPDATES = 1
 
@@ -151,9 +154,9 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
         if (
             isinstance(led_level, int)
             and not isinstance(led_level, bool)
-            and 1 <= led_level <= 6
+            and MIN_LED_LEVEL <= led_level <= MAX_LED_LEVEL
         ):
-            self._attr_brightness = round(led_level * 255 / 6)
+            self._attr_brightness = round(led_level * 255 / MAX_LED_LEVEL)
         else:
             self._attr_brightness = None
 
@@ -175,7 +178,10 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
         # Set brightness if provided
         if ATTR_BRIGHTNESS in kwargs:
             brightness = kwargs[ATTR_BRIGHTNESS]
-            led_level = max(1, min(6, round(brightness * 6 / 255)))
+            led_level = max(
+                MIN_LED_LEVEL,
+                min(MAX_LED_LEVEL, round(brightness * MAX_LED_LEVEL / 255)),
+            )
             _LOGGER.debug(
                 "Setting light %s brightness to %s (led_level %s)",
                 self._device_id,
@@ -204,9 +210,9 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
             f"Unable to turn on light {self._device_id}",
             self._device_id,
             LIGHT_MODE_ALWAYS,
-            fallback_factory=lambda: self.coordinator.protect_client.set_light_mode(  # type: ignore[union-attr]
-                light_id=self._device_id,
-                mode=LIGHT_MODE_ALWAYS,
+            fallback_factory=lambda: self.coordinator.protect_client.lights.set_mode(  # type: ignore[union-attr]
+                self._device_id,
+                LIGHT_MODE_ALWAYS,
             ),
         )
 
@@ -226,9 +232,9 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
             f"Unable to turn off light {self._device_id}",
             self._device_id,
             LIGHT_MODE_OFF,
-            fallback_factory=lambda: self.coordinator.protect_client.set_light_mode(  # type: ignore[union-attr]
-                light_id=self._device_id,
-                mode=LIGHT_MODE_OFF,
+            fallback_factory=lambda: self.coordinator.protect_client.lights.set_mode(  # type: ignore[union-attr]
+                self._device_id,
+                LIGHT_MODE_OFF,
             ),
         )
 

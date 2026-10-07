@@ -477,8 +477,7 @@ class TestUnifiProtectVideoModeSelect:
                 "liveviews": {},
             },
         }
-        mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_video_mode = AsyncMock()
+        mock_coordinator.async_set_video_mode = AsyncMock()
 
         entity = UnifiProtectVideoModeSelect(
             coordinator=mock_coordinator,
@@ -488,8 +487,46 @@ class TestUnifiProtectVideoModeSelect:
 
         await entity.async_select_option("highFps")
 
-        mock_coordinator.protect_client.set_video_mode.assert_called_once_with(
-            camera_id="cam1", mode="highFps"
+        mock_coordinator.async_set_video_mode.assert_called_once_with("cam1", "highFps")
+        assert entity._attr_current_option == "highFps"
+
+    async def test_async_select_option_fallback(self, mock_coordinator):
+        """Test video mode takes fallback when coordinator action is non-coroutine."""
+        mock_coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Test Camera",
+                        "state": "CONNECTED",
+                        "videoMode": "default",
+                    },
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "chimes": {},
+                "viewers": {},
+                "liveviews": {},
+            },
+        }
+        mock_coordinator.async_set_video_mode = MagicMock()
+        mock_coordinator.protect_client = MagicMock()
+        mock_coordinator.protect_client.cameras = MagicMock()
+        mock_coordinator.protect_client.cameras.set_video_mode = AsyncMock()
+
+        entity = UnifiProtectVideoModeSelect(
+            coordinator=mock_coordinator,
+            camera_id="cam1",
+        )
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_select_option("highFps")
+
+        mock_coordinator.protect_client.cameras.set_video_mode.assert_awaited_once_with(
+            "cam1", "highFps"
         )
         assert entity._attr_current_option == "highFps"
 
@@ -515,8 +552,7 @@ class TestUnifiProtectVideoModeSelect:
                 "liveviews": {},
             },
         }
-        mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.protect_client.set_video_mode = AsyncMock(
+        mock_coordinator.async_set_video_mode = AsyncMock(
             side_effect=Exception("API Error")
         )
 

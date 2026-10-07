@@ -680,3 +680,45 @@ class TestProtectLightPatchBodies:
         light._update_from_data()
         assert light._attr_brightness == 255
         assert light._attr_extra_state_attributes[ATTR_LIGHT_LEVEL] == 6
+
+    @pytest.mark.asyncio
+    async def test_light_turn_on_mode_fallback(self) -> None:
+        """Test turn on takes fallback when coordinator action is non-coroutine."""
+        coordinator, client, light = self._setup_light()
+        coordinator.async_set_light_mode = MagicMock()
+        client.lights.set_mode = AsyncMock()
+
+        await light.async_turn_on()
+
+        client.lights.set_mode.assert_awaited_once_with(
+            "light1",
+            LIGHT_MODE_ALWAYS,
+        )
+
+    @pytest.mark.asyncio
+    async def test_light_turn_off_mode_fallback(self) -> None:
+        """Test turn off takes fallback when coordinator action is non-coroutine."""
+        coordinator, client, light = self._setup_light()
+        coordinator.async_set_light_mode = MagicMock()
+        client.lights.set_mode = AsyncMock()
+
+        await light.async_turn_off()
+
+        client.lights.set_mode.assert_awaited_once_with(
+            "light1",
+            LIGHT_MODE_OFF,
+        )
+
+    @pytest.mark.asyncio
+    async def test_light_brightness_fallback(self) -> None:
+        """Test brightness takes fallback when coordinator action is non-coroutine."""
+        coordinator, client, light = self._setup_light()
+        coordinator.async_set_light_brightness = MagicMock()
+        client.lights.set_brightness = AsyncMock()
+
+        await light.async_turn_on(**{ATTR_BRIGHTNESS: 128})
+
+        client.lights.set_brightness.assert_awaited_once_with(
+            "light1",
+            3,
+        )

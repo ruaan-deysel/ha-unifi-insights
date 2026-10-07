@@ -41,7 +41,9 @@ from custom_components.unifi_insights.services import (
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from custom_components.unifi_insights.const import DOMAIN
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.network.client import UniFiNetworkClient
+from custom_components.unifi_insights.const import DOMAIN, SERVICE_POWER_CYCLE_PORT
 from custom_components.unifi_insights.coordinators.carrier_fabric import (
     UnifiCarrierFabricCoordinator,
 )
@@ -66,6 +68,15 @@ from custom_components.unifi_insights.services import (
     async_setup_services,
     async_unload_services,
 )
+
+
+def _network_client() -> UniFiNetworkClient:
+    """Build a local Network client for tests."""
+    return UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
 
 
 class TestGetCoordinators:
@@ -121,6 +132,7 @@ class TestAsyncSetupServices:
         # Check core services are registered
         assert hass.services.has_service(DOMAIN, SERVICE_REFRESH_DATA)
         assert hass.services.has_service(DOMAIN, SERVICE_RESTART_DEVICE)
+        assert hass.services.has_service(DOMAIN, SERVICE_POWER_CYCLE_PORT)
         assert hass.services.has_service(DOMAIN, "set_recording_mode")
         assert hass.services.has_service(DOMAIN, "set_hdr_mode")
         assert hass.services.has_service(DOMAIN, "set_video_mode")
@@ -144,6 +156,7 @@ class TestAsyncUnloadServices:
 
         await async_unload_services(hass)
         assert not hass.services.has_service(DOMAIN, SERVICE_REFRESH_DATA)
+        assert not hass.services.has_service(DOMAIN, SERVICE_POWER_CYCLE_PORT)
 
 
 class TestRefreshDataService:
@@ -445,6 +458,537 @@ class TestRestartDeviceService:
                 blocking=True,
             )
 
+        await async_unload_services(hass)
+
+
+class TestPowerCyclePortService:
+    """Tests for power_cycle_port service handler."""
+
+    async def test_power_cycle_port_success(self, hass: HomeAssistant):
+        """Test power cycle port success path through real facade."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_power_cycle_port = (
+            UnifiFacadeCoordinator.async_power_cycle_port.__get__(mock_coordinator)
+        )
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Switch 1",
+                        "interfaces": {
+                            "ports": [
+                                {
+                                    "idx": 1,
+                                    "name": "Port 1",
+                                    "poe": {"enabled": True},
+                                },
+                                {
+                                    "idx": 2,
+                                    "name": "Port 2",
+                                    "poe": {"enabled": False},
+                                },
+                            ]
+                        },
+                    }
+                }
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 1},
+                blocking=True,
+            )
+
+        mock_coordinator.network_client._post.assert_awaited_once_with(
+            mock_coordinator.network_client.build_api_path(
+                "/sites/site1/devices/device1/interfaces/ports/1/actions"
+            ),
+            json_data={"action": "POWER_CYCLE"},
+        )
+
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_non_poe_raises_validation_error(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle on non-PoE port raises ServiceValidationError."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_power_cycle_port = (
+            UnifiFacadeCoordinator.async_power_cycle_port.__get__(mock_coordinator)
+        )
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Switch 1",
+                        "interfaces": {
+                            "ports": [
+                                {
+                                    "idx": 1,
+                                    "name": "Port 1",
+                                    "poe": {"enabled": True},
+                                },
+                                {
+                                    "idx": 2,
+                                    "name": "Port 2",
+                                    "poe": {"enabled": False},
+                                },
+                            ]
+                        },
+                    }
+                }
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 2},
+                blocking=True,
+            )
+
+        assert exc_info.value.translation_key == "port_not_poe"
+        mock_coordinator.network_client._post.assert_not_called()
+
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_unknown_port_raises_validation_error(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle on unknown port raises ServiceValidationError."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_power_cycle_port = (
+            UnifiFacadeCoordinator.async_power_cycle_port.__get__(mock_coordinator)
+        )
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Switch 1",
+                        "interfaces": {
+                            "ports": [
+                                {
+                                    "idx": 1,
+                                    "name": "Port 1",
+                                    "poe": {"enabled": True},
+                                },
+                            ]
+                        },
+                    }
+                }
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 99},
+                blocking=True,
+            )
+
+        assert exc_info.value.translation_key == "port_not_found"
+        mock_coordinator.network_client._post.assert_not_called()
+
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_unknown_device_raises_validation_error(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle on unknown device raises ServiceValidationError."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {"site1": {}},
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "unknown_dev", "port_idx": 1},
+                blocking=True,
+            )
+
+        assert "unknown_dev" in str(exc_info.value)
+        mock_coordinator.network_client._post.assert_not_called()
+
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_legacy_port_format_success(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle port with legacy ports array and poe_enabled field."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_power_cycle_port = (
+            UnifiFacadeCoordinator.async_power_cycle_port.__get__(mock_coordinator)
+        )
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "ports": [
+                            {"port_idx": 4, "poe_enabled": True},
+                        ],
+                    }
+                }
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"device_id": "device1", "port_idx": 4},
+                blocking=True,
+            )
+
+        mock_coordinator.network_client._post.assert_awaited_once_with(
+            mock_coordinator.network_client.build_api_path(
+                "/sites/site1/devices/device1/interfaces/ports/4/actions"
+            ),
+            json_data={"action": "POWER_CYCLE"},
+        )
+
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_missing_site_id_unresolvable(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle port raises when site_id cannot be resolved."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": None,
+        }
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError, match="Site ID is required"),
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"device_id": "device1", "port_idx": 1},
+                blocking=True,
+            )
+
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_device_data_missing(self, hass: HomeAssistant):
+        """Test power cycle port raises when device_data is missing."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {"site1": None},
+        }
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 1},
+                blocking=True,
+            )
+
+        assert exc_info.value.translation_key == "device_not_found"
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_device_has_no_ports(self, hass: HomeAssistant):
+        """Test power cycle port raises when device has no ports."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Switch",
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 1},
+                blocking=True,
+            )
+
+        assert exc_info.value.translation_key == "port_not_found"
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_non_dict_and_port_idx_fallback(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle port handles non-dict port items and port_idx fallback."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_power_cycle_port = (
+            UnifiFacadeCoordinator.async_power_cycle_port.__get__(mock_coordinator)
+        )
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "interfaces": {
+                            "ports": [
+                                None,
+                                {"port_idx": 5, "poe": {"enabled": True}},
+                            ]
+                        },
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 5},
+                blocking=True,
+            )
+
+        mock_coordinator.network_client._post.assert_awaited_once_with(
+            mock_coordinator.network_client.build_api_path(
+                "/sites/site1/devices/device1/interfaces/ports/5/actions"
+            ),
+            json_data={"action": "POWER_CYCLE"},
+        )
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_legacy_poe_disabled(self, hass: HomeAssistant):
+        """Test power cycle port raises when legacy poe_enabled is False."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "interfaces": {
+                            "ports": [
+                                {"idx": 6, "poe_enabled": False},
+                            ]
+                        },
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 6},
+                blocking=True,
+            )
+
+        assert exc_info.value.translation_key == "port_not_poe"
+        await async_unload_services(hass)
+
+    async def test_power_cycle_port_neither_poe_nor_poe_enabled(
+        self, hass: HomeAssistant
+    ):
+        """Test power cycle port raises when port has neither poe nor poe_enabled."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.network_client = _network_client()
+        mock_coordinator.network_client._post = AsyncMock(return_value=None)
+        mock_coordinator.data = {
+            "sites": {"site1": {"name": "Site 1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "interfaces": {
+                            "ports": [
+                                {"idx": 7, "name": "Normal Port"},
+                            ]
+                        },
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_POWER_CYCLE_PORT,
+                {"site_id": "site1", "device_id": "device1", "port_idx": 7},
+                blocking=True,
+            )
+
+        assert exc_info.value.translation_key == "port_not_poe"
         await async_unload_services(hass)
 
 
@@ -4282,6 +4826,14 @@ class TestServiceComprehensiveFullCoverage:
         ):
             await hass.services.async_call(
                 DOMAIN, SERVICE_RESTART_DEVICE, {}, blocking=True
+            )
+
+        # 1b. power_cycle_port missing device_id
+        with pytest.raises(
+            ServiceValidationError, match="Device ID or target is required"
+        ):
+            await hass.services.async_call(
+                DOMAIN, SERVICE_POWER_CYCLE_PORT, {"port_idx": 1}, blocking=True
             )
 
         # 2. set_recording_mode missing camera_id

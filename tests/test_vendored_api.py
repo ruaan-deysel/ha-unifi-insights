@@ -1434,6 +1434,43 @@ async def test_device_execute_action_rejects_undocumented_action() -> None:
     client._post.assert_not_called()
 
 
+async def test_device_power_cycle_port_posts_documented_action() -> None:
+    """power_cycle_port() must use the spec's port actions endpoint."""
+    client = _network_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert await client.devices.power_cycle_port("site-1", "dev-1", 3) is True
+    client._post.assert_awaited_once_with(
+        client.build_api_path("/sites/site-1/devices/dev-1/interfaces/ports/3/actions"),
+        json_data={"action": "POWER_CYCLE"},
+    )
+
+
+async def test_device_execute_port_action_pins_verb_path_body() -> None:
+    """execute_port_action must post {action: POWER_CYCLE} to the port actions path."""
+    client = _network_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert (
+        await client.devices.execute_port_action("site-1", "dev-1", 5, "POWER_CYCLE")
+        is True
+    )
+    client._post.assert_awaited_once_with(
+        client.build_api_path("/sites/site-1/devices/dev-1/interfaces/ports/5/actions"),
+        json_data={"action": "POWER_CYCLE"},
+    )
+
+
+async def test_device_execute_port_action_rejects_undocumented_action() -> None:
+    """Only port actions the spec defines may be sent."""
+    client = _network_client()
+    client._post = AsyncMock(return_value=None)
+
+    with pytest.raises(ValueError, match="POWER_CYCLE"):
+        await client.devices.execute_port_action("site-1", "dev-1", 3, "RESTART")
+    client._post.assert_not_called()
+
+
 def _make_response(
     *,
     status: int = 200,

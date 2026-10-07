@@ -3,16 +3,19 @@
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
-from homeassistant.exceptions import HomeAssistantError
 import pytest
+from homeassistant.const import EntityCategory
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
     UnifiClientReconnectButton,
     UnifiInsightsButton,
+    UnifiInsightsPoePowerCycleButton,
     UnifiProtectChimePlayButton,
     UnifiProtectPTZPatrolStartButton,
     UnifiProtectPTZPatrolStopButton,
+    _get_port_label,
     async_setup_entry,
 )
 from custom_components.unifi_insights.const import CONF_CLIENT_CONTROL
@@ -737,10 +740,18 @@ class TestAsyncSetupEntry:
         assert first_count > 0
 
         ptz_start_before = len(
-            [e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStartButton)]
+            [
+                e
+                for e in added_entities
+                if isinstance(e, UnifiProtectPTZPatrolStartButton)
+            ]
         )
         ptz_stop_before = len(
-            [e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStopButton)]
+            [
+                e
+                for e in added_entities
+                if isinstance(e, UnifiProtectPTZPatrolStopButton)
+            ]
         )
         chime_before = len(
             [e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)]
@@ -751,15 +762,33 @@ class TestAsyncSetupEntry:
 
         assert len(added_entities) == first_count
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStartButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectPTZPatrolStartButton)
+                ]
+            )
             == ptz_start_before
         )
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStopButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectPTZPatrolStopButton)
+                ]
+            )
             == ptz_stop_before
         )
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectChimePlayButton)
+                ]
+            )
             == chime_before
         )
 
@@ -1227,3 +1256,249 @@ class TestPTZPatrolStopButtonException:
         mock_coordinator.protect_client.ptz_stop_patrol.assert_called_once_with(
             camera_id="camera1",
         )
+
+
+class TestUnifiInsightsPoePowerCycleButton:
+    """Tests for UnifiInsightsPoePowerCycleButton."""
+
+    @pytest.fixture
+    def mock_coordinator(self, hass: HomeAssistant):
+        """Create mock coordinator."""
+        coordinator = MagicMock()
+        coordinator.hass = hass
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.network_client.devices = MagicMock()
+        coordinator.network_client.devices.execute_port_action = AsyncMock()
+        coordinator.async_power_cycle_port = AsyncMock()
+        coordinator.protect_client = None
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "state": "ONLINE",
+                        "macAddress": "AA:BB:CC:DD:EE:FF",
+                        "interfaces": {
+                            "ports": [
+                                {
+                                    "idx": 1,
+                                    "name": "Port 1",
+                                    "poe": {"enabled": True},
+                                },
+                            ]
+                        },
+                    },
+                },
+            },
+        }
+        return coordinator
+
+    async def test_poe_power_cycle_button_init(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Test button initialization and properties."""
+        button = UnifiInsightsPoePowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+            port_label="Port 1",
+        )
+
+        assert button.unique_id == "site1_device1_port1_poe_power_cycle"
+        assert button.entity_category == EntityCategory.CONFIG
+        assert button.entity_registry_enabled_default is False
+        assert button.translation_key == "poe_power_cycle"
+        assert button.translation_placeholders == {"port_label": "Port 1"}
+        assert button.port_idx == 1
+
+    async def test_poe_power_cycle_button_press_uses_facade(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Button press uses facade coroutine when present."""
+        button = UnifiInsightsPoePowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+            port_label="Port 1",
+        )
+
+        await button.async_press()
+
+        mock_coordinator.async_power_cycle_port.assert_awaited_once_with(
+            "site1", "device1", 1
+        )
+        mock_coordinator.network_client.devices.execute_port_action.assert_not_called()
+
+    async def test_poe_power_cycle_button_press_fallback(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Test button press falls back to execute_port_action."""
+        mock_coordinator.async_power_cycle_port = None
+        button = UnifiInsightsPoePowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+            port_label="Port 1",
+        )
+
+        await button.async_press()
+
+        mock_coordinator.network_client.devices.execute_port_action.assert_awaited_once_with(
+            "site1", "device1", 1, "POWER_CYCLE"
+        )
+
+    async def test_poe_power_cycle_button_press_failure(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Button press raises HomeAssistantError on exception."""
+        mock_coordinator.async_power_cycle_port = AsyncMock(
+            side_effect=Exception("API Error")
+        )
+        button = UnifiInsightsPoePowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+            port_label="Port 1",
+        )
+
+        with pytest.raises(
+            HomeAssistantError, match="Unable to power cycle PoE port 1"
+        ):
+            await button.async_press()
+
+
+class TestSetupEntryPoeButtons:
+    """Tests for setup entry PoE button discovery."""
+
+    async def test_setup_entry_creates_poe_power_cycle_buttons(
+        self, hass: HomeAssistant
+    ):
+        """Test that setup creates PoE power-cycle buttons for PoE ports only."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.protect_client = None
+        mock_coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Test Switch",
+                        "model": "USW-24-POE",
+                        "interfaces": {
+                            "ports": [
+                                {
+                                    "idx": 1,
+                                    "name": "Port 1",
+                                    "poe": {"enabled": True},
+                                },
+                                {
+                                    "idx": 2,
+                                    "name": "Port 2",
+                                    "poe": {"enabled": False},
+                                },
+                            ]
+                        },
+                    },
+                },
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.entry_id = "test_entry"
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+        mock_entry.options = {}
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, mock_entry, add_entities)
+
+        poe_buttons = [
+            e for e in added_entities if isinstance(e, UnifiInsightsPoePowerCycleButton)
+        ]
+        assert len(poe_buttons) == 1
+        assert poe_buttons[0].unique_id == "site1_device1_port1_poe_power_cycle"
+        assert poe_buttons[0].entity_category == EntityCategory.CONFIG
+        assert poe_buttons[0].entity_registry_enabled_default is False
+
+    def test_get_port_label(self):
+        """Test _get_port_label helper variations."""
+        assert _get_port_label({"name": "Custom Name"}, 1) == "Custom Name"
+        assert _get_port_label({"name": "Port 1"}, 1) == "Port 1"
+        assert _get_port_label({"media": "SFP+"}, 2) == "SFP+ 2"
+        assert _get_port_label({}, 3) == "Port 3"
+
+    async def test_setup_entry_poe_discovery_edge_cases_and_dedup(
+        self, hass: HomeAssistant
+    ):
+        """Test PoE button discovery edge cases, legacy formats, and deduplication."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.protect_client = None
+        mock_coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "ports": [
+                            None,  # non-dict
+                            {"name": "No Idx"},  # no idx or port_idx
+                            {"port_idx": "invalid"},  # non-int idx
+                            {
+                                "port_idx": 3,
+                                "poe_enabled": True,
+                                "name": "AP Port",
+                            },
+                            {
+                                "port_idx": 4,
+                                "poe_enabled": False,
+                            },
+                            {
+                                "port_idx": 6,
+                                "name": "No PoE Info",
+                            },
+                        ],
+                    },
+                },
+            },
+        }
+
+        mock_entry = MagicMock()
+        mock_entry.entry_id = "test_entry"
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+        mock_entry.options = {}
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        listeners = []
+        mock_coordinator.async_add_listener = listeners.append
+
+        await async_setup_entry(hass, mock_entry, add_entities)
+
+        poe_buttons = [
+            e for e in added_entities if isinstance(e, UnifiInsightsPoePowerCycleButton)
+        ]
+        assert len(poe_buttons) == 1
+        assert poe_buttons[0].unique_id == "site1_device1_port3_poe_power_cycle"
+        assert poe_buttons[0].translation_placeholders == {"port_label": "AP Port"}
+
+        # Trigger rediscovery callback to verify deduplication
+        prev_count = len(added_entities)
+        for listener in listeners:
+            listener()
+        assert len(added_entities) == prev_count

@@ -5927,6 +5927,20 @@ class TestUnifiFacadeCoordinator:
         )
 
     @pytest.mark.asyncio
+    async def test_async_power_cycle_port(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_power_cycle_port delegates to network client."""
+        facade_coordinator.network_client.devices.execute_port_action = AsyncMock(
+            return_value=True
+        )
+        result = await facade_coordinator.async_power_cycle_port("site1", "dev1", 3)
+        assert result is True
+        facade_coordinator.network_client.devices.execute_port_action.assert_called_once_with(
+            "site1", "dev1", 3, "POWER_CYCLE"
+        )
+
+    @pytest.mark.asyncio
     async def test_async_set_firewall_rule_enabled(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):

@@ -181,6 +181,24 @@
     "carrier_resume_subscriber": {
       "name": "Resume Subscriber",
       "description": "Restore a subscriber's internet service. Requires the \"Enable service actions\" option to be enabled on the Carrier Fabric integration entry, and an ISP API key with the resume:service scope."
+    },
+    "power_cycle_port": {
+      "name": "Power Cycle PoE Port",
+      "description": "Power-cycle a PoE-enabled port on a UniFi network device.",
+      "fields": {
+        "site_id": {
+          "name": "Site ID",
+          "description": "The site ID where the device is located (optional when targeting a device)."
+        },
+        "device_id": {
+          "name": "Device ID",
+          "description": "The ID of the device to power-cycle a port on."
+        },
+        "port_idx": {
+          "name": "Port Index",
+          "description": "The 1-based port index to power-cycle."
+        }
+      }
     }
   },
   "entity": {
@@ -583,6 +601,9 @@
       },
       "ptz_patrol_stop": {
         "name": "Stop PTZ Patrol"
+      },
+      "poe_power_cycle": {
+        "name": "{port_label} PoE Power Cycle"
       }
     },
     "camera": {
@@ -752,6 +773,12 @@
     },
     "carrier_action_failed": {
       "message": "Failed to {action} subscriber."
+    },
+    "port_not_found": {
+      "message": "Port {port_idx} was not found on device {device_id}."
+    },
+    "port_not_poe": {
+      "message": "Port {port_idx} on device {device_id} is not PoE-enabled."
     }
   }
 }

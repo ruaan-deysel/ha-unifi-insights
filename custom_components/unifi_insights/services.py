@@ -51,6 +51,7 @@ from .const import (
     SERVICE_DELETE_VOUCHER,
     SERVICE_GENERATE_VOUCHER,
     SERVICE_PLAY_CHIME_RINGTONE,
+    SERVICE_POWER_CYCLE_PORT,
     SERVICE_PTZ_MOVE,
     SERVICE_PTZ_PATROL,
     SERVICE_SET_CHIME_REPEAT_TIMES,
@@ -1028,6 +1029,17 @@ RESTART_DEVICE_SCHEMA = vol.Schema(
     }
 )
 
+# Schema for power_cycle_port service
+POWER_CYCLE_PORT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("site_id"): cv.string,
+        vol.Optional("device_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("entity_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("target"): TARGET_DICT_SCHEMA,
+        vol.Required("port_idx"): vol.All(cv.positive_int, vol.Range(min=1)),
+    }
+)
+
 # Schema for set_recording_mode service
 SET_RECORDING_MODE_SCHEMA = vol.Schema(
     {
@@ -1552,6 +1564,118 @@ async def _async_handle_carrier_resume_subscriber(
         _raise_carrier_action_error(err, "resume", subscriber_id)
 
 
+async def _async_handle_power_cycle_port(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle the power cycle port service call."""
+    site_id = call.data.get("site_id")
+    raw_device_id = _extract_target_id(call, "device_id")
+    if not raw_device_id:
+        msg = "Device ID or target is required"
+        raise ServiceValidationError(msg)
+
+    coordinator, device_id = _get_coordinator_for_network_resource(
+        hass, site_id=site_id, device_id=raw_device_id
+    )
+
+    if not site_id and isinstance(coordinator.data, dict):
+        devices_by_site = coordinator.data.get("devices", {})
+        if isinstance(devices_by_site, dict):
+            site_id = next(
+                (
+                    s
+                    for s, s_devs in devices_by_site.items()
+                    if isinstance(s_devs, dict) and device_id in s_devs
+                ),
+                None,
+            )
+
+    if not site_id:
+        msg = f"Site ID is required to power-cycle port on device '{device_id}'"
+        raise ServiceValidationError(msg)
+
+    port_idx = call.data["port_idx"]
+
+    # Validate against the device's interfaces.ports[] where poe.enabled is true
+    devices = (
+        coordinator.data.get("devices") if isinstance(coordinator.data, dict) else None
+    )
+    site_devices = devices.get(site_id) if isinstance(devices, dict) else None
+    device_data = (
+        site_devices.get(device_id) if isinstance(site_devices, dict) else None
+    )
+
+    if not isinstance(device_data, dict):
+        msg = f"Device {device_id} was not found in site {site_id}"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="device_not_found",
+            translation_placeholders={
+                "device_id": str(device_id),
+                "site_id": str(site_id),
+            },
+        )
+
+    interfaces = device_data.get("interfaces")
+    ports = (
+        interfaces.get("ports")
+        if isinstance(interfaces, dict)
+        else device_data.get("ports")
+    )
+    if not isinstance(ports, list):
+        ports = []
+
+    matching_port = None
+    for port in ports:
+        if isinstance(port, dict):
+            p_idx = port.get("idx")
+            if p_idx is None:
+                p_idx = port.get("port_idx")
+            if p_idx == port_idx:
+                matching_port = port
+                break
+
+    if matching_port is None:
+        msg = f"Port {port_idx} was not found on device {device_id}"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="port_not_found",
+            translation_placeholders={
+                "port_idx": str(port_idx),
+                "device_id": str(device_id),
+            },
+        )
+
+    poe_info = matching_port.get("poe")
+    poe_enabled = False
+    if isinstance(poe_info, dict):
+        poe_enabled = bool(poe_info.get("enabled"))
+    elif matching_port.get("poe_enabled") is not None:
+        poe_enabled = bool(matching_port.get("poe_enabled"))
+
+    if not poe_enabled:
+        msg = f"Port {port_idx} on device {device_id} is not PoE-enabled"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="port_not_poe",
+            translation_placeholders={
+                "port_idx": str(port_idx),
+                "device_id": str(device_id),
+            },
+        )
+
+    _LOGGER.info(
+        "Power-cycling PoE port %d on device %s in site %s",
+        port_idx,
+        device_id,
+        site_id,
+    )
+    await coordinator.async_power_cycle_port(site_id, device_id, port_idx)
+
+
 async def async_setup_services(hass: HomeAssistant) -> None:
     """Set up the UniFi Insights services."""
     _LOGGER.debug("Setting up UniFi Insights services")
@@ -1639,6 +1763,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Restarting device %s in site %s", device_id, site_id)
         await coordinator.async_restart_device(site_id, device_id)
 
+    async def async_handle_power_cycle_port(call: ServiceCall) -> None:
+        """Handle the power cycle port service call."""
+        await _async_handle_power_cycle_port(hass, call)
+
     async def async_handle_set_recording_mode(call: ServiceCall) -> None:
         """Handle the set_recording_mode service call."""
         raw_camera_id = _extract_target_id(call, "camera_id")
@@ -1713,6 +1841,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_RESTART_DEVICE,
         async_handle_restart_device,
         schema=RESTART_DEVICE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_POWER_CYCLE_PORT,
+        async_handle_power_cycle_port,
+        schema=POWER_CYCLE_PORT_SCHEMA,  # type: ignore[arg-type]
     )
 
     hass.services.async_register(
@@ -2175,6 +2310,9 @@ async def async_unload_services(hass: HomeAssistant) -> None:
 
     if hass.services.has_service(DOMAIN, SERVICE_RESTART_DEVICE):
         hass.services.async_remove(DOMAIN, SERVICE_RESTART_DEVICE)
+
+    if hass.services.has_service(DOMAIN, SERVICE_POWER_CYCLE_PORT):
+        hass.services.async_remove(DOMAIN, SERVICE_POWER_CYCLE_PORT)
 
     # Unload Unifi Protect services
     if hass.services.has_service(DOMAIN, SERVICE_SET_RECORDING_MODE):

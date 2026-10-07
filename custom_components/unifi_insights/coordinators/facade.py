@@ -541,6 +541,19 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device_id,
         )
 
+    async def async_power_cycle_port(
+        self, site_id: str, device_id: str, port_idx: int
+    ) -> bool:
+        """Power cycle a PoE port on a network device."""
+        return await self._async_execute_api_action(
+            f"Unable to power-cycle port {port_idx} on device {device_id}",
+            self.network_client.devices.execute_port_action,
+            site_id,
+            device_id,
+            port_idx,
+            "POWER_CYCLE",
+        )
+
     async def async_set_outlet_state(
         self,
         site_id: str,

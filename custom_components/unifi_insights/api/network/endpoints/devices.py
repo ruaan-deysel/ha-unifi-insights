@@ -61,6 +61,7 @@ def _seed_outlet_overrides(device_dict: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 DEVICE_ACTIONS: Final = frozenset({"RESTART"})
+PORT_ACTIONS: Final = frozenset({"POWER_CYCLE"})
 
 
 class DevicesEndpoint:
@@ -124,9 +125,7 @@ class DevicesEndpoint:
                 except Exception as err:
                     _LOGGER.warning(
                         "Failed to validate device (%s): %s",
-                        item.get("id")
-                        or item.get("name")
-                        or "unknown",
+                        item.get("id") or item.get("name") or "unknown",
                         err,
                     )
             return devices
@@ -171,6 +170,37 @@ class DevicesEndpoint:
             raise ValueError(msg)
         path = self._client.build_api_path(
             f"/sites/{site_id}/devices/{device_id}/actions"
+        )
+        await self._client._post(path, json_data={"action": action})
+        return True
+
+    async def power_cycle_port(
+        self, site_id: str, device_id: str, port_idx: int
+    ) -> bool:
+        """Power cycle a port via the documented port-actions endpoint."""
+        return await self.execute_port_action(
+            site_id, device_id, port_idx, "POWER_CYCLE"
+        )
+
+    async def execute_port_action(
+        self,
+        site_id: str,
+        device_id: str,
+        port_idx: int,
+        action: str,
+    ) -> bool:
+        """
+        Execute an adopted-device port action.
+
+        Spec:
+        ``POST /v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/{portIdx}/actions``
+        with ``{"action": ...}``; Network v10.6.106 defines only ``POWER_CYCLE``.
+        """
+        if action not in PORT_ACTIONS:
+            msg = f"Action must be one of: {', '.join(sorted(PORT_ACTIONS))}"
+            raise ValueError(msg)
+        path = self._client.build_api_path(
+            f"/sites/{site_id}/devices/{device_id}/interfaces/ports/{port_idx}/actions"
         )
         await self._client._post(path, json_data={"action": action})
         return True

@@ -260,6 +260,9 @@
       },
       "play_chime": {
         "default": "mdi:bell-ring"
+      },
+      "poe_power_cycle": {
+        "default": "mdi:power-cycle"
       }
     },
     "switch": {
@@ -329,6 +332,7 @@
     "create_liveview": "mdi:view-grid",
     "set_liveview": "mdi:view-grid-plus",
     "carrier_suspend_subscriber": "mdi:account-cancel",
-    "carrier_resume_subscriber": "mdi:account-check"
+    "carrier_resume_subscriber": "mdi:account-check",
+    "power_cycle_port": "mdi:power-cycle"
   }
 }

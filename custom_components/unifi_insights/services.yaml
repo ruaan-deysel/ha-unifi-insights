@@ -34,6 +34,35 @@ restart_device:
       selector:
         text:
 
+power_cycle_port:
+  name: Power Cycle PoE Port
+  description: Power-cycle a PoE-enabled port on a UniFi network device.
+  target:
+    entity:
+      integration: unifi_insights
+  fields:
+    site_id:
+      name: Site ID
+      description: The site ID where the device is located (optional when targeting a device).
+      required: false
+      selector:
+        text:
+    device_id:
+      name: Device ID
+      description: The ID of the device to power-cycle a port on.
+      required: false
+      selector:
+        text:
+    port_idx:
+      name: Port Index
+      description: The 1-based port index to power-cycle.
+      required: true
+      selector:
+        number:
+          min: 1
+          mode: box
+
+
 # UniFi Protect Camera services
 set_recording_mode:
   name: Set Recording Mode

@@ -386,9 +386,6 @@ API_PATH_NETWORK_DEVICE: Final = "/v1/sites/{siteId}/devices/{deviceId}"
 API_PATH_NETWORK_DEVICE_STATS: Final = (
     "/v1/sites/{siteId}/devices/{deviceId}/statistics/latest"
 )
-API_PATH_NETWORK_PORT_ACTION: Final = (
-    "/v1/sites/{siteId}/devices/{deviceId}/interfaces/ports/{portIdx}/actions"
-)
 API_PATH_NETWORK_CLIENTS: Final = "/v1/sites/{siteId}/clients"
 API_PATH_NETWORK_CLIENT: Final = "/v1/sites/{siteId}/clients/{clientId}"
 API_PATH_NETWORK_CLIENT_ACTION: Final = "/v1/sites/{siteId}/clients/{clientId}/actions"
@@ -475,9 +472,6 @@ SERVICE_CREATE_LIVEVIEW: Final = "create_liveview"
 # UniFi Carrier Fabric Services
 SERVICE_CARRIER_SUSPEND_SUBSCRIBER: Final = "carrier_suspend_subscriber"
 SERVICE_CARRIER_RESUME_SUBSCRIBER: Final = "carrier_resume_subscriber"
-
-# Port actions
-PORT_ACTION_POWER_CYCLE: Final = "POWER_CYCLE"
 
 # Client actions
 CLIENT_ACTION_AUTHORIZE_GUEST: Final = "AUTHORIZE_GUEST_ACCESS"

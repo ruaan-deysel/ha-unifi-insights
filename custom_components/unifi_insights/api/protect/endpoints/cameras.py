@@ -126,10 +126,6 @@ class CamerasEndpoint:
             The updated camera.
 
         """
-        if "led_settings" in kwargs:
-            kwargs["ledSettings"] = kwargs.pop("led_settings")
-        if "video_mode" in kwargs:
-            kwargs["videoMode"] = kwargs.pop("video_mode")
         path = self._client.build_api_path(f"/cameras/{camera_id}", site_id)
         response = await self._client._patch(path, json_data=kwargs)
 

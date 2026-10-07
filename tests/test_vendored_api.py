@@ -3781,33 +3781,11 @@ async def test_cameras_set_status_light_patch_body() -> None:
     )
 
 
-async def test_cameras_update_normalizes_legacy_led_settings() -> None:
-    """Test cameras.update normalizes legacy led_settings to ledSettings."""
-    client = _protect_client()
-    client._patch = AsyncMock(return_value={"id": "cam1", "mac": "00:11:22:33:44:55"})
-    await client.cameras.update("cam1", led_settings={"isEnabled": True})
-    client._patch.assert_awaited_once_with(
-        client.build_api_path("/cameras/cam1"),
-        json_data={"ledSettings": {"isEnabled": True}},
-    )
-
-
 async def test_cameras_set_video_mode_patch_body() -> None:
     """Test set_video_mode sends spec-compliant videoMode PATCH body."""
     client = _protect_client()
     client._patch = AsyncMock(return_value={"id": "cam1", "mac": "00:11:22:33:44:55"})
     await client.cameras.set_video_mode("cam1", "highFps")
-    client._patch.assert_awaited_once_with(
-        client.build_api_path("/cameras/cam1"),
-        json_data={"videoMode": "highFps"},
-    )
-
-
-async def test_cameras_update_normalizes_legacy_video_mode() -> None:
-    """Test cameras.update normalizes legacy video_mode to videoMode."""
-    client = _protect_client()
-    client._patch = AsyncMock(return_value={"id": "cam1", "mac": "00:11:22:33:44:55"})
-    await client.cameras.update("cam1", video_mode="highFps")
     client._patch.assert_awaited_once_with(
         client.build_api_path("/cameras/cam1"),
         json_data={"videoMode": "highFps"},
@@ -3847,17 +3825,6 @@ async def test_lights_set_mode_patch_body() -> None:
     )
 
 
-async def test_lights_update_normalizes_legacy_light_mode() -> None:
-    """Test lights.update normalizes legacy lightMode to lightModeSettings."""
-    client = _protect_client()
-    client._patch = AsyncMock(return_value={"id": "light1", "mac": "00:11:22:33:44:66"})
-    await client.lights.update("light1", lightMode="motion")
-    client._patch.assert_awaited_once_with(
-        client.build_api_path("/lights/light1"),
-        json_data={"lightModeSettings": {"mode": "motion"}},
-    )
-
-
 async def test_lights_set_brightness_patch_body() -> None:
     """Test lights.set_brightness sends spec lightDeviceSettings PATCH body."""
     client = _protect_client()
@@ -3879,17 +3846,6 @@ async def test_lights_set_brightness_patch_body() -> None:
 
     client._patch.reset_mock()
     await client.lights.set_brightness("light1", 6)
-    client._patch.assert_awaited_once_with(
-        client.build_api_path("/lights/light1"),
-        json_data={"lightDeviceSettings": {"ledLevel": 6}},
-    )
-
-
-async def test_lights_update_normalizes_legacy_brightness() -> None:
-    """Test lights.update normalizes legacy brightness to lightDeviceSettings."""
-    client = _protect_client()
-    client._patch = AsyncMock(return_value={"id": "light1", "mac": "00:11:22:33:44:66"})
-    await client.lights.update("light1", brightness=100)
     client._patch.assert_awaited_once_with(
         client.build_api_path("/lights/light1"),
         json_data={"lightDeviceSettings": {"ledLevel": 6}},

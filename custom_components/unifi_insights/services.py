@@ -1994,11 +1994,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle the generate_voucher service call."""
         site_id = call.data["site_id"]
         count = call.data.get("count", 1)
-        duration_minutes = call.data.get("duration_minutes")
+        duration_minutes = call.data.get("duration_minutes") or 480
         upload_limit_kbps = call.data.get("upload_limit_kbps")
         download_limit_kbps = call.data.get("download_limit_kbps")
         data_limit_mb = call.data.get("data_limit_mb")
-        note = call.data.get("note")
+        note = call.data.get("note") or "Home Assistant"
 
         coordinator, _ = _get_coordinator_for_network_resource(hass, site_id=site_id)
 

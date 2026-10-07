@@ -62,7 +62,7 @@ class TrafficEndpoint:
             params["filter"] = filter_str
 
         path = self._client.build_api_path(f"/sites/{site_id}/traffic-matching-lists")
-        response = await self._client._get(path, params=params if params else None)
+        response = await self._client._get(path, params=params or None)
 
         if response is None:
             return []
@@ -188,19 +188,35 @@ class TrafficEndpoint:
 
     # DPI Resources
 
-    async def get_dpi_categories(self, site_id: str) -> list[DPICategory]:
+    async def get_dpi_categories(
+        self,
+        *,
+        offset: int | None = None,
+        limit: int | None = None,
+        filter_str: str | None = None,
+    ) -> list[DPICategory]:
         """
         List all DPI categories.
 
         Args:
-            site_id: The site ID.
+            offset: Pagination offset.
+            limit: Maximum results (max 200).
+            filter_str: Filter query string using API filter syntax.
 
         Returns:
             List of DPI categories.
 
         """
-        path = self._client.build_api_path(f"/sites/{site_id}/dpi/categories")
-        response = await self._client._get(path)
+        params: dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = min(limit, 200)
+        if filter_str:
+            params["filter"] = filter_str
+
+        path = self._client.build_api_path("/dpi/categories")
+        response = await self._client._get(path, params=params or None)
 
         if response is None:
             return []
@@ -212,19 +228,35 @@ class TrafficEndpoint:
             return [DPICategory.model_validate(item) for item in data]
         return []
 
-    async def get_dpi_applications(self, site_id: str) -> list[DPIApplication]:
+    async def get_dpi_applications(
+        self,
+        *,
+        offset: int | None = None,
+        limit: int | None = None,
+        filter_str: str | None = None,
+    ) -> list[DPIApplication]:
         """
         List all DPI applications.
 
         Args:
-            site_id: The site ID.
+            offset: Pagination offset.
+            limit: Maximum results (max 200).
+            filter_str: Filter query string using API filter syntax.
 
         Returns:
             List of DPI applications.
 
         """
-        path = self._client.build_api_path(f"/sites/{site_id}/dpi/applications")
-        response = await self._client._get(path)
+        params: dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = min(limit, 200)
+        if filter_str:
+            params["filter"] = filter_str
+
+        path = self._client.build_api_path("/dpi/applications")
+        response = await self._client._get(path, params=params or None)
 
         if response is None:
             return []
@@ -236,19 +268,35 @@ class TrafficEndpoint:
             return [DPIApplication.model_validate(item) for item in data]
         return []
 
-    async def get_countries(self, site_id: str) -> list[Country]:
+    async def get_countries(
+        self,
+        *,
+        offset: int | None = None,
+        limit: int | None = None,
+        filter_str: str | None = None,
+    ) -> list[Country]:
         """
         List all countries/regions.
 
         Args:
-            site_id: The site ID.
+            offset: Pagination offset.
+            limit: Maximum results (max 200).
+            filter_str: Filter query string using API filter syntax.
 
         Returns:
             List of countries.
 
         """
-        path = self._client.build_api_path(f"/sites/{site_id}/geo/countries")
-        response = await self._client._get(path)
+        params: dict[str, Any] = {}
+        if offset is not None:
+            params["offset"] = offset
+        if limit is not None:
+            params["limit"] = min(limit, 200)
+        if filter_str:
+            params["filter"] = filter_str
+
+        path = self._client.build_api_path("/countries")
+        response = await self._client._get(path, params=params or None)
 
         if response is None:
             return []

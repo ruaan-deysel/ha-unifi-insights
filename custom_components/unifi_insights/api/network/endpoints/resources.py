@@ -61,7 +61,7 @@ class ResourcesEndpoint:
             params["filter"] = filter_str
 
         path = self._client.build_api_path(f"/sites/{site_id}/wans")
-        response = await self._client._get(path, params=params if params else None)
+        response = await self._client._get(path, params=params or None)
 
         if response is None:
             return []
@@ -104,8 +104,8 @@ class ResourcesEndpoint:
         if filter_str:
             params["filter"] = filter_str
 
-        path = self._client.build_api_path(f"/sites/{site_id}/vpn/tunnels")
-        response = await self._client._get(path, params=params if params else None)
+        path = self._client.build_api_path(f"/sites/{site_id}/vpn/site-to-site-tunnels")
+        response = await self._client._get(path, params=params or None)
 
         if response is None:
             return []

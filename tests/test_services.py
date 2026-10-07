@@ -845,6 +845,83 @@ class TestNetworkServices:
 
         await async_unload_services(hass)
 
+    async def test_generate_voucher_defaults_name_and_duration(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test generate_voucher defaults name to Home Assistant and duration to 480."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_generate_voucher = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "generate_voucher",
+                {"site_id": "site1"},
+                blocking=True,
+            )
+
+        mock_coordinator.async_generate_voucher.assert_called_once_with(
+            "site1",
+            count=1,
+            time_limit_minutes=480,
+            tx_rate_limit_kbps=None,
+            rx_rate_limit_kbps=None,
+            data_usage_limit_mbytes=None,
+            name="Home Assistant",
+        )
+
+        await async_unload_services(hass)
+
+    async def test_generate_voucher_custom_note_and_duration(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test generate_voucher passes custom note as name and duration_minutes."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_generate_voucher = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "generate_voucher",
+                {
+                    "site_id": "site1",
+                    "note": "VIP Guest",
+                    "duration_minutes": 120,
+                    "count": 2,
+                },
+                blocking=True,
+            )
+
+        mock_coordinator.async_generate_voucher.assert_called_once_with(
+            "site1",
+            count=2,
+            time_limit_minutes=120,
+            tx_rate_limit_kbps=None,
+            rx_rate_limit_kbps=None,
+            data_usage_limit_mbytes=None,
+            name="VIP Guest",
+        )
+
+        await async_unload_services(hass)
+
     async def test_delete_voucher_success(self, hass: HomeAssistant):
         """Test delete_voucher success."""
         mock_coordinator = MagicMock()

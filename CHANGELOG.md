@@ -24,8 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Older Protect versions that lack these endpoints are checked once an hour instead of on every poll, and logged once.
   - Diagnostics redact the tamper user name and the Thread network name and IDs.
 
+### Changed
+
+- Aligned the vendored UniFi Network API client with OpenAPI spec v10.6.106: updated device adoption path and limit flag, removed non-spec device locate and site lookup methods, updated DPI categories/applications and country lookups to unscoped endpoints with pagination, corrected firewall policy ordering endpoints and query parameters, enabled firewall policy patching, aligned site-to-site VPN tunnel paths, converted network updates to full-object PUT requests, and added voucher deletion by filter.
+
 ### Fixed
 
+- Generating hotspot vouchers () now defaults the voucher name to "Home Assistant" when no note is provided and ensures access duration is always passed, satisfying Network API schema requirements.
 - Restarting a UniFi Network device (Restart button or `unifi_insights.restart_device`) now uses the documented device-actions endpoint (`POST …/devices/{id}/actions`) instead of the undocumented `…/restart` path.
 - Secrets in logged API responses are now fully redacted. Before, a password, Wi-Fi passphrase, token or API key containing a colon (`:`) or an escaped quote was only partly hidden: debug logs and "Response is not JSON" warnings showed the value up to its last colon, for example `"passphrase": "my:secret: "**REDACTED**"`. Now the whole value is replaced: `"passphrase": "**REDACTED**"`.
 

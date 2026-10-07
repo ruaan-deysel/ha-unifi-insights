@@ -138,19 +138,19 @@ class NetworksEndpoint:
         **kwargs: Any,
     ) -> Network:
         """
-        Update a network.
+        Update a network via full object replacement (PUT).
 
         Args:
             site_id: The site ID.
             network_id: The network ID.
-            **kwargs: Network parameters to update.
+            **kwargs: Complete network parameters for replacement.
 
         Returns:
             The updated network.
 
         """
         path = self._client.build_api_path(f"/sites/{site_id}/networks/{network_id}")
-        response = await self._client._patch(path, json_data=kwargs)
+        response = await self._client._put(path, json_data=kwargs)
 
         if isinstance(response, dict):
             result = response.get("data", response)

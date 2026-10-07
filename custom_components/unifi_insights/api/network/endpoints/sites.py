@@ -89,28 +89,6 @@ class SitesEndpoint:
             return sites
         return []
 
-    async def get(self, site_id: str) -> Site:
-        """
-        Get a specific site.
-
-        Args:
-            site_id: The site ID.
-
-        Returns:
-            The site.
-
-        """
-        path = self._client.build_api_path(f"/sites/{site_id}")
-        response = await self._client._get(path)
-
-        if isinstance(response, dict):
-            data = response.get("data", response)
-            if isinstance(data, dict):
-                return Site.model_validate(data)
-            if isinstance(data, list) and len(data) > 0:
-                return Site.model_validate(data[0])
-        raise ValueError(f"Site {site_id} not found")
-
     async def get_legacy_all(self) -> list[dict[str, Any]]:
         """
         List all sites from the legacy Network API.

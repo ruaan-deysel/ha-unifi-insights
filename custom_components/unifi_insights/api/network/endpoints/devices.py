@@ -179,6 +179,8 @@ class DevicesEndpoint:
         self,
         site_id: str,
         mac: str,
+        *,
+        ignore_device_limit: bool = False,
     ) -> bool:
         """
         Adopt a device.
@@ -186,13 +188,20 @@ class DevicesEndpoint:
         Args:
             site_id: The site ID.
             mac: The device MAC address.
+            ignore_device_limit: Whether to ignore device adoption limit.
 
         Returns:
             True if successful.
 
         """
-        path = self._client.build_api_path(f"/sites/{site_id}/devices/adopt")
-        await self._client._post(path, json_data={"macAddress": mac})
+        path = self._client.build_api_path(f"/sites/{site_id}/devices")
+        await self._client._post(
+            path,
+            json_data={
+                "macAddress": mac,
+                "ignoreDeviceLimit": ignore_device_limit,
+            },
+        )
         return True
 
     async def forget(self, site_id: str, device_id: str) -> bool:
@@ -209,25 +218,6 @@ class DevicesEndpoint:
         """
         path = self._client.build_api_path(f"/sites/{site_id}/devices/{device_id}")
         await self._client._delete(path)
-        return True
-
-    async def locate(self, site_id: str, device_id: str, enabled: bool = True) -> bool:
-        """
-        Enable or disable locate mode (LED blinking) on a device.
-
-        Args:
-            site_id: The site ID.
-            device_id: The device ID.
-            enabled: Whether to enable or disable locate mode.
-
-        Returns:
-            True if successful.
-
-        """
-        path = self._client.build_api_path(
-            f"/sites/{site_id}/devices/{device_id}/locate"
-        )
-        await self._client._post(path, json_data={"enabled": enabled})
         return True
 
     async def get_pending_adoption(

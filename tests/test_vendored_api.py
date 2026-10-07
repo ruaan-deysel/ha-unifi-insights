@@ -45,7 +45,10 @@ from custom_components.unifi_insights.api.network import (
 from custom_components.unifi_insights.api.network.models.firewall import (
     OrderedFirewallPolicyIds,
 )
-from custom_components.unifi_insights.api.protect import UniFiProtectClient
+from custom_components.unifi_insights.api.protect import (
+    UlpUserStatus,
+    UniFiProtectClient,
+)
 from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
     SAMPLE_KEYPAD_FOB,
@@ -3346,3 +3349,122 @@ async def test_vouchers_create_pins_required_name_and_duration() -> None:
             "timeLimitMinutes": 120,
         },
     )
+
+
+async def test_protect_users_get_all_and_get() -> None:
+    """Users endpoint should query /users and parse User models."""
+    client = _protect_client()
+    user_payload = {
+        "id": "user-1",
+        "name": "Jane Doe",
+        "firstName": "Jane",
+        "lastName": "Doe",
+        "email": "jane@example.com",
+        "ucoreUserId": "ucore-1",
+        "modelKey": "user",
+    }
+    client._get = AsyncMock(return_value=[user_payload])
+
+    users = await client.users.get_all()
+    assert len(users) == 1
+    assert users[0].id == "user-1"
+    assert users[0].name == "Jane Doe"
+    assert users[0].first_name == "Jane"
+    assert users[0].last_name == "Doe"
+    assert users[0].email == "jane@example.com"
+    assert users[0].ucore_user_id == "ucore-1"
+    assert users[0].display_name == "Jane Doe"
+    client._get.assert_awaited_once_with(
+        client.build_api_path("/users"), expected_unsupported=False
+    )
+
+    # get single user
+    client._get = AsyncMock(return_value={"data": user_payload})
+    user = await client.users.get("user-1")
+    assert user.id == "user-1"
+    client._get.assert_awaited_once_with(client.build_api_path("/users/user-1"))
+
+    # get single user not found
+    client._get = AsyncMock(return_value=None)
+    with pytest.raises(ValueError, match="User user-1 not found"):
+        await client.users.get("user-1")
+
+
+async def test_protect_users_get_all_skips_malformed_and_handles_none() -> None:
+    """Users endpoint should skip malformed items and handle empty response."""
+    client = _protect_client()
+    client._get = AsyncMock(return_value=None)
+    assert await client.users.get_all() == []
+
+    client._get = AsyncMock(return_value="not a list")
+    assert await client.users.get_all() == []
+
+    client._get = AsyncMock(
+        return_value=[
+            {"id": "user-1", "name": "Valid User"},
+            {"id": "bad-user"},  # missing required name
+        ]
+    )
+    users = await client.users.get_all()
+    assert len(users) == 1
+    assert users[0].id == "user-1"
+    assert client.users.last_result_complete is False
+
+
+async def test_protect_ulp_users_get_all_and_get() -> None:
+    """ULP users endpoint should query /ulp-users and parse UlpUser models."""
+    client = _protect_client()
+    ulp_payload = {
+        "id": "ulp-1",
+        "firstName": "John",
+        "lastName": "Smith",
+        "fullName": "John Smith",
+        "email": "john@example.com",
+        "status": "ACTIVE",
+        "modelKey": "ulpUser",
+    }
+    client._get = AsyncMock(return_value=[ulp_payload])
+
+    ulp_users = await client.ulp_users.get_all()
+    assert len(ulp_users) == 1
+    assert ulp_users[0].id == "ulp-1"
+    assert ulp_users[0].first_name == "John"
+    assert ulp_users[0].last_name == "Smith"
+    assert ulp_users[0].full_name == "John Smith"
+    assert ulp_users[0].email == "john@example.com"
+    assert ulp_users[0].status == UlpUserStatus.ACTIVE
+    assert ulp_users[0].display_name == "John Smith"
+    client._get.assert_awaited_once_with(
+        client.build_api_path("/ulp-users"), expected_unsupported=False
+    )
+
+    # get single ULP user (wrapped in data)
+    client._get = AsyncMock(return_value={"data": ulp_payload})
+    ulp_user = await client.ulp_users.get("ulp-1")
+    assert ulp_user.id == "ulp-1"
+    assert ulp_user.status == "ACTIVE"
+    client._get.assert_awaited_once_with(client.build_api_path("/ulp-users/ulp-1"))
+
+    # get single ULP user not found
+    client._get = AsyncMock(return_value=None)
+    with pytest.raises(ValueError, match="ULP user ulp-1 not found"):
+        await client.ulp_users.get("ulp-1")
+
+
+async def test_protect_ulp_users_deactivated_and_malformed() -> None:
+    """ULP users should handle DEACTIVATED status, empty email, and malformed items."""
+    client = _protect_client()
+    ulp_deactivated = {
+        "id": "ulp-2",
+        "firstName": "Old",
+        "lastName": "User",
+        "fullName": "Old User",
+        "status": "DEACTIVATED",
+    }
+    client._get = AsyncMock(return_value=[ulp_deactivated, {"id": "bad"}])
+
+    users = await client.ulp_users.get_all()
+    assert len(users) == 1
+    assert users[0].status == UlpUserStatus.DEACTIVATED
+    assert users[0].email == ""
+    assert client.ulp_users.last_result_complete is False

@@ -17,6 +17,9 @@ from .models import (
     RecordingMode,
     Sensor,
     SensorType,
+    UlpUser,
+    UlpUserStatus,
+    User,
     VideoMode,
 )
 from .websocket import ProtectWebSocket
@@ -36,6 +39,9 @@ __all__ = [
     "RecordingMode",
     "Sensor",
     "SensorType",
+    "UlpUser",
+    "UlpUserStatus",
     "UniFiProtectClient",
+    "User",
     "VideoMode",
 ]

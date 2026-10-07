@@ -17,6 +17,8 @@ from .relays import RelaysEndpoint
 from .sensors import SensorsEndpoint
 from .sirens import SirensEndpoint
 from .speakers import SpeakersEndpoint
+from .ulp_users import UlpUsersEndpoint
+from .users import UsersEndpoint
 from .viewers import ViewersEndpoint
 
 __all__ = [
@@ -35,5 +37,7 @@ __all__ = [
     "SensorsEndpoint",
     "SirensEndpoint",
     "SpeakersEndpoint",
+    "UlpUsersEndpoint",
+    "UsersEndpoint",
     "ViewersEndpoint",
 ]

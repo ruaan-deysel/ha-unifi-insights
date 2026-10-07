@@ -39,6 +39,8 @@ from .endpoints import (
     SensorsEndpoint,
     SirensEndpoint,
     SpeakersEndpoint,
+    UlpUsersEndpoint,
+    UsersEndpoint,
     ViewersEndpoint,
 )
 from .websocket import ProtectWebSocket
@@ -165,6 +167,8 @@ class UniFiProtectClient(BaseUniFiClient):
         self._sirens = SirensEndpoint(self)
         self._speakers = SpeakersEndpoint(self)
         self._link_stations = LinkStationsEndpoint(self)
+        self._users = UsersEndpoint(self)
+        self._ulp_users = UlpUsersEndpoint(self)
         self._websocket = ProtectWebSocket(self)
 
     @property
@@ -286,6 +290,16 @@ class UniFiProtectClient(BaseUniFiClient):
     def link_stations(self) -> LinkStationsEndpoint:
         """Access link station management endpoints."""
         return self._link_stations
+
+    @property
+    def users(self) -> UsersEndpoint:
+        """Access user management endpoints."""
+        return self._users
+
+    @property
+    def ulp_users(self) -> UlpUsersEndpoint:
+        """Access UniFi Identity (ULP) user management endpoints."""
+        return self._ulp_users
 
     @property
     def websocket(self) -> ProtectWebSocket:

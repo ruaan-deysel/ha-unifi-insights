@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Aligned the vendored UniFi Network API client with OpenAPI spec v10.6.106: updated device adoption path and limit flag, removed non-spec device locate and site lookup methods, updated DPI categories/applications and country lookups to unscoped endpoints with pagination, corrected firewall policy ordering endpoints and query parameters, enabled firewall policy patching, aligned site-to-site VPN tunnel paths, converted network updates to full-object PUT requests, and added voucher deletion by filter.
 - The README is reorganized around the supported UniFi products: Network, Protect, InnerSpace, Mobility, Site Manager and Carrier Fabric (ISP). It now has an overview, a product summary, setup steps per connection type, all registered actions and all six dashboard cards. The "How this differs from the official integrations" section is removed. Inaccurate claims are corrected: firmware update entities don't install firmware, there is no PoE port power-cycle action, there is no Recording binary sensor or Recording Mode select, and the topology card is listed as "UniFi Topology". [#230](https://github.com/ruaan-deysel/ha-unifi-insights/issues/230)
+- Vendored Protect client aligned with Protect API v7.3.70: removed undocumented endpoints that nothing called; added users, ULP users and POS transaction ingest.
 
 ### Fixed
 

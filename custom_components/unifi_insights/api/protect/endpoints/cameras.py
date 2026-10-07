@@ -186,22 +186,6 @@ class CamerasEndpoint:
         path = self._client.build_api_path(f"/cameras/{camera_id}/snapshot", site_id)
         return await self._client._get_binary(path, params=params or None)
 
-    async def restart(self, camera_id: str, site_id: str | None = None) -> bool:
-        """
-        Restart a camera.
-
-        Args:
-            camera_id: The camera ID.
-            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
-
-        Returns:
-            True if successful.
-
-        """
-        path = self._client.build_api_path(f"/cameras/{camera_id}/restart", site_id)
-        await self._client._post(path)
-        return True
-
     async def set_microphone_volume(
         self,
         camera_id: str,
@@ -223,63 +207,6 @@ class CamerasEndpoint:
         if not 0 <= volume <= 100:
             raise ValueError("Volume must be between 0 and 100")
         return await self.update(camera_id, site_id, micVolume=volume)
-
-    async def set_speaker_volume(
-        self,
-        camera_id: str,
-        volume: int,
-        site_id: str | None = None,
-    ) -> Camera:
-        """
-        Set camera speaker volume.
-
-        Args:
-            camera_id: The camera ID.
-            volume: Volume level (0-100).
-            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
-
-        Returns:
-            The updated camera.
-
-        """
-        if not 0 <= volume <= 100:
-            raise ValueError("Volume must be between 0 and 100")
-        return await self.update(camera_id, site_id, speakerVolume=volume)
-
-    async def ptz_move(
-        self,
-        camera_id: str,
-        *,
-        pan: float | None = None,
-        tilt: float | None = None,
-        zoom: float | None = None,
-        site_id: str | None = None,
-    ) -> bool:
-        """
-        Move PTZ camera.
-
-        Args:
-            camera_id: The camera ID.
-            pan: Pan value (-1.0 to 1.0).
-            tilt: Tilt value (-1.0 to 1.0).
-            zoom: Zoom value (0.0 to 1.0).
-            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
-
-        Returns:
-            True if successful.
-
-        """
-        data: dict[str, Any] = {}
-        if pan is not None:
-            data["pan"] = pan
-        if tilt is not None:
-            data["tilt"] = tilt
-        if zoom is not None:
-            data["zoom"] = zoom
-
-        path = self._client.build_api_path(f"/cameras/{camera_id}/ptz/move", site_id)
-        await self._client._post(path, json_data=data)
-        return True
 
     async def ptz_goto_preset(
         self,

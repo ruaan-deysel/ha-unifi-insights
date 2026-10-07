@@ -157,7 +157,6 @@ def _create_mock_protect_client() -> MagicMock:
     client.nvr.get = AsyncMock(
         return_value=MagicMock(id="nvr1", name="NVR", type="UNVR")
     )
-    client.nvr.restart = AsyncMock(return_value=True)
 
     # Legacy methods (keeping for backwards compatibility)
     client.update_camera = AsyncMock(return_value=True)

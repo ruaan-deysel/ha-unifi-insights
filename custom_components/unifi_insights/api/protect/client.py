@@ -30,7 +30,6 @@ from .endpoints import (
     BridgesEndpoint,
     CamerasEndpoint,
     ChimesEndpoint,
-    EventsEndpoint,
     FobsEndpoint,
     LightsEndpoint,
     LinkStationsEndpoint,
@@ -156,7 +155,6 @@ class UniFiProtectClient(BaseUniFiClient):
         self._chimes = ChimesEndpoint(self)
         self._nvr = NVREndpoint(self)
         self._liveviews = LiveViewsEndpoint(self)
-        self._events = EventsEndpoint(self)
         self._viewers = ViewersEndpoint(self)
         self._application = ApplicationEndpoint(self)
         self._alarm_hubs = AlarmHubsEndpoint(self)
@@ -240,11 +238,6 @@ class UniFiProtectClient(BaseUniFiClient):
         return self._liveviews
 
     @property
-    def events(self) -> EventsEndpoint:
-        """Access event management endpoints."""
-        return self._events
-
-    @property
     def viewers(self) -> ViewersEndpoint:
         """Access viewer management endpoints."""
         return self._viewers
@@ -313,26 +306,8 @@ class UniFiProtectClient(BaseUniFiClient):
             UniFiConnectionError: If connection fails.
 
         """
-        response = await self._get(self.build_api_path("/sites"))
+        response = await self._get(self.build_api_path("/cameras"))
         return response is not None
-
-    async def get_sites(self) -> list[dict[str, Any]]:
-        """
-        Get list of available sites.
-
-        Returns:
-            List of site information dictionaries.
-
-        """
-        response = await self._get(self.build_api_path("/sites"))
-        if response is None:
-            return []
-        data = (
-            response.get("data", response) if isinstance(response, dict) else response
-        )
-        if isinstance(data, list):
-            return data
-        return []
 
     async def get_host_id(self) -> str:
         """

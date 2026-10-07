@@ -576,7 +576,7 @@ async def query_protect(
                 print(f"    {RED}Error: {e}{RESET}")
 
         # ── Recent Events ────────────────────────────────────────────────
-        if not sections or "events" in sections:
+        if hasattr(client, "events") and (not sections or "events" in sections):
             section("Recent Events (last 1 hour)")
             try:
                 now = datetime.now(timezone.utc)

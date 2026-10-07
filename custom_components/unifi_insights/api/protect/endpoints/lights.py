@@ -14,6 +14,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+MIN_LED_LEVEL = 1
+MAX_LED_LEVEL = 6
+
 
 class LightsEndpoint:
     """Endpoint for managing UniFi Protect lights."""
@@ -111,6 +114,39 @@ class LightsEndpoint:
             The updated light.
 
         """
+        if "lightMode" in kwargs or "light_mode" in kwargs:
+            mode_val = kwargs.pop("lightMode", None)
+            if mode_val is None:
+                mode_val = kwargs.pop("light_mode")
+            mode_str = mode_val.value if hasattr(mode_val, "value") else str(mode_val)
+            if mode_str == "on":
+                mode_str = "always"
+            kwargs.setdefault("lightModeSettings", {})["mode"] = mode_str
+
+        if "brightness" in kwargs:
+            b_val = kwargs.pop("brightness")
+            if isinstance(b_val, (int, float)):
+                if MIN_LED_LEVEL <= b_val <= MAX_LED_LEVEL:
+                    lvl = int(b_val)
+                elif b_val <= 0:
+                    lvl = MIN_LED_LEVEL
+                else:
+                    lvl = max(
+                        MIN_LED_LEVEL,
+                        min(MAX_LED_LEVEL, round(b_val * MAX_LED_LEVEL / 100)),
+                    )
+            else:
+                lvl = b_val
+            kwargs.setdefault("lightDeviceSettings", {})["ledLevel"] = lvl
+        elif "ledLevel" in kwargs:
+            kwargs.setdefault("lightDeviceSettings", {})["ledLevel"] = kwargs.pop(
+                "ledLevel"
+            )
+        elif "led_level" in kwargs:
+            kwargs.setdefault("lightDeviceSettings", {})["ledLevel"] = kwargs.pop(
+                "led_level"
+            )
+
         path = self._client.build_api_path(f"/lights/{light_id}", site_id)
         response = await self._client._patch(path, json_data=kwargs)
 
@@ -132,7 +168,9 @@ class LightsEndpoint:
             The updated light.
 
         """
-        return await self.update(light_id, site_id, lightMode=LightMode.ON.value)
+        return await self.update(
+            light_id, site_id, lightModeSettings={"mode": "always"}
+        )
 
     async def turn_off(self, light_id: str, site_id: str | None = None) -> Light:
         """
@@ -146,12 +184,12 @@ class LightsEndpoint:
             The updated light.
 
         """
-        return await self.update(light_id, site_id, lightMode=LightMode.OFF.value)
+        return await self.update(light_id, site_id, lightModeSettings={"mode": "off"})
 
     async def set_mode(
         self,
         light_id: str,
-        mode: LightMode,
+        mode: LightMode | str,
         site_id: str | None = None,
     ) -> Light:
         """
@@ -166,7 +204,12 @@ class LightsEndpoint:
             The updated light.
 
         """
-        return await self.update(light_id, site_id, lightMode=mode.value)
+        mode_val = mode.value if hasattr(mode, "value") else str(mode)
+        if mode_val == "on":
+            mode_val = "always"
+        return await self.update(
+            light_id, site_id, lightModeSettings={"mode": mode_val}
+        )
 
     async def set_brightness(
         self,
@@ -179,7 +222,7 @@ class LightsEndpoint:
 
         Args:
             light_id: The light ID.
-            brightness: Brightness level (0-100).
+            brightness: Brightness level (0-100 or 1-6).
             site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
 
         Returns:
@@ -188,4 +231,17 @@ class LightsEndpoint:
         """
         if not 0 <= brightness <= 100:
             raise ValueError("Brightness must be between 0 and 100")
-        return await self.update(light_id, site_id, brightness=brightness)
+        if MIN_LED_LEVEL <= brightness <= MAX_LED_LEVEL:
+            led_level = brightness
+        elif brightness <= 0:
+            led_level = MIN_LED_LEVEL
+        else:
+            led_level = max(
+                MIN_LED_LEVEL,
+                min(MAX_LED_LEVEL, round(brightness * MAX_LED_LEVEL / 100)),
+            )
+        return await self.update(
+            light_id,
+            site_id,
+            lightDeviceSettings={"ledLevel": led_level},
+        )

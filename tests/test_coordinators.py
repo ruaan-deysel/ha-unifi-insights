@@ -40,6 +40,7 @@ from custom_components.unifi_insights.api.network.models import (
     PortBytesMetrics,
     SiteReportBucket,
 )
+from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from custom_components.unifi_insights.api.protect.models import Fob, LinkStation
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
@@ -6286,7 +6287,49 @@ class TestUnifiFacadeCoordinator:
         facade_coordinator.protect_client.lights.update = AsyncMock()
         await facade_coordinator.async_set_light_mode("light1", "motion")
         facade_coordinator.protect_client.lights.update.assert_called_once_with(
-            "light1", lightMode="motion"
+            "light1", lightModeSettings={"mode": "motion"}
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_light_mode_sends_spec_patch_body(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_light_mode sends spec lightModeSettings PATCH body."""
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(
+            return_value={"id": "light1", "mac": "00:11:22:33:44:66"}
+        )
+        facade_coordinator.protect_client = client
+        facade_coordinator._protect_coordinator.protect_client = client
+        await facade_coordinator.async_set_light_mode("light1", "motion")
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/lights/light1"),
+            json_data={"lightModeSettings": {"mode": "motion"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_light_brightness_sends_spec_patch_body(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_set_light_brightness sends spec lightDeviceSettings PATCH body."""
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(
+            return_value={"id": "light1", "mac": "00:11:22:33:44:66"}
+        )
+        facade_coordinator.protect_client = client
+        facade_coordinator._protect_coordinator.protect_client = client
+        await facade_coordinator.async_set_light_brightness("light1", 100)
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/lights/light1"),
+            json_data={"lightDeviceSettings": {"ledLevel": 6}},
         )
 
     @pytest.mark.asyncio

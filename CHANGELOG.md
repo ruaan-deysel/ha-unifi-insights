@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generating hotspot vouchers no longer reports "Unable to generate voucher" after the vouchers were created. The client now reads the API's `{"vouchers": [...]}` response, so a false failure no longer prompts a retry that could create duplicate vouchers.
 - Restarting a UniFi Network device (Restart button or `unifi_insights.restart_device`) now uses the documented device-actions endpoint (`POST …/devices/{id}/actions`) instead of the undocumented `…/restart` path.
 - The chime Play button failed on every press because it passed an extra ringtone argument to the coordinator; it now plays the chime.
+- Camera status light and video mode now send the field names the Protect API documents (`ledSettings`, `videoMode`).
+- Floodlight mode and brightness now send the field names the Protect API documents (`lightModeSettings.mode`, `lightDeviceSettings.ledLevel`).
 - Secrets in logged API responses are now fully redacted. Before, a password, Wi-Fi passphrase, token or API key containing a colon (`:`) or an escaped quote was only partly hidden: debug logs and "Response is not JSON" warnings showed the value up to its last colon, for example `"passphrase": "my:secret: "**REDACTED**"`. Now the whole value is replaced: `"passphrase": "**REDACTED**"`.
 
 ## [2026.10.1] - 2026-10-04

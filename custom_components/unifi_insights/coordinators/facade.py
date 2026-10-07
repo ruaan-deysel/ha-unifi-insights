@@ -858,7 +858,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f"Unable to set mode for light {light_id}",
             protect_client.lights.update,
             light_id,
-            lightMode=mode,
+            lightModeSettings={"mode": mode},
         )
 
     async def async_set_chime_volume(self, chime_id: str, volume: int) -> None:

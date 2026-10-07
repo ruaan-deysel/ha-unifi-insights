@@ -42,6 +42,9 @@ from custom_components.unifi_insights.api.network import (
     VpnClient,
     parse_outlet_metrics,
 )
+from custom_components.unifi_insights.api.network.models.firewall import (
+    OrderedFirewallPolicyIds,
+)
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
@@ -3107,6 +3110,47 @@ async def test_firewall_update_policy_ordering() -> None:
             "destinationFirewallZoneId": "zone-dst",
         },
     )
+
+
+@pytest.mark.parametrize(
+    "ordered",
+    [
+        {"before_system_defined": ["p1"], "after_system_defined": ["p2"]},
+        {
+            "orderedFirewallPolicyIds": {
+                "beforeSystemDefined": ["p1"],
+                "afterSystemDefined": ["p2"],
+            }
+        },
+        {"beforeSystemDefined": ["p1"], "afterSystemDefined": ["p2"], "x": 1},
+        "model",
+    ],
+    ids=["snake_case", "wrapped", "extra_key", "model"],
+)
+async def test_firewall_update_policy_ordering_sends_only_spec_keys(
+    ordered: object,
+) -> None:
+    """Every accepted input form is validated and sent with the spec's keys."""
+    if ordered == "model":
+        ordered = OrderedFirewallPolicyIds(
+            before_system_defined=["p1"], after_system_defined=["p2"]
+        )
+    client = _network_client()
+    client._put = AsyncMock(return_value={"data": {"orderedFirewallPolicyIds": {}}})
+
+    await client.firewall.update_policy_ordering(
+        "site-1",
+        source_firewall_zone_id="zone-src",
+        destination_firewall_zone_id="zone-dst",
+        ordered_firewall_policy_ids=ordered,  # type: ignore[arg-type]
+    )
+
+    assert client._put.await_args.kwargs["json_data"] == {
+        "orderedFirewallPolicyIds": {
+            "beforeSystemDefined": ["p1"],
+            "afterSystemDefined": ["p2"],
+        }
+    }
 
 
 async def test_resources_get_vpn_tunnels_path() -> None:

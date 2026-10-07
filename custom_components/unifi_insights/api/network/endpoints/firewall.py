@@ -340,8 +340,9 @@ class FirewallEndpoint:
         """
         Update a firewall rule.
 
-        UniFi Network expects a full policy document via PUT rather than
-        a partial PATCH payload on current controller versions.
+        Full policy updates require a complete policy document via PUT.
+        Use ``patch_rule`` for the partial update the spec supports
+        (``loggingEnabled``).
 
         Args:
             site_id: The site ID.
@@ -484,15 +485,17 @@ class FirewallEndpoint:
             "sourceFirewallZoneId": source_firewall_zone_id,
             "destinationFirewallZoneId": destination_firewall_zone_id,
         }
-        if isinstance(ordered_firewall_policy_ids, OrderedFirewallPolicyIds):
-            payload = ordered_firewall_policy_ids.model_dump(by_alias=True)
-        elif isinstance(ordered_firewall_policy_ids, dict):
-            if "orderedFirewallPolicyIds" in ordered_firewall_policy_ids:
-                payload = ordered_firewall_policy_ids["orderedFirewallPolicyIds"]
-            else:
-                payload = ordered_firewall_policy_ids
-        else:
-            payload = ordered_firewall_policy_ids
+        if isinstance(ordered_firewall_policy_ids, dict):
+            ordered_firewall_policy_ids = OrderedFirewallPolicyIds.model_validate(
+                ordered_firewall_policy_ids.get(
+                    "orderedFirewallPolicyIds", ordered_firewall_policy_ids
+                )
+            )
+        # Only the two spec fields; the model allows extra keys on input.
+        payload = ordered_firewall_policy_ids.model_dump(
+            by_alias=True,
+            include={"before_system_defined", "after_system_defined"},
+        )
 
         data = {
             "orderedFirewallPolicyIds": payload,

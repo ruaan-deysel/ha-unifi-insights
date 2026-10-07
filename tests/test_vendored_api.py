@@ -3153,6 +3153,33 @@ async def test_firewall_update_policy_ordering_sends_only_spec_keys(
     }
 
 
+@pytest.mark.parametrize(
+    "ordered",
+    [
+        {"beforeSystemDefined": ["p1"]},
+        {"after_system_defined": ["p2"]},
+        {"orderedFirewallPolicyIds": {"beforeSystemDefined": ["p1"]}},
+    ],
+    ids=["before_only", "after_only_snake_case", "wrapped_before_only"],
+)
+async def test_firewall_update_policy_ordering_rejects_partial_dict(
+    ordered: dict[str, Any],
+) -> None:
+    """A dict missing one list is rejected instead of PUTting it as empty."""
+    client = _network_client()
+    client._put = AsyncMock()
+
+    with pytest.raises(ValueError, match="afterSystemDefined"):
+        await client.firewall.update_policy_ordering(
+            "site-1",
+            source_firewall_zone_id="zone-src",
+            destination_firewall_zone_id="zone-dst",
+            ordered_firewall_policy_ids=ordered,
+        )
+
+    client._put.assert_not_awaited()
+
+
 async def test_resources_get_vpn_tunnels_path() -> None:
     """get_vpn_tunnels() uses the spec path /vpn/site-to-site-tunnels."""
     client = _network_client()
@@ -3216,7 +3243,7 @@ async def test_networks_update_uses_put() -> None:
 
 
 async def test_firewall_patch_rule() -> None:
-    """firewall.patch_rule() patches policy loggingEnabled or other fields."""
+    """firewall.patch_rule() patches only loggingEnabled, per the spec."""
     client = _network_client()
     client._patch = AsyncMock(
         return_value={
@@ -3235,6 +3262,11 @@ async def test_firewall_patch_rule() -> None:
         client.build_api_path("/sites/site-1/firewall/policies/rule-1"),
         json_data={"loggingEnabled": True},
     )
+    with pytest.raises(TypeError):
+        await client.firewall.patch_rule(  # type: ignore[call-arg]
+            "site-1", "rule-1", logging_enabled=True, name="Renamed"
+        )
+    client._patch.assert_awaited_once()
 
 
 async def test_vouchers_delete_by_filter() -> None:

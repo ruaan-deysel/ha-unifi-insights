@@ -394,26 +394,23 @@ class FirewallEndpoint:
         site_id: str,
         rule_id: str,
         *,
-        logging_enabled: bool | None = None,
-        **kwargs: Any,
+        logging_enabled: bool,
     ) -> FirewallRule:
         """
-        Patch a firewall rule (e.g. loggingEnabled).
+        Patch a firewall rule's loggingEnabled, the only field the spec patches.
+
+        Use ``update_rule`` for any other change.
 
         Args:
             site_id: The site ID.
             rule_id: The rule ID.
             logging_enabled: Whether logging is enabled for this policy.
-            **kwargs: Additional fields to patch.
 
         Returns:
             The updated firewall rule.
 
         """
-        data: dict[str, Any] = {}
-        if logging_enabled is not None:
-            data["loggingEnabled"] = logging_enabled
-        data.update(kwargs)
+        data = {"loggingEnabled": logging_enabled}
 
         path = self._client.build_api_path(
             f"/sites/{site_id}/firewall/policies/{rule_id}"
@@ -491,6 +488,16 @@ class FirewallEndpoint:
                     "orderedFirewallPolicyIds", ordered_firewall_policy_ids
                 )
             )
+            # The PUT replaces the whole ordering, so a list the caller left
+            # out must not be sent as the model's empty default.
+            if not {"before_system_defined", "after_system_defined"}.issubset(
+                ordered_firewall_policy_ids.model_fields_set
+            ):
+                msg = (
+                    "ordered_firewall_policy_ids needs both beforeSystemDefined "
+                    "and afterSystemDefined"
+                )
+                raise ValueError(msg)
         # Only the two spec fields; the model allows extra keys on input.
         payload = ordered_firewall_policy_ids.model_dump(
             by_alias=True,

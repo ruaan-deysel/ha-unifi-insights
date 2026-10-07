@@ -2,9 +2,11 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-from homeassistant.exceptions import HomeAssistantError
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from custom_components.unifi_insights.const import (
     CHIME_RINGTONE_DEFAULT,
     CHIME_RINGTONE_MECHANICAL,
@@ -526,6 +528,49 @@ class TestUnifiProtectVideoModeSelect:
 
         with pytest.raises(HomeAssistantError, match="Unable to set video mode"):
             await entity.async_select_option("highFps")
+
+    async def test_async_select_option_sends_spec_patch_body(self):
+        """Test selecting video mode sends spec-compliant videoMode PATCH body."""
+        coordinator = MagicMock()
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(
+            return_value={"id": "cam1", "mac": "00:11:22:33:44:55"}
+        )
+        coordinator.protect_client = client
+        coordinator.async_set_video_mode = AsyncMock(
+            side_effect=client.cameras.set_video_mode
+        )
+        coordinator.data = {
+            "sites": {},
+            "devices": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Test Camera",
+                        "state": "CONNECTED",
+                        "videoMode": "default",
+                    },
+                },
+            },
+        }
+
+        entity = UnifiProtectVideoModeSelect(
+            coordinator=coordinator,
+            camera_id="cam1",
+        )
+        entity.async_write_ha_state = MagicMock()
+
+        await entity.async_select_option("highFps")
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/cameras/cam1"),
+            json_data={"videoMode": "highFps"},
+        )
+        assert entity._attr_current_option == "highFps"
 
 
 class TestUnifiProtectChimeRingtoneSelect:

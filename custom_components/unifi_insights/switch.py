@@ -1216,9 +1216,9 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):
             self._device_id,
             fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
-                led_settings={"isEnabled": True},
+                ledSettings={"isEnabled": True},
             ),
-            led_settings={"isEnabled": True},
+            ledSettings={"isEnabled": True},
         )
         self._attr_is_on = True
         self.async_write_ha_state()
@@ -1235,9 +1235,9 @@ class UnifiProtectStatusLightSwitch(UnifiProtectEntity, SwitchEntity):
             self._device_id,
             fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
-                led_settings={"isEnabled": False},
+                ledSettings={"isEnabled": False},
             ),
-            led_settings={"isEnabled": False},
+            ledSettings={"isEnabled": False},
         )
         self._attr_is_on = False
         self.async_write_ha_state()
@@ -1293,9 +1293,9 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):
             self._device_id,
             fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
-                video_mode=VIDEO_MODE_HIGH_FPS,
+                videoMode=VIDEO_MODE_HIGH_FPS,
             ),
-            video_mode=VIDEO_MODE_HIGH_FPS,
+            videoMode=VIDEO_MODE_HIGH_FPS,
         )
         self._attr_is_on = True
         self.async_write_ha_state()
@@ -1312,9 +1312,9 @@ class UnifiProtectHighFPSSwitch(UnifiProtectEntity, SwitchEntity):
             self._device_id,
             fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
                 self._device_id,
-                video_mode=VIDEO_MODE_DEFAULT,
+                videoMode=VIDEO_MODE_DEFAULT,
             ),
-            video_mode=VIDEO_MODE_DEFAULT,
+            videoMode=VIDEO_MODE_DEFAULT,
         )
         self._attr_is_on = False
         self.async_write_ha_state()

@@ -126,6 +126,10 @@ class CamerasEndpoint:
             The updated camera.
 
         """
+        if "led_settings" in kwargs:
+            kwargs["ledSettings"] = kwargs.pop("led_settings")
+        if "video_mode" in kwargs:
+            kwargs["videoMode"] = kwargs.pop("video_mode")
         path = self._client.build_api_path(f"/cameras/{camera_id}", site_id)
         response = await self._client._patch(path, json_data=kwargs)
 
@@ -442,3 +446,23 @@ class CamerasEndpoint:
 
         """
         return await self.update(camera_id, site_id, videoMode=mode)
+
+    async def set_status_light(
+        self,
+        camera_id: str,
+        enabled: bool,  # noqa: FBT001
+        site_id: str | None = None,
+    ) -> Camera:
+        """
+        Set camera status light (LED).
+
+        Args:
+            camera_id: The camera ID.
+            enabled: Whether the status LED is enabled.
+            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
+
+        Returns:
+            The updated camera.
+
+        """
+        return await self.update(camera_id, site_id, ledSettings={"isEnabled": enabled})

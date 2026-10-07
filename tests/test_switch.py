@@ -13,9 +13,11 @@ from homeassistant.helpers.entity import EntityCategory
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
 from custom_components.unifi_insights.api.network.models.routes import (
     PolicyBasedRoute,
 )
+from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from custom_components.unifi_insights.const import (
     ATTR_CAMERA_ID,
     ATTR_CAMERA_NAME,
@@ -2691,7 +2693,7 @@ class TestUnifiProtectStatusLightSwitch:
 
         mock_coordinator.protect_client.cameras.update.assert_called_once_with(
             "camera1",
-            led_settings={"isEnabled": True},
+            ledSettings={"isEnabled": True},
         )
         assert switch._attr_is_on is True
         switch.async_write_ha_state.assert_called_once()
@@ -2730,7 +2732,7 @@ class TestUnifiProtectStatusLightSwitch:
 
         mock_coordinator.protect_client.cameras.update.assert_called_once_with(
             "camera1",
-            led_settings={"isEnabled": False},
+            ledSettings={"isEnabled": False},
         )
         assert switch._attr_is_on is False
         switch.async_write_ha_state.assert_called_once()
@@ -2865,7 +2867,7 @@ class TestUnifiProtectHighFPSSwitch:
 
         mock_coordinator.protect_client.cameras.update.assert_called_once_with(
             "camera1",
-            video_mode=VIDEO_MODE_HIGH_FPS,
+            videoMode=VIDEO_MODE_HIGH_FPS,
         )
         assert switch._attr_is_on is True
         switch.async_write_ha_state.assert_called_once()
@@ -2906,7 +2908,7 @@ class TestUnifiProtectHighFPSSwitch:
 
         mock_coordinator.protect_client.cameras.update.assert_called_once_with(
             "camera1",
-            video_mode=VIDEO_MODE_DEFAULT,
+            videoMode=VIDEO_MODE_DEFAULT,
         )
         assert switch._attr_is_on is False
         switch.async_write_ha_state.assert_called_once()
@@ -4026,3 +4028,91 @@ class TestFindGatewayDeviceId:
             {"gw": {"model": "Unknown", "wans": [{"key": "wan1"}]}}
         )
         assert _find_gateway_device_id(coordinator, "site1") is None
+
+
+class TestProtectSwitchPatchBodies:
+    """Test camera switches call through facade down to protect_client._patch."""
+
+    @pytest.mark.asyncio
+    async def test_status_light_switch_sends_spec_patch_body(self) -> None:
+        """Test status light switch turn on/off sends ledSettings via facade."""
+        coordinator = MagicMock()
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(
+            return_value={"id": "camera1", "mac": "00:11:22:33:44:55"}
+        )
+        coordinator.protect_client = client
+        coordinator.async_update_camera_settings = AsyncMock(
+            side_effect=client.cameras.update
+        )
+        coordinator.data = {
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "name": "Test Camera",
+                        "ledSettings": {"isEnabled": False},
+                    }
+                }
+            }
+        }
+        switch = UnifiProtectStatusLightSwitch(coordinator, "camera1")
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_on()
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/cameras/camera1"),
+            json_data={"ledSettings": {"isEnabled": True}},
+        )
+
+        client._patch.reset_mock()
+        await switch.async_turn_off()
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/cameras/camera1"),
+            json_data={"ledSettings": {"isEnabled": False}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_high_fps_switch_sends_spec_patch_body(self) -> None:
+        """Test high FPS switch turn on/off sends videoMode via facade."""
+        coordinator = MagicMock()
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(
+            return_value={"id": "camera1", "mac": "00:11:22:33:44:55"}
+        )
+        coordinator.protect_client = client
+        coordinator.async_update_camera_settings = AsyncMock(
+            side_effect=client.cameras.update
+        )
+        coordinator.data = {
+            "protect": {
+                "cameras": {
+                    "camera1": {
+                        "name": "Test Camera",
+                        "videoMode": "default",
+                    }
+                }
+            }
+        }
+        switch = UnifiProtectHighFPSSwitch(coordinator, "camera1")
+        switch.async_write_ha_state = MagicMock()
+
+        await switch.async_turn_on()
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/cameras/camera1"),
+            json_data={"videoMode": "highFps"},
+        )
+
+        client._patch.reset_mock()
+        await switch.async_turn_off()
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/cameras/camera1"),
+            json_data={"videoMode": "default"},
+        )

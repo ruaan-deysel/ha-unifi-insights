@@ -53,6 +53,48 @@ class UnifiInsightsButtonEntityDescription(ButtonEntityDescription):  # type: ig
     """Class describing UniFi Insights button entities."""
 
 
+def get_device_ports(device_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return list of port dictionaries from device data."""
+    interfaces = device_data.get("interfaces")
+    ports = (
+        interfaces.get("ports")
+        if isinstance(interfaces, dict)
+        else device_data.get("ports")
+    )
+    if not isinstance(ports, list):
+        return []
+    return [p for p in ports if isinstance(p, dict)]
+
+
+def get_device_port(
+    coordinator_data: Any,
+    site_id: str,
+    device_id: str,
+    port_idx: int,
+) -> dict[str, Any] | None:
+    """Return port dictionary for a device port or None if not found."""
+    if not isinstance(coordinator_data, dict):
+        return None
+    devices = coordinator_data.get("devices")
+    if not isinstance(devices, dict):
+        return None
+    site_devices = devices.get(site_id)
+    if not isinstance(site_devices, dict):
+        return None
+    device_data = site_devices.get(device_id)
+    if not isinstance(device_data, dict):
+        return None
+    for port in get_device_ports(device_data):
+        if port.get("idx") == port_idx:
+            return port
+    return None
+
+
+def port_can_be_power_cycled(port: dict[str, Any]) -> bool:
+    """Return True if port can be power-cycled (PoE is enabled)."""
+    return isinstance(port.get("poe"), dict) and port["poe"].get("enabled") is True
+
+
 def _get_port_label(port: dict[str, Any], port_idx: int) -> str:
     """Return user-friendly port label based on port type."""
     name = port.get("name")
@@ -154,51 +196,32 @@ async def async_setup_entry(
                         )
 
                     # Discover PoE power-cycle buttons for PoE-enabled ports
-                    interfaces = device_data.get("interfaces")
-                    ports = (
-                        interfaces.get("ports")
-                        if isinstance(interfaces, dict)
-                        else device_data.get("ports")
-                    )
-                    if isinstance(ports, list):
-                        for port in ports:
-                            if not isinstance(port, dict):
-                                continue
-                            port_idx = port.get("idx")
-                            if port_idx is None:
-                                port_idx = port.get("port_idx")
-                            if not isinstance(port_idx, int):
-                                continue
+                    for port in get_device_ports(device_data):
+                        port_idx = port.get("idx")
+                        if not isinstance(port_idx, int):
+                            continue
+                        if not port_can_be_power_cycled(port):
+                            continue
 
-                            poe_info = port.get("poe")
-                            poe_enabled = False
-                            if isinstance(poe_info, dict):
-                                poe_enabled = bool(poe_info.get("enabled"))
-                            elif port.get("poe_enabled") is not None:
-                                poe_enabled = bool(port.get("poe_enabled"))
+                        poe_btn_key = (
+                            site_id,
+                            device_id,
+                            f"port{port_idx}_poe_power_cycle",
+                        )
+                        if poe_btn_key in known_button_keys:
+                            continue
+                        known_button_keys.add(poe_btn_key)
 
-                            if not poe_enabled:
-                                continue
-
-                            poe_btn_key = (
-                                site_id,
-                                device_id,
-                                f"port{port_idx}_poe_power_cycle",
+                        port_label = _get_port_label(port, port_idx)
+                        entities.append(
+                            UnifiInsightsPoePowerCycleButton(
+                                coordinator=coordinator,
+                                site_id=site_id,
+                                device_id=device_id,
+                                port_idx=port_idx,
+                                port_label=port_label,
                             )
-                            if poe_btn_key in known_button_keys:
-                                continue
-                            known_button_keys.add(poe_btn_key)
-
-                            port_label = _get_port_label(port, port_idx)
-                            entities.append(
-                                UnifiInsightsPoePowerCycleButton(
-                                    coordinator=coordinator,
-                                    site_id=site_id,
-                                    device_id=device_id,
-                                    port_idx=port_idx,
-                                    port_label=port_label,
-                                )
-                            )
+                        )
 
         # Add reconnect buttons for connected clients (when client control is enabled)
         if current_client_control:
@@ -374,6 +397,19 @@ class UnifiInsightsPoePowerCycleButton(UnifiInsightsEntity, ButtonEntity):
         self._port_label = port_label
         self._attr_unique_id = f"{site_id}_{device_id}_port{port_idx}_poe_power_cycle"
         self._attr_translation_placeholders = {"port_label": port_label}
+
+    @property
+    def available(self) -> bool:
+        """Return True if device is online, port exists, and PoE is enabled."""
+        if not super().available:
+            return False
+        port = get_device_port(
+            self.coordinator.data,
+            self._site_id,
+            self._device_id,
+            self._port_idx,
+        )
+        return port is not None and port_can_be_power_cycled(port)
 
     @property
     def port_idx(self) -> int:

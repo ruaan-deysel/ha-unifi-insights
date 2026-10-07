@@ -17,6 +17,9 @@ from custom_components.unifi_insights.button import (
     UnifiProtectPTZPatrolStopButton,
     _get_port_label,
     async_setup_entry,
+    get_device_port,
+    get_device_ports,
+    port_can_be_power_cycled,
 )
 from custom_components.unifi_insights.const import CONF_CLIENT_CONTROL
 
@@ -1290,6 +1293,43 @@ class TestUnifiInsightsPoePowerCycleButton:
         assert button.translation_placeholders == {"port_label": "Port 1"}
         assert button.port_idx == 1
 
+    async def test_poe_power_cycle_button_availability(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Test button availability tracks port presence and PoE enablement."""
+        mock_coordinator.device_available = True
+        button = UnifiInsightsPoePowerCycleButton(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="device1",
+            port_idx=1,
+            port_label="Port 1",
+        )
+
+        # Initially available
+        assert button.available is True
+
+        # PoE disabled after setup -> button becomes unavailable
+        ports = mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"][
+            "ports"
+        ]
+        ports[0]["poe"]["enabled"] = False
+        assert button.available is False
+
+        # Port disappears -> button becomes unavailable
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"]["ports"] = []
+        assert button.available is False
+
+        # Port reappears with PoE enabled -> button becomes available again
+        mock_coordinator.data["devices"]["site1"]["device1"]["interfaces"]["ports"] = [
+            {"idx": 1, "name": "Port 1", "poe": {"enabled": True}}
+        ]
+        assert button.available is True
+
+        # Device offline -> button becomes unavailable
+        mock_coordinator.data["devices"]["site1"]["device1"]["state"] = "OFFLINE"
+        assert button.available is False
+
     async def test_poe_power_cycle_button_press_uses_facade(
         self, hass: HomeAssistant, mock_coordinator: MagicMock
     ) -> None:
@@ -1324,7 +1364,8 @@ class TestUnifiInsightsPoePowerCycleButton:
 
         await button.async_press()
 
-        mock_coordinator.network_client.devices.execute_port_action.assert_awaited_once_with(
+        devices_api = mock_coordinator.network_client.devices
+        devices_api.execute_port_action.assert_awaited_once_with(
             "site1", "device1", 1, "POWER_CYCLE"
         )
 
@@ -1427,19 +1468,19 @@ class TestSetupEntryPoeButtons:
                         "id": "device1",
                         "ports": [
                             None,  # non-dict
-                            {"name": "No Idx"},  # no idx or port_idx
-                            {"port_idx": "invalid"},  # non-int idx
+                            {"name": "No Idx"},  # no idx
+                            {"idx": "invalid"},  # non-int idx
                             {
-                                "port_idx": 3,
-                                "poe_enabled": True,
+                                "idx": 3,
+                                "poe": {"enabled": True},
                                 "name": "AP Port",
                             },
                             {
-                                "port_idx": 4,
-                                "poe_enabled": False,
+                                "idx": 4,
+                                "poe": {"enabled": False},
                             },
                             {
-                                "port_idx": 6,
+                                "idx": 6,
                                 "name": "No PoE Info",
                             },
                         ],

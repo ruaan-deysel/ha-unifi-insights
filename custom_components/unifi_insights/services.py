@@ -22,6 +22,7 @@ from homeassistant.helpers import (
 )
 
 from .api import UniFiAuthenticationError, UniFiError
+from .button import get_device_port, port_can_be_power_cycled
 from .carrier_fabric_data import CarrierFabricData
 from .const import (
     CHIME_RINGTONE_CHRISTMAS,
@@ -1617,26 +1618,8 @@ async def _async_handle_power_cycle_port(
             },
         )
 
-    interfaces = device_data.get("interfaces")
-    ports = (
-        interfaces.get("ports")
-        if isinstance(interfaces, dict)
-        else device_data.get("ports")
-    )
-    if not isinstance(ports, list):
-        ports = []
-
-    matching_port = None
-    for port in ports:
-        if isinstance(port, dict):
-            p_idx = port.get("idx")
-            if p_idx is None:
-                p_idx = port.get("port_idx")
-            if p_idx == port_idx:
-                matching_port = port
-                break
-
-    if matching_port is None:
+    port = get_device_port(coordinator.data, site_id, device_id, port_idx)
+    if port is None:
         msg = f"Port {port_idx} was not found on device {device_id}"
         raise ServiceValidationError(
             msg,
@@ -1648,14 +1631,7 @@ async def _async_handle_power_cycle_port(
             },
         )
 
-    poe_info = matching_port.get("poe")
-    poe_enabled = False
-    if isinstance(poe_info, dict):
-        poe_enabled = bool(poe_info.get("enabled"))
-    elif matching_port.get("poe_enabled") is not None:
-        poe_enabled = bool(matching_port.get("poe_enabled"))
-
-    if not poe_enabled:
+    if not port_can_be_power_cycled(port):
         msg = f"Port {port_idx} on device {device_id} is not PoE-enabled"
         raise ServiceValidationError(
             msg,

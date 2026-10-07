@@ -442,23 +442,3 @@ class CamerasEndpoint:
 
         """
         return await self.update(camera_id, site_id, videoMode=mode)
-
-    async def set_status_light(
-        self,
-        camera_id: str,
-        enabled: bool,  # noqa: FBT001
-        site_id: str | None = None,
-    ) -> Camera:
-        """
-        Set camera status light (LED).
-
-        Args:
-            camera_id: The camera ID.
-            enabled: Whether the status LED is enabled.
-            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
-
-        Returns:
-            The updated camera.
-
-        """
-        return await self.update(camera_id, site_id, ledSettings={"isEnabled": enabled})

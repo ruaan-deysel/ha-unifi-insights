@@ -54,13 +54,18 @@ class UnifiInsightsButtonEntityDescription(ButtonEntityDescription):  # type: ig
 
 
 def get_device_ports(device_data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return list of port dictionaries from device data."""
-    interfaces = device_data.get("interfaces")
-    ports = (
-        interfaces.get("ports")
-        if isinstance(interfaces, dict)
-        else device_data.get("ports")
-    )
+    """
+    Return the port dictionaries the coordinator emitted for a device.
+
+    The coordinator publishes ports in two places, both with ``idx`` and a
+    ``poe`` dict carrying ``enabled``: ``ports`` (legacy ``port_table``
+    normalised by ``_normalize_legacy_port``) and ``interfaces["ports"]``
+    (v1 API). ``ports`` is read first, as the sensor pipeline does.
+    """
+    ports = device_data.get("ports")
+    if not isinstance(ports, list) or not ports:
+        interfaces = device_data.get("interfaces")
+        ports = interfaces.get("ports") if isinstance(interfaces, dict) else None
     if not isinstance(ports, list):
         return []
     return [p for p in ports if isinstance(p, dict)]

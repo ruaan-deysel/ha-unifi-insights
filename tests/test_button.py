@@ -17,6 +17,9 @@ from custom_components.unifi_insights.button import (
     UnifiProtectPTZPatrolStopButton,
     _get_port_label,
     async_setup_entry,
+    get_device_port,
+    get_device_ports,
+    port_can_be_power_cycled,
 )
 from custom_components.unifi_insights.const import CONF_CLIENT_CONTROL
 
@@ -1450,6 +1453,59 @@ class TestSetupEntryPoeButtons:
         assert _get_port_label({"name": "Port 1"}, 1) == "Port 1"
         assert _get_port_label({"media": "SFP+"}, 2) == "SFP+ 2"
         assert _get_port_label({}, 3) == "Port 3"
+
+    def test_get_device_port_and_helpers(self):
+        """Test get_device_port and related helper edge cases."""
+        # Missing site_id or device_id
+        assert get_device_port({}, None, "dev1", 1) is None
+        assert get_device_port({}, "site1", None, 1) is None
+
+        # Non-dict coordinator data or subkeys
+        assert get_device_port(None, "site1", "dev1", 1) is None
+        assert get_device_port({"devices": None}, "site1", "dev1", 1) is None
+        assert get_device_port({"devices": {"site1": None}}, "site1", "dev1", 1) is None
+        assert (
+            get_device_port({"devices": {"site1": {"dev1": None}}}, "site1", "dev1", 1)
+            is None
+        )
+
+        # get_device_ports non-dict interfaces and non-list ports
+        assert get_device_ports({}) == []
+        assert get_device_ports({"interfaces": "invalid", "ports": "invalid"}) == []
+
+        # Top-level (legacy-merged) ports win; interfaces["ports"] is the fallback
+        legacy = [{"idx": 1, "poe": {"enabled": True}}]
+        v1 = [{"idx": 2, "poe": {"enabled": True}}]
+        both = {"ports": legacy, "interfaces": {"ports": v1}}
+        assert get_device_ports(both) == legacy
+        assert get_device_ports({"ports": legacy, "interfaces": {}}) == legacy
+        assert get_device_ports({"ports": [], "interfaces": {"ports": v1}}) == v1
+        assert get_device_ports({"interfaces": {"ports": [None, *v1]}}) == v1
+
+        # Successful port lookup and power-cycle capability checks
+        data = {
+            "devices": {
+                "site1": {
+                    "dev1": {
+                        "interfaces": {
+                            "ports": [
+                                {"idx": 1, "poe": {"enabled": True}},
+                                {"idx": 2, "poe": {"enabled": False}},
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+        port1 = get_device_port(data, "site1", "dev1", 1)
+        assert port1 == {"idx": 1, "poe": {"enabled": True}}
+        assert port_can_be_power_cycled(port1) is True
+
+        port2 = get_device_port(data, "site1", "dev1", 2)
+        assert port2 == {"idx": 2, "poe": {"enabled": False}}
+        assert port_can_be_power_cycled(port2) is False
+
+        assert get_device_port(data, "site1", "dev1", 3) is None
 
     async def test_setup_entry_poe_discovery_edge_cases_and_dedup(
         self, hass: HomeAssistant

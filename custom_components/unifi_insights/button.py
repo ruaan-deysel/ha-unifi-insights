@@ -68,11 +68,13 @@ def get_device_ports(device_data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def get_device_port(
     coordinator_data: Any,
-    site_id: str,
-    device_id: str,
+    site_id: str | None,
+    device_id: str | None,
     port_idx: int,
 ) -> dict[str, Any] | None:
     """Return port dictionary for a device port or None if not found."""
+    if not site_id or not device_id:
+        return None
     if not isinstance(coordinator_data, dict):
         return None
     devices = coordinator_data.get("devices")

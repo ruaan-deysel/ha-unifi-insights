@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Older Protect versions that lack these endpoints are checked once an hour instead of on every poll, and logged once.
   - Diagnostics redact the tamper user name and the Thread network name and IDs.
 
+### Changed
+
+- The README is reorganized around the supported UniFi products: Network, Protect, InnerSpace, Mobility, Site Manager and Carrier Fabric (ISP). It now has an overview, a product summary, setup steps per connection type, all registered actions and all six dashboard cards. The "How this differs from the official integrations" section is removed. Inaccurate claims are corrected: firmware update entities don't install firmware, there is no PoE port power-cycle action, there is no Recording binary sensor or Recording Mode select, and the topology card is listed as "UniFi Topology". [#230](https://github.com/ruaan-deysel/ha-unifi-insights/issues/230)
+
 ### Fixed
 
 - Secrets in logged API responses are now fully redacted. Before, a password, Wi-Fi passphrase, token or API key containing a colon (`:`) or an escaped quote was only partly hidden: debug logs and "Response is not JSON" warnings showed the value up to its last colon, for example `"passphrase": "my:secret: "**REDACTED**"`. Now the whole value is replaced: `"passphrase": "**REDACTED**"`.

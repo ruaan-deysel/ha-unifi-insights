@@ -1210,9 +1210,11 @@ AUTHORIZE_GUEST_SCHEMA = vol.Schema(
         vol.Optional("device_id"): TARGET_SELECTOR_SCHEMA,
         vol.Optional("entity_id"): TARGET_SELECTOR_SCHEMA,
         vol.Optional("target"): TARGET_DICT_SCHEMA,
-        # Note: the official UniFi Integration API authorize action does not
-        # accept duration or bandwidth/data limits. These options are accepted
-        # for backwards compatibility but ignored (a warning is logged).
+        # Note: these options are accepted for backwards compatibility but not
+        # sent yet (a warning is logged), so the site's default guest limits
+        # apply. The Integration API authorize action does accept them
+        # (timeLimitMinutes, dataUsageLimitMBytes, rx/txRateLimitKbps in
+        # Network API v10.6.106).
         vol.Optional("duration_minutes"): vol.All(vol.Coerce(int), vol.Range(min=1)),
         vol.Optional("upload_limit_kbps"): vol.All(vol.Coerce(int), vol.Range(min=0)),
         vol.Optional("download_limit_kbps"): vol.All(vol.Coerce(int), vol.Range(min=0)),

@@ -1,11 +1,12 @@
 """Tests for UniFi Insights buttons."""
 
+import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
+import pytest
 
 from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
@@ -1331,7 +1332,10 @@ class TestUnifiInsightsPoePowerCycleButton:
         assert button.available is False
 
     async def test_poe_power_cycle_button_press_uses_facade(
-        self, hass: HomeAssistant, mock_coordinator: MagicMock
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Button press uses facade coroutine when present."""
         button = UnifiInsightsPoePowerCycleButton(
@@ -1342,7 +1346,10 @@ class TestUnifiInsightsPoePowerCycleButton:
             port_label="Port 1",
         )
 
-        await button.async_press()
+        with caplog.at_level(logging.INFO):
+            await button.async_press()
+
+        assert "Power cycling PoE port 1 on device device1" in caplog.text
 
         mock_coordinator.async_power_cycle_port.assert_awaited_once_with(
             "site1", "device1", 1

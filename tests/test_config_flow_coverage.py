@@ -8,9 +8,13 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 from homeassistant.data_entry_flow import FlowResultType
+from pydantic import ValidationError
 
 from custom_components.unifi_insights.api import (
+    UniFiAuthenticationError,
+    UniFiConnectionError,
     UniFiNotFoundError,
+    UniFiTimeoutError,
 )
 from custom_components.unifi_insights.config_flow import UnifiInsightsConfigFlow
 from custom_components.unifi_insights.const import (
@@ -238,3 +242,99 @@ async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None
             user_input={CONF_CONSOLE_ID: "console123"},
         )
         assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
+@pytest.mark.parametrize(
+    ("remote_api_key", "discovered_consoles"),
+    [
+        (None, {"console123": "Console 123 (console)"}),
+        ("test_api_key", {}),
+    ],
+)
+async def test_select_console_jumps_to_remote_when_state_missing(
+    hass: HomeAssistant,
+    remote_api_key: str | None,
+    discovered_consoles: dict[str, str],
+) -> None:
+    """Test select_console falls back to remote step when state is incomplete."""
+    flow = UnifiInsightsConfigFlow()
+    flow.hass = hass
+    flow._remote_api_key = remote_api_key
+    flow._discovered_remote_consoles = discovered_consoles
+
+    result = await flow.async_step_select_console()
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "remote"
+
+
+@pytest.mark.parametrize(
+    ("side_effect_item", "expected_errors"),
+    [
+        ([], {CONF_CONSOLE_ID: "invalid_console_id"}),
+        (
+            UniFiAuthenticationError("auth error"),
+            {CONF_CONSOLE_ID: "invalid_console_id"},
+        ),
+        (UniFiConnectionError("conn error"), {"base": "cannot_connect"}),
+        (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
+        (
+            UniFiNotFoundError("not found", status_code=404),
+            {"base": "api_unsupported"},
+        ),
+        (
+            ValidationError.from_exception_data("Site", line_errors=[]),
+            {"base": "site_parse_error"},
+        ),
+        (RuntimeError("unexpected"), {"base": "unknown"}),
+    ],
+)
+async def test_select_console_errors_and_recovery(
+    hass: HomeAssistant,
+    side_effect_item: object,
+    expected_errors: dict[str, str],
+) -> None:
+    """Test each error during console validation and subsequent recovery."""
+    valid_sites = [MagicMock(id="default", name="Default")]
+    validate_mock = AsyncMock(side_effect=[side_effect_item, valid_sites])
+
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
+            return_value={"console123": "Dream Router 7 (console)"},
+        ),
+        patch(
+            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
+            validate_mock,
+        ),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_API_KEY: "valid_api_key"},
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "select_console"
+
+        # Submit console selection triggering error
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CONSOLE_ID: "console123"},
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "select_console"
+        assert result["errors"] == expected_errors
+
+        # Resubmit console selection with successful validation
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_CONSOLE_ID: "console123"},
+        )
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["title"] == "UniFi - Dream Router 7"
+        assert result["data"][CONF_CONSOLE_ID] == "console123"

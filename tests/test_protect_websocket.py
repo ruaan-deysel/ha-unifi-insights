@@ -1,3 +1,4 @@
+# Copyright 2026
 """Tests for the vendored UniFi Protect WebSocket client.
 
 This module lives under `custom_components/unifi_insights/api/**`, which is
@@ -431,3 +432,131 @@ async def test_subscribe_with_callback_without_state_callback_still_works() -> N
     await ws_socket.subscribe_with_callback(
         "nvr1", "default", "devices", lambda _msg: None, reconnect=False
     )
+
+
+@pytest.mark.asyncio
+async def test_connect_non_429_handshake_error_raises() -> None:
+    """A non-429 WSServerHandshakeError raises without deferring rate limit."""
+    client = _local_client()
+    ws_socket = ProtectWebSocket(client)
+    session = MagicMock()
+    session.closed = False
+    handshake_err = aiohttp.WSServerHandshakeError(
+        MagicMock(), MagicMock(), status=500, message="Internal Server Error"
+    )
+    session.ws_connect = AsyncMock(side_effect=handshake_err)
+    client._ensure_session = AsyncMock(return_value=session)
+    client._defer_after_rate_limit = MagicMock()
+
+    with pytest.raises(aiohttp.WSServerHandshakeError):
+        await ws_socket._connect("/test")
+
+    client._defer_after_rate_limit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_callback_logs_state_callback_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An exception in on_connection_state_change is logged and does not abort."""
+    client = _local_client()
+    ws_socket = ProtectWebSocket(client)
+
+    close_msg = MagicMock(type=aiohttp.WSMsgType.CLOSED)
+    fake_ws = _make_ws([close_msg])
+    ws_socket._connect = AsyncMock(return_value=fake_ws)
+
+    def bad_callback(_state: object) -> None:
+        err_msg = "boom"
+        raise RuntimeError(err_msg)
+
+    with caplog.at_level(logging.ERROR):
+        await ws_socket.subscribe_with_callback(
+            "nvr1",
+            "default",
+            "devices",
+            lambda _msg: None,
+            reconnect=False,
+            on_connection_state_change=bad_callback,
+        )
+
+    assert "on_connection_state_change callback raised" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_callback_reconnects_after_non_429_handshake_error(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A non-429 WSServerHandshakeError in the reconnect loop logs a warning."""
+    client = _local_client()
+    ws_socket = ProtectWebSocket(client)
+
+    close_msg = MagicMock(type=aiohttp.WSMsgType.CLOSED)
+    good_ws = _make_ws([close_msg])
+
+    connect_calls = 0
+
+    async def _connect(_path: str):
+        nonlocal connect_calls
+        connect_calls += 1
+        if connect_calls == 1:
+            raise aiohttp.WSServerHandshakeError(
+                MagicMock(), MagicMock(), status=500, message="Server error"
+            )
+        ws_socket.stop()
+        return good_ws
+
+    ws_socket._connect = _connect
+
+    with caplog.at_level(logging.WARNING):
+        await ws_socket.subscribe_with_callback(
+            "nvr1",
+            "default",
+            "devices",
+            lambda _msg: None,
+            reconnect=True,
+            reconnect_delay=0,
+        )
+
+    assert "connection error subscribing to devices" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_callback_handles_error_ws_message() -> None:
+    """An ERROR WSMsgType breaks out of the message loop and finishes."""
+    client = _local_client()
+    ws_socket = ProtectWebSocket(client)
+
+    err_msg = MagicMock(type=aiohttp.WSMsgType.ERROR)
+    fake_ws = _make_ws([err_msg])
+    ws_socket._connect = AsyncMock(return_value=fake_ws)
+
+    await ws_socket.subscribe_with_callback(
+        "nvr1", "default", "devices", lambda _msg: None, reconnect=False
+    )
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_callback_stops_when_not_running() -> None:
+    """Setting running=False during iteration terminates the message loop."""
+    client = _local_client()
+    ws_socket = ProtectWebSocket(client)
+
+    def _on_msg(_msg: dict) -> None:
+        ws_socket.stop()
+
+    msg1 = MagicMock(type=aiohttp.WSMsgType.TEXT, data='{"event": "1"}')
+    msg2 = MagicMock(type=aiohttp.WSMsgType.TEXT, data='{"event": "2"}')
+    fake_ws = _make_ws([msg1, msg2])
+    ws_socket._connect = AsyncMock(return_value=fake_ws)
+
+    received = []
+    await ws_socket.subscribe_with_callback(
+        "nvr1",
+        "default",
+        "devices",
+        lambda m: (received.append(m), _on_msg(m)),
+        reconnect=False,
+    )
+
+    assert len(received) == 1

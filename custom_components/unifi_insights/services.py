@@ -1221,7 +1221,7 @@ SET_MIC_VOLUME_SCHEMA = vol.Schema(
         vol.Optional("device_id"): TARGET_SELECTOR_SCHEMA,
         vol.Optional("entity_id"): TARGET_SELECTOR_SCHEMA,
         vol.Optional("target"): TARGET_DICT_SCHEMA,
-        vol.Required("volume"): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
+        vol.Required("volume"): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
     }
 )
 

@@ -1851,6 +1851,34 @@ async def test_chime_set_volume_rejects_out_of_range(volume: int) -> None:
     client._patch.assert_not_awaited()
 
 
+@pytest.mark.parametrize("volume", [1, 100])
+async def test_camera_set_microphone_volume_sends_mic_volume(volume: int) -> None:
+    """The spec range for the camera PATCH micVolume is 1-100."""
+    client = _protect_client()
+    client._patch = AsyncMock(
+        return_value={"id": "cam-1", "mac": "AA:BB:CC:DD:EE:FF", "micVolume": volume}
+    )
+
+    result = await client.cameras.set_microphone_volume("cam-1", volume)
+
+    client._patch.assert_awaited_once_with(
+        client.build_api_path("/cameras/cam-1"), json_data={"micVolume": volume}
+    )
+    assert result.mic_volume == volume
+
+
+@pytest.mark.parametrize("volume", [0, 101])
+async def test_camera_set_microphone_volume_rejects_out_of_range(volume: int) -> None:
+    """0 is below the spec minimum, so it fails before any request."""
+    client = _protect_client()
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        await client.cameras.set_microphone_volume("cam-1", volume)
+
+    client._patch.assert_not_awaited()
+
+
 async def test_devices_get_all_skips_malformed_items() -> None:
     """Devices get_all should skip invalid/malformed items without failing."""
     client = _network_client()

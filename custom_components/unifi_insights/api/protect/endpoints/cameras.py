@@ -177,15 +177,15 @@ class CamerasEndpoint:
 
         Args:
             camera_id: The camera ID.
-            volume: Volume level (0-100).
+            volume: Volume level (1-100; the v7.3.70 camera PATCH minimum is 1).
             site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
 
         Returns:
             The updated camera.
 
         """
-        if not 0 <= volume <= 100:
-            raise ValueError("Volume must be between 0 and 100")
+        if not 1 <= volume <= 100:
+            raise ValueError("Volume must be between 1 and 100")
         return await self.update(camera_id, site_id, micVolume=volume)
 
     async def ptz_goto_preset(

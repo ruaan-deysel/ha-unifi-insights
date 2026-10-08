@@ -159,7 +159,8 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
 
     _attr_has_entity_name = True
     _attr_translation_key = "mic_volume"
-    _attr_native_min_value = 0
+    # The Protect camera PATCH accepts micVolume 1-100.
+    _attr_native_min_value = 1
     _attr_native_max_value = 100
     _attr_native_step = 1
     _attr_mode = NumberMode.SLIDER
@@ -186,8 +187,9 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
             self._device_id, {}
         )
 
-        # Set value
-        self._attr_native_value = camera_data.get("micVolume", 0)
+        # Set value; unknown when the camera doesn't report one (0 is below
+        # the slider minimum, so it can't stand in for a missing value)
+        self._attr_native_value = camera_data.get("micVolume")
 
         # Set attributes
         self._attr_extra_state_attributes = {

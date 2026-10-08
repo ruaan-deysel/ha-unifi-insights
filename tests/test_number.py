@@ -238,7 +238,7 @@ class TestUnifiProtectMicrophoneVolumeNumber:
         assert number._attr_has_entity_name is True
         assert number._attr_translation_key == "mic_volume"
         assert number._attr_entity_category == EntityCategory.CONFIG
-        assert number._attr_native_min_value == 0
+        assert number._attr_native_min_value == 1
         assert number._attr_native_max_value == 100
         assert number._attr_native_step == 1
         assert number._attr_mode == NumberMode.SLIDER
@@ -301,7 +301,7 @@ class TestUnifiProtectMicrophoneVolumeNumber:
         number.async_write_ha_state.assert_not_called()
 
     def test_missing_mic_volume(self, mock_coordinator) -> None:
-        """Test handling missing micVolume field."""
+        """A missing micVolume shows as unknown, not 0 (below the minimum of 1)."""
         del mock_coordinator.data["protect"]["cameras"]["camera1"]["micVolume"]
 
         number = UnifiProtectMicrophoneVolumeNumber(
@@ -309,7 +309,7 @@ class TestUnifiProtectMicrophoneVolumeNumber:
             camera_id="camera1",
         )
 
-        assert number._attr_native_value == 0
+        assert number._attr_native_value is None
 
 
 class TestUnifiProtectLightLevelNumber:

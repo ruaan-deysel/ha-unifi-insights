@@ -249,7 +249,7 @@ data:
 | `unifi_insights.set_recording_mode`         | Set a camera's recording mode                                            |
 | `unifi_insights.set_hdr_mode`               | Set a camera's HDR mode (`auto`, `on`, `off`)                            |
 | `unifi_insights.set_video_mode`             | Set a camera's video mode (`default`, `highFps`, `sport`, `slowShutter`) |
-| `unifi_insights.set_mic_volume`             | Set a camera's microphone volume (0–100)                                 |
+| `unifi_insights.set_mic_volume`             | Set a camera's microphone volume (1–100)                                 |
 | `unifi_insights.ptz_move`                   | Move a PTZ camera to a preset (0–15)                                     |
 | `unifi_insights.ptz_patrol`                 | Start or stop a PTZ patrol                                               |
 | `unifi_insights.set_light_mode`             | Set a light's mode (`always`, `motion`, `off`)                           |

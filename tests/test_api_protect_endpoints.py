@@ -425,12 +425,12 @@ async def test_application_trigger_alarm_webhook_empty_id() -> None:
         await client.application.trigger_alarm_webhook("")
 
 
-@pytest.mark.parametrize("vol", [-1, 101])
+@pytest.mark.parametrize("vol", [0, 101])
 @pytest.mark.asyncio
 async def test_cameras_set_microphone_volume_out_of_range(vol: int) -> None:
-    """Volume outside 0..100 raises ValueError."""
+    """Volume outside 1..100 (the spec micVolume range) raises ValueError."""
     client, _, _ = make_client()
-    with pytest.raises(ValueError, match="Volume must be between 0 and 100"):
+    with pytest.raises(ValueError, match="Volume must be between 1 and 100"):
         await client.cameras.set_microphone_volume("cam-1", vol)
 
 

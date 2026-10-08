@@ -155,11 +155,11 @@ set_mic_volume:
         text:
     volume:
       name: Volume
-      description: Microphone volume level (0-100)
+      description: Microphone volume level (1-100)
       required: true
       selector:
         number:
-          min: 0
+          min: 1
           max: 100
           step: 1
 

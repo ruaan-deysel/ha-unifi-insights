@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 import yaml
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
@@ -862,6 +863,69 @@ class TestProtectServices:
             )
 
         mock_coordinator.async_set_microphone_volume.assert_called_once_with("cam1", 50)
+
+        await async_unload_services(hass)
+
+    @pytest.mark.parametrize("volume", [1, 100])
+    async def test_set_mic_volume_accepts_range_limits(
+        self, hass: HomeAssistant, volume: int
+    ):
+        """Test set_mic_volume passes 1 and 100 to the coordinator unchanged."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_set_microphone_volume = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_mic_volume",
+                {"camera_id": "cam1", "volume": volume},
+                blocking=True,
+            )
+
+        mock_coordinator.async_set_microphone_volume.assert_called_once_with(
+            "cam1", volume
+        )
+
+        await async_unload_services(hass)
+
+    @pytest.mark.parametrize("volume", [0, 101])
+    async def test_set_mic_volume_rejects_out_of_range(
+        self, hass: HomeAssistant, volume: int
+    ):
+        """Test set_mic_volume rejects 0 and 101; the Protect API range is 1-100."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_set_microphone_volume = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_entries",
+                return_value=[mock_entry],
+            ),
+            pytest.raises(vol.Invalid),
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_mic_volume",
+                {"camera_id": "cam1", "volume": volume},
+                blocking=True,
+            )
+
+        mock_coordinator.async_set_microphone_volume.assert_not_called()
 
         await async_unload_services(hass)
 
@@ -5342,7 +5406,7 @@ async def test_network_device_registry_fallback_for_empty_site(
         ),
         ("set_light_mode", "mode", ["always", "motion", "off"], {}),
         ("set_light_level", "level", list(range(101)), {}),
-        ("set_mic_volume", "volume", list(range(101)), {}),
+        ("set_mic_volume", "volume", list(range(1, 101)), {}),
         ("set_chime_volume", "volume", list(range(101)), {}),
         ("ptz_move", "preset", list(range(16)), {}),
         ("ptz_patrol", "slot", list(range(16)), {"action": "start"}),

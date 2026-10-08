@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import MagicMock
 
 import pytest
@@ -14,6 +14,7 @@ import pytest
 from custom_components.unifi_insights.api.auth import ApiKeyAuth
 from custom_components.unifi_insights.api.carrier_fabric import (
     CarrierFabricMeta,
+    HostLinkResponse,
     ServicePlan,
     Subscriber,
     UniFiCarrierFabricClient,
@@ -27,6 +28,13 @@ from custom_components.unifi_insights.api.exceptions import (
     UniFiRateLimitError,
     UniFiResponseError,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from custom_components.unifi_insights.api.carrier_fabric.endpoints import (
+        SubscribersEndpoint,
+    )
 
 VALID_SUB_ID_1 = "11111111-1111-1111-1111-111111111111"
 VALID_SUB_ID_2 = "22222222-2222-2222-2222-222222222222"
@@ -470,7 +478,7 @@ async def test_subscribers_limit_bounds_validation(bad_limit: Any) -> None:
     "bad_uuid", ["not-a-uuid", "sub-1", "", "12345", "11111111-1111-1111-1111"]
 )
 async def test_subscribers_endpoint_uuid_validation(bad_uuid: str) -> None:
-    """Subscribers get/suspend/resume validate UUID format before building path."""
+    """Every subscriber method validates the UUID before building the path."""
     session = _Session([])
     client = _client(session)
 
@@ -482,6 +490,18 @@ async def test_subscribers_endpoint_uuid_validation(bad_uuid: str) -> None:
 
     with pytest.raises(ValueError, match="Invalid subscriber ID format"):
         await client.subscribers.resume(bad_uuid)
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.update(bad_uuid, name="New name")
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.attach_host(bad_uuid, "host-1")
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.detach_host(bad_uuid)
+
+    with pytest.raises(ValueError, match="Invalid subscriber ID format"):
+        await client.subscribers.assign_plan(bad_uuid, VALID_PLAN_ID_1)
 
     assert len(session.requests) == 0
 
@@ -622,7 +642,325 @@ async def test_resume() -> None:
     assert session.requests[0]["json"] is None
 
 
-@pytest.mark.parametrize("action", ["suspend", "resume"])
+SUBSCRIBERS_URL = "https://api.ui.com/v1/carrier/subscribers"
+SUBSCRIBER_URL = f"{SUBSCRIBERS_URL}/{VALID_SUB_ID_1}"
+
+
+async def test_create_sends_only_the_fields_passed() -> None:
+    """Create posts subscriberNumber plus only the optional fields given."""
+    session = _Session(
+        [
+            _Response({"data": {"id": VALID_SUB_ID_1}}, status=201),
+            _Response({"data": {"id": VALID_SUB_ID_2}}, status=201),
+        ]
+    )
+    client = _client(session)
+
+    sub = await client.subscribers.create(subscriber_number="ACME-1")
+    assert sub is not None
+    assert sub.id == VALID_SUB_ID_1
+    assert session.requests[0]["method"] == "POST"
+    assert session.requests[0]["url"] == SUBSCRIBERS_URL
+    assert session.requests[0]["json"] == {"subscriberNumber": "ACME-1"}
+
+    await client.subscribers.create(
+        subscriber_number="ACME-2",
+        name="Jane Doe",
+        email="jane@example.com",
+        notes="Gate code 1234",
+        service_address="1 Main St",
+        plan_id=VALID_PLAN_ID_1.upper(),
+        metadata={"crmId": 7},
+    )
+    assert session.requests[1]["json"] == {
+        "subscriberNumber": "ACME-2",
+        "name": "Jane Doe",
+        "email": "jane@example.com",
+        "notes": "Gate code 1234",
+        "serviceAddress": "1 Main St",
+        "planId": VALID_PLAN_ID_1,
+        "metadata": {"crmId": 7},
+    }
+
+
+async def test_update_sends_only_the_fields_passed() -> None:
+    """Update patches only the given fields, and None clears a field."""
+    session = _Session([{"data": {"id": VALID_SUB_ID_1}}] * 3)
+    client = _client(session)
+
+    sub = await client.subscribers.update(VALID_SUB_ID_1, name="New name")
+    assert sub is not None
+    assert session.requests[0]["method"] == "PATCH"
+    assert session.requests[0]["url"] == SUBSCRIBER_URL
+    assert session.requests[0]["json"] == {"name": "New name"}
+
+    await client.subscribers.update(
+        VALID_SUB_ID_1,
+        name=None,
+        email=None,
+        notes=None,
+        service_address=None,
+        plan_id=None,
+    )
+    assert session.requests[1]["json"] == {
+        "name": None,
+        "email": None,
+        "notes": None,
+        "serviceAddress": None,
+        "planId": None,
+    }
+
+    await client.subscribers.update(
+        VALID_SUB_ID_1,
+        subscriber_number="ACME-9",
+        plan_id=VALID_PLAN_ID_1.upper(),
+        metadata={},
+    )
+    assert session.requests[2]["json"] == {
+        "subscriberNumber": "ACME-9",
+        "planId": VALID_PLAN_ID_1,
+        "metadata": {},
+    }
+
+
+async def test_update_without_fields_raises_before_request() -> None:
+    """An update with nothing to change is rejected without a request."""
+    session = _Session([])
+
+    with pytest.raises(ValueError, match="No subscriber fields to update"):
+        await _client(session).subscribers.update(VALID_SUB_ID_1)
+
+    assert session.requests == []
+
+
+async def test_attach_host() -> None:
+    """Attach puts the host ID and returns the subscriber and replaced host."""
+    session = _Session(
+        [
+            {
+                "data": {"id": VALID_SUB_ID_1, "hostId": "host-new"},
+                "prevHostId": "host-old",
+                "traceId": "trace-1",
+            }
+        ]
+    )
+
+    result = await _client(session).subscribers.attach_host(VALID_SUB_ID_1, "host-new")
+
+    assert isinstance(result, HostLinkResponse)
+    assert result.subscriber.host_id == "host-new"
+    assert result.prev_host_id == "host-old"
+    assert session.requests[0]["method"] == "PUT"
+    assert session.requests[0]["url"] == f"{SUBSCRIBER_URL}/host"
+    assert session.requests[0]["json"] == {"hostId": "host-new"}
+
+
+async def test_attach_host_accepts_a_128_character_host_id() -> None:
+    """The spec allows a host ID of up to 128 characters."""
+    session = _Session([{"data": {"id": VALID_SUB_ID_1}}])
+
+    await _client(session).subscribers.attach_host(VALID_SUB_ID_1, "h" * 128)
+
+    assert session.requests[0]["json"] == {"hostId": "h" * 128}
+
+
+@pytest.mark.parametrize("bad_host_id", ["", "   ", "h" * 129, None, 123])
+async def test_attach_host_rejects_invalid_host_id(bad_host_id: Any) -> None:
+    """A blank, too long or non-string host ID never reaches the API."""
+    session = _Session([])
+
+    with pytest.raises(ValueError, match="Invalid host ID"):
+        await _client(session).subscribers.attach_host(VALID_SUB_ID_1, bad_host_id)
+
+    assert session.requests == []
+
+
+async def test_detach_host() -> None:
+    """Detach deletes the host link without a body and returns the removed host."""
+    session = _Session(
+        [{"data": {"id": VALID_SUB_ID_1, "hostId": None}, "prevHostId": "host-old"}]
+    )
+
+    result = await _client(session).subscribers.detach_host(VALID_SUB_ID_1)
+
+    assert result is not None
+    assert result.subscriber.host_id is None
+    assert result.prev_host_id == "host-old"
+    assert session.requests[0]["method"] == "DELETE"
+    assert session.requests[0]["url"] == f"{SUBSCRIBER_URL}/host"
+    assert session.requests[0]["json"] is None
+
+
+async def test_assign_plan() -> None:
+    """Assign plan puts the canonical plan UUID."""
+    session = _Session([{"data": {"id": VALID_SUB_ID_1, "planId": VALID_PLAN_ID_1}}])
+
+    sub = await _client(session).subscribers.assign_plan(
+        VALID_SUB_ID_1, VALID_PLAN_ID_1.upper()
+    )
+
+    assert sub is not None
+    assert sub.plan_id == VALID_PLAN_ID_1
+    assert session.requests[0]["method"] == "PUT"
+    assert session.requests[0]["url"] == f"{SUBSCRIBER_URL}/plan"
+    assert session.requests[0]["json"] == {"planId": VALID_PLAN_ID_1}
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda subscribers: subscribers.create(
+            subscriber_number="ACME-1", plan_id="plan-1"
+        ),
+        lambda subscribers: subscribers.update(VALID_SUB_ID_1, plan_id="plan-1"),
+        lambda subscribers: subscribers.assign_plan(VALID_SUB_ID_1, "plan-1"),
+    ],
+    ids=["create", "update", "assign_plan"],
+)
+async def test_invalid_plan_id_raises_before_request(
+    call: Callable[[SubscribersEndpoint], Awaitable[object]],
+) -> None:
+    """A plan ID that is not a UUID never reaches the API."""
+    session = _Session([])
+
+    with pytest.raises(ValueError, match="Invalid plan ID format"):
+        await call(_client(session).subscribers)
+
+    assert session.requests == []
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda subscribers: subscribers.create(
+            subscriber_number="ACME-1", plan_id=uuid.UUID(VALID_PLAN_ID_1)
+        ),
+        lambda subscribers: subscribers.update(
+            VALID_SUB_ID_1, plan_id=uuid.UUID(VALID_PLAN_ID_1)
+        ),
+        lambda subscribers: subscribers.assign_plan(
+            VALID_SUB_ID_1, uuid.UUID(VALID_PLAN_ID_1)
+        ),
+    ],
+    ids=["create", "update", "assign_plan"],
+)
+async def test_plan_id_uuid_object_is_sent_as_text(
+    call: Callable[[SubscribersEndpoint], Awaitable[object]],
+) -> None:
+    """A uuid.UUID plan ID is sent as its canonical text, never as an object."""
+    session = _Session([{"data": {"id": VALID_SUB_ID_1}}])
+
+    await call(_client(session).subscribers)
+
+    assert session.requests[0]["json"]["planId"] == VALID_PLAN_ID_1
+
+
+async def test_create_with_non_json_success_body_raises() -> None:
+    """A non-JSON 2xx still raises, so create's docstring warns before a retry."""
+    session = _Session([_Response("<html>login</html>", status=201)])
+
+    with pytest.raises(UniFiResponseError) as err:
+        await _client(session).subscribers.create(subscriber_number="ACME-1")
+
+    assert err.value.status_code == 201
+    assert len(session.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("call", "status", "code"),
+    [
+        (
+            lambda subscribers: subscribers.attach_host(VALID_SUB_ID_1, "host-1"),
+            409,
+            "gateway_already_attached",
+        ),
+        (
+            lambda subscribers: subscribers.detach_host(VALID_SUB_ID_1),
+            409,
+            "no_attached_host",
+        ),
+        (
+            lambda subscribers: subscribers.assign_plan(
+                VALID_SUB_ID_1, VALID_PLAN_ID_1
+            ),
+            400,
+            "service_plan_archived",
+        ),
+        (
+            lambda subscribers: subscribers.create(subscriber_number="ACME-1"),
+            400,
+            "validation_failed",
+        ),
+    ],
+    ids=["attach_host", "detach_host", "assign_plan", "create"],
+)
+async def test_write_errors_carry_the_api_error_code(
+    call: Callable[[SubscribersEndpoint], Awaitable[object]],
+    status: int,
+    code: str,
+) -> None:
+    """A rejected write raises with the API's error code, like suspend and resume."""
+    session = _Session(
+        [_Response({"error": {"code": code}, "traceId": "trace-1"}, status=status)]
+    )
+
+    with pytest.raises(UniFiResponseError) as err:
+        await call(_client(session).subscribers)
+
+    assert err.value.status_code == status
+    assert err.value.api_error_code == code
+    assert len(session.requests) == 1
+
+
+async def test_create_does_not_log_subscriber_fields(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Request and response field values stay out of the logs."""
+    session = _Session(
+        [_Response({"data": {"suspended": True, "name": "Jane Doe"}}, status=201)]
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        await _client(session).subscribers.create(
+            subscriber_number="ACME-1", name="Jane Doe", email="jane@example.com"
+        )
+
+    assert "Jane Doe" not in caplog.text
+    assert "jane@example.com" not in caplog.text
+    assert "ACME-1" not in caplog.text
+
+
+def test_host_link_response_model() -> None:
+    """HostLinkResponse reads the spec envelope and keeps unknown keys."""
+    result = HostLinkResponse.model_validate(
+        {"data": {"id": VALID_SUB_ID_1}, "prevHostId": None, "traceId": "trace-1"}
+    )
+
+    assert result.subscriber.id == VALID_SUB_ID_1
+    assert result.prev_host_id is None
+    assert result.model_extra == {"traceId": "trace-1"}
+    assert result.model_dump(by_alias=True, exclude_none=True)["data"] == {
+        "id": VALID_SUB_ID_1,
+        "suspended": False,
+    }
+
+
+_WRITES: dict[str, Callable[[SubscribersEndpoint], Awaitable[object]]] = {
+    "suspend": lambda subscribers: subscribers.suspend(VALID_SUB_ID_1),
+    "resume": lambda subscribers: subscribers.resume(VALID_SUB_ID_1),
+    "create": lambda subscribers: subscribers.create(subscriber_number="ACME-1"),
+    "update": lambda subscribers: subscribers.update(VALID_SUB_ID_1, name="New"),
+    "attach_host": lambda subscribers: subscribers.attach_host(
+        VALID_SUB_ID_1, "host-1"
+    ),
+    "detach_host": lambda subscribers: subscribers.detach_host(VALID_SUB_ID_1),
+    "assign_plan": lambda subscribers: subscribers.assign_plan(
+        VALID_SUB_ID_1, VALID_PLAN_ID_1
+    ),
+}
+
+
+@pytest.mark.parametrize("action", list(_WRITES))
 @pytest.mark.parametrize(
     "body",
     [
@@ -643,21 +981,22 @@ async def test_write_with_unreadable_success_body_returns_none(
     client = _client(session)
 
     with caplog.at_level(logging.DEBUG):
-        result = await getattr(client.subscribers, action)(VALID_SUB_ID_1)
+        result = await _WRITES[action](client.subscribers)
 
     assert result is None
     assert len(session.requests) == 1
-    assert "succeeded without a readable subscriber body" in caplog.text
+    label = "host link" if action.endswith("_host") else "subscriber"
+    assert f"succeeded without a readable {label} body" in caplog.text
 
 
-@pytest.mark.parametrize("action", ["suspend", "resume"])
+@pytest.mark.parametrize("action", list(_WRITES))
 async def test_write_with_error_status_still_raises(action: str) -> None:
     """Only a 2xx is success: a rejected write must still raise."""
     session = _Session([_Response({"error": {"code": "internal_error"}}, status=500)])
     client = _client(session)
 
     with pytest.raises(UniFiResponseError):
-        await getattr(client.subscribers, action)(VALID_SUB_ID_1)
+        await _WRITES[action](client.subscribers)
 
 
 @pytest.mark.parametrize(
@@ -671,24 +1010,26 @@ async def test_write_with_error_status_still_raises(action: str) -> None:
 )
 async def test_subscriber_paths_use_the_canonical_uuid(spelling: str) -> None:
     """Non-canonical UUID spellings never reach the request path."""
-    session = _Session(
-        [
-            {"data": {"id": VALID_SUB_ID_1}},
-            {"data": {"id": VALID_SUB_ID_1}},
-            {"data": {"id": VALID_SUB_ID_1}},
-        ]
-    )
+    session = _Session([{"data": {"id": VALID_SUB_ID_1}}] * 7)
     client = _client(session)
 
     await client.subscribers.get(spelling)
     await client.subscribers.suspend(spelling)
     await client.subscribers.resume(spelling)
+    await client.subscribers.update(spelling, name="New name")
+    await client.subscribers.attach_host(spelling, "host-1")
+    await client.subscribers.detach_host(spelling)
+    await client.subscribers.assign_plan(spelling, VALID_PLAN_ID_1)
 
     base = f"https://api.ui.com/v1/carrier/subscribers/{VALID_SUB_ID_1}"
     assert [r["url"] for r in session.requests] == [
         base,
         f"{base}/suspend",
         f"{base}/resume",
+        base,
+        f"{base}/host",
+        f"{base}/host",
+        f"{base}/plan",
     ]
 
 

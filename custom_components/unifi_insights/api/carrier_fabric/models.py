@@ -88,6 +88,22 @@ class Subscriber(CarrierFabricBaseModel):
         return data
 
 
+class HostLinkResponse(CarrierFabricBaseModel):
+    """Response of attaching or detaching a subscriber's gateway host."""
+
+    subscriber: Subscriber = Field(
+        validation_alias=AliasChoices("data", "subscriber"),
+        serialization_alias="data",
+    )
+    # The host linked before the call: None on a fresh attach, the replaced
+    # host on a re-link, the removed host on a detach.
+    prev_host_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("prevHostId", "prev_host_id"),
+        serialization_alias="prevHostId",
+    )
+
+
 class ServicePlan(CarrierFabricBaseModel):
     """UniFi Carrier Fabric Service Plan model."""
 

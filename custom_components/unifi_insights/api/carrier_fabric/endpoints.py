@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
+import enum
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel, ValidationError
 
@@ -16,30 +17,66 @@ from custom_components.unifi_insights.api.const import (
 )
 from custom_components.unifi_insights.api.exceptions import UniFiResponseError
 
-from .models import ServicePlan, Subscriber
+from .models import HostLinkResponse, ServicePlan, Subscriber
 
 if TYPE_CHECKING:
     from .client import UniFiCarrierFabricClient
 
 _LOGGER = logging.getLogger(__name__)
 
+# attachSubscriberHost limits hostId to 128 characters.
+_HOST_ID_MAX_LENGTH: Final = 128
 
-def _canonical_subscriber_id(subscriber_id: str) -> str:
+
+class _Unset(enum.Enum):
+    """Default for update fields, so an omitted field differs from None."""
+
+    TOKEN = enum.auto()
+
+
+_UNSET: Final = _Unset.TOKEN
+
+
+def _canonical_uuid(value: str, label: str) -> str:
     """
-    Return the canonical text form of a subscriber UUID.
+    Return the canonical text form of a UUID.
 
     ``uuid.UUID`` also accepts braces, ``urn:uuid:`` and dash-less hex, so only
-    the canonical form is ever placed in a request path.
+    the canonical form is ever sent to the API.
 
     Raises:
-        ValueError: If ``subscriber_id`` is not a UUID.
+        ValueError: If ``value`` is not a UUID.
 
     """
     try:
-        return str(uuid.UUID(str(subscriber_id)))
+        return str(uuid.UUID(str(value)))
     except ValueError as err:
-        msg = f"Invalid subscriber ID format (UUID required): {subscriber_id!r}"
+        msg = f"Invalid {label} format (UUID required): {value!r}"
         raise ValueError(msg) from err
+
+
+def _canonical_subscriber_id(subscriber_id: str) -> str:
+    """Return the canonical text form of a subscriber UUID."""
+    return _canonical_uuid(subscriber_id, "subscriber ID")
+
+
+def _checked_host_id(host_id: str) -> str:
+    """
+    Return ``host_id`` unchanged if it can be a gateway host ID.
+
+    Raises:
+        ValueError: If ``host_id`` is not a non-blank string of at most 128
+            characters.
+
+    """
+    if (
+        not isinstance(host_id, str)
+        or not host_id.strip()
+        or len(host_id) > _HOST_ID_MAX_LENGTH
+    ):
+        msg = f"Invalid host ID (1-{_HOST_ID_MAX_LENGTH} characters required)"
+        raise ValueError(msg)
+    return host_id
 
 
 def _subscriber_path(subscriber_id: str) -> str:
@@ -88,6 +125,22 @@ def _parse_items[ModelT: BaseModel](
         except ValidationError:
             _LOGGER.debug("Skipping invalid %s item", label)
     return parsed
+
+
+def _write_result[ModelT: BaseModel](
+    model: type[ModelT], path: str, payload: object, label: str
+) -> ModelT | None:
+    """
+    Parse the body of a successful write without ever failing it.
+
+    Any 2xx means the change was applied, so a body that cannot be read as
+    ``model`` returns None. Only the path is logged, never field values.
+    """
+    try:
+        return model.model_validate(payload)
+    except ValidationError:
+        _LOGGER.debug("%s succeeded without a readable %s body", path, label)
+        return None
 
 
 class ServicePlansEndpoint:
@@ -311,7 +364,7 @@ class SubscribersEndpoint:
         path = f"{_subscriber_path(subscriber_id)}/suspend"
         json_data = {"reason": reason} if reason is not None else None
         response = await self._client._post(path, json_data=json_data)
-        return self._write_result(path, response)
+        return self._subscriber_result(path, response)
 
     async def resume(self, subscriber_id: str) -> Subscriber | None:
         """
@@ -333,13 +386,197 @@ class SubscribersEndpoint:
         """
         path = f"{_subscriber_path(subscriber_id)}/resume"
         response = await self._client._post(path)
-        return self._write_result(path, response)
+        return self._subscriber_result(path, response)
+
+    async def create(
+        self,
+        *,
+        subscriber_number: str,
+        name: str | None = None,
+        email: str | None = None,
+        notes: str | None = None,
+        service_address: str | None = None,
+        plan_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Subscriber | None:
+        """
+        Create a subscriber.
+
+        The API does not deduplicate: every successful call creates a new
+        subscriber. A 2xx with an empty body or one that is not a subscriber
+        is therefore still success, so the caller is not led to retry. If the
+        call raises after the request may have been sent (a timeout, or a
+        non-JSON 2xx), look for ``subscriber_number`` in the subscriber list
+        before retrying, or the retry may create a duplicate.
+
+        Args:
+            subscriber_number: The operator's external reference (1-32
+                characters).
+            name: Optional display name.
+            email: Optional email address.
+            notes: Optional free-text notes.
+            service_address: Optional free-text service address.
+            plan_id: Optional service plan to assign (UUID).
+            metadata: Optional free-form key/value metadata.
+
+        Returns:
+            The created subscriber, or None if the response carried none.
+
+        Raises:
+            ValueError: If ``plan_id`` is not a valid UUID.
+            UniFiError: If the API rejects the request (non-2xx).
+
+        """
+        path = f"{CARRIER_FABRIC_PATH}/subscribers"
+        optional: dict[str, Any] = {
+            "name": name,
+            "email": email,
+            "notes": notes,
+            "serviceAddress": service_address,
+            "planId": None if plan_id is None else _canonical_uuid(plan_id, "plan ID"),
+            "metadata": metadata,
+        }
+        json_data: dict[str, Any] = {"subscriberNumber": subscriber_number}
+        json_data.update({k: v for k, v in optional.items() if v is not None})
+        response = await self._client._post(path, json_data=json_data)
+        return self._subscriber_result(path, response)
+
+    async def update(
+        self,
+        subscriber_id: str,
+        *,
+        subscriber_number: str | _Unset = _UNSET,
+        name: str | _Unset | None = _UNSET,
+        email: str | _Unset | None = _UNSET,
+        notes: str | _Unset | None = _UNSET,
+        service_address: str | _Unset | None = _UNSET,
+        plan_id: str | _Unset | None = _UNSET,
+        metadata: dict[str, Any] | _Unset = _UNSET,
+    ) -> Subscriber | None:
+        """
+        Update a subscriber.
+
+        Only the fields passed are sent, so the others stay unchanged. None
+        clears ``name``, ``email``, ``notes``, ``service_address`` or
+        ``plan_id``. ``subscriber_number`` cannot be cleared, and
+        ``metadata`` replaces the whole document (pass ``{}`` to empty it).
+
+        Args:
+            subscriber_id: The subscriber ID to update.
+            subscriber_number: New external reference (1-32 characters).
+            name: New display name, or None to clear it.
+            email: New email address, or None to clear it.
+            notes: New notes, or None to clear them.
+            service_address: New service address, or None to clear it.
+            plan_id: New service plan (UUID), or None to clear it.
+            metadata: New metadata document.
+
+        Returns:
+            The updated subscriber, or None if the response carried none.
+
+        Raises:
+            ValueError: If the subscriber ID or ``plan_id`` is not a valid
+                UUID, or no field is passed.
+            UniFiError: If the API rejects the request (non-2xx).
+
+        """
+        path = _subscriber_path(subscriber_id)
+        if plan_id is not None and plan_id is not _UNSET:
+            plan_id = _canonical_uuid(plan_id, "plan ID")
+        fields: dict[str, Any] = {
+            "subscriberNumber": subscriber_number,
+            "name": name,
+            "email": email,
+            "notes": notes,
+            "serviceAddress": service_address,
+            "planId": plan_id,
+            "metadata": metadata,
+        }
+        json_data = {k: v for k, v in fields.items() if v is not _UNSET}
+        if not json_data:
+            msg = "No subscriber fields to update"
+            raise ValueError(msg)
+        response = await self._client._patch(path, json_data=json_data)
+        return self._subscriber_result(path, response)
+
+    async def attach_host(
+        self, subscriber_id: str, host_id: str
+    ) -> HostLinkResponse | None:
+        """
+        Attach or re-link a subscriber's gateway host.
+
+        A different host replaces the current one (an RMA re-link). This is
+        not idempotent: the host that is already linked is rejected with a 409
+        whose ``api_error_code`` is ``gateway_already_attached``, and a host
+        linked to another subscriber with ``gateway_already_linked``. After a
+        timeout, read the subscriber's ``host_id`` instead of retrying.
+
+        Args:
+            subscriber_id: The subscriber ID.
+            host_id: The gateway host ID (1-128 characters).
+
+        Returns:
+            The updated subscriber and the replaced host ID, or None if the
+            response carried no readable subscriber.
+
+        Raises:
+            ValueError: If the subscriber ID is not a valid UUID, or
+                ``host_id`` is blank or longer than 128 characters.
+            UniFiError: If the API rejects the request (non-2xx).
+
+        """
+        path = f"{_subscriber_path(subscriber_id)}/host"
+        json_data = {"hostId": _checked_host_id(host_id)}
+        response = await self._client._put(path, json_data=json_data)
+        return _write_result(HostLinkResponse, path, response, "host link")
+
+    async def detach_host(self, subscriber_id: str) -> HostLinkResponse | None:
+        """
+        Detach a subscriber's gateway host.
+
+        This is not idempotent: a subscriber with no host is rejected with a
+        409 whose ``api_error_code`` is ``no_attached_host``. After a timeout,
+        read the subscriber's ``host_id`` instead of retrying.
+
+        Args:
+            subscriber_id: The subscriber ID.
+
+        Returns:
+            The updated subscriber and the removed host ID, or None if the
+            response carried no readable subscriber.
+
+        Raises:
+            ValueError: If the subscriber ID is not a valid UUID.
+            UniFiError: If the API rejects the request (non-2xx).
+
+        """
+        path = f"{_subscriber_path(subscriber_id)}/host"
+        response = await self._client._delete(path)
+        return _write_result(HostLinkResponse, path, response, "host link")
+
+    async def assign_plan(self, subscriber_id: str, plan_id: str) -> Subscriber | None:
+        """
+        Assign a service plan to a subscriber.
+
+        Args:
+            subscriber_id: The subscriber ID.
+            plan_id: The service plan ID (UUID).
+
+        Returns:
+            The updated subscriber, or None if the response carried none.
+
+        Raises:
+            ValueError: If the subscriber ID or ``plan_id`` is not a valid UUID.
+            UniFiError: If the API rejects the request (non-2xx), for example
+                an archived plan (``service_plan_archived``).
+
+        """
+        path = f"{_subscriber_path(subscriber_id)}/plan"
+        json_data = {"planId": _canonical_uuid(plan_id, "plan ID")}
+        response = await self._client._put(path, json_data=json_data)
+        return self._subscriber_result(path, response)
 
     @staticmethod
-    def _write_result(path: str, response: object) -> Subscriber | None:
-        """Parse the body of a successful write without ever failing it."""
-        try:
-            return Subscriber.model_validate(_object_data(response))
-        except ValidationError:
-            _LOGGER.debug("%s succeeded without a readable subscriber body", path)
-            return None
+    def _subscriber_result(path: str, response: object) -> Subscriber | None:
+        """Parse the subscriber in a successful write without ever failing it."""
+        return _write_result(Subscriber, path, _object_data(response), "subscriber")

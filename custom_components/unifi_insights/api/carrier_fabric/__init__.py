@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 from .client import UniFiCarrierFabricClient
-from .models import CarrierFabricMeta, ServicePlan, Subscriber
+from .models import CarrierFabricMeta, HostLinkResponse, ServicePlan, Subscriber
 
 __all__ = [
     "CarrierFabricMeta",
+    "HostLinkResponse",
     "ServicePlan",
     "Subscriber",
     "UniFiCarrierFabricClient",

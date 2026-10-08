@@ -493,3 +493,179 @@ async def test_reauth_remote_validation_errors_and_recovery(
         assert result["type"] == FlowResultType.ABORT
         assert result["reason"] == "reauth_successful"
         assert remote_entry.data[CONF_API_KEY] == "new_valid_key"
+
+
+@pytest.mark.parametrize(
+    ("discovery_side_effect", "input_console_id", "expected_errors"),
+    [
+        ({}, "console123", {"base": "no_remote_consoles"}),
+        (
+            {"console123": "Console 123 (console)"},
+            "unmatched_console",
+            {CONF_CONSOLE_ID: "invalid_console_id"},
+        ),
+        (
+            UniFiAuthenticationError("auth error"),
+            "console123",
+            {CONF_API_KEY: "invalid_auth"},
+        ),
+        (UniFiConnectionError("conn error"), "console123", {"base": "cannot_connect"}),
+        (UniFiTimeoutError("timeout"), "console123", {"base": "cannot_connect"}),
+        (
+            UniFiNotFoundError("not found", status_code=404),
+            "console123",
+            {"base": "api_unsupported"},
+        ),
+        (
+            ValidationError.from_exception_data("Site", line_errors=[]),
+            "console123",
+            {"base": "site_parse_error"},
+        ),
+        (RuntimeError("unexpected"), "console123", {"base": "unknown"}),
+    ],
+)
+async def test_reconfigure_remote_discovery_errors_and_recovery(
+    hass: HomeAssistant,
+    discovery_side_effect: object,
+    input_console_id: str,
+    expected_errors: dict[str, str],
+) -> None:
+    """Test discovery errors in remote reconfigure and subsequent recovery."""
+    remote_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Insights (Cloud)",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE,
+            CONF_CONSOLE_ID: "console123",
+            CONF_API_KEY: "old_api_key",
+        },
+        unique_id="old_api_key",
+    )
+    remote_entry.add_to_hass(hass)
+
+    valid_consoles = {"console123": "Console 123 (console)"}
+    discover_mock = AsyncMock(side_effect=[discovery_side_effect, valid_consoles])
+    validate_mock = AsyncMock(return_value=[MagicMock(id="default", name="Default")])
+
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
+            discover_mock,
+        ),
+        patch(
+            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
+            validate_mock,
+        ),
+    ):
+        result = await remote_entry.start_reconfigure_flow(hass)
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+
+        # First attempt with failing discovery
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONSOLE_ID: input_console_id,
+                CONF_API_KEY: "bad_api_key",
+            },
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+        assert result["errors"] == expected_errors
+
+        # Recovery attempt
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONSOLE_ID: "console123",
+                CONF_API_KEY: "new_valid_key",
+            },
+        )
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert remote_entry.data[CONF_API_KEY] == "new_valid_key"
+        assert remote_entry.data[CONF_CONSOLE_ID] == "console123"
+
+
+@pytest.mark.parametrize(
+    ("validation_side_effect", "expected_errors"),
+    [
+        ([], {CONF_CONSOLE_ID: "invalid_console_id"}),
+        (
+            UniFiAuthenticationError("auth error"),
+            {CONF_CONSOLE_ID: "invalid_console_id"},
+        ),
+        (UniFiConnectionError("conn error"), {"base": "cannot_connect"}),
+        (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
+        (
+            UniFiNotFoundError("not found", status_code=404),
+            {"base": "api_unsupported"},
+        ),
+        (
+            ValidationError.from_exception_data("Site", line_errors=[]),
+            {"base": "site_parse_error"},
+        ),
+        (RuntimeError("unexpected"), {"base": "unknown"}),
+    ],
+)
+async def test_reconfigure_remote_validation_errors_and_recovery(
+    hass: HomeAssistant,
+    validation_side_effect: object,
+    expected_errors: dict[str, str],
+) -> None:
+    """Test validation errors in remote reconfigure and subsequent recovery."""
+    remote_entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="UniFi Insights (Cloud)",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_REMOTE,
+            CONF_CONSOLE_ID: "console123",
+            CONF_API_KEY: "old_api_key",
+        },
+        unique_id="old_api_key",
+    )
+    remote_entry.add_to_hass(hass)
+
+    valid_consoles = {"console123": "Console 123 (console)"}
+    valid_sites = [MagicMock(id="default", name="Default")]
+    discover_mock = AsyncMock(return_value=valid_consoles)
+    validate_mock = AsyncMock(side_effect=[validation_side_effect, valid_sites])
+
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
+            discover_mock,
+        ),
+        patch(
+            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
+            validate_mock,
+        ),
+    ):
+        result = await remote_entry.start_reconfigure_flow(hass)
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+
+        # First attempt with failing validation
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONSOLE_ID: "console123",
+                CONF_API_KEY: "key_with_validation_failure",
+            },
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+        assert result["errors"] == expected_errors
+
+        # Recovery attempt
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONSOLE_ID: "console123",
+                CONF_API_KEY: "new_valid_key",
+            },
+        )
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert remote_entry.data[CONF_API_KEY] == "new_valid_key"
+        assert remote_entry.data[CONF_CONSOLE_ID] == "console123"

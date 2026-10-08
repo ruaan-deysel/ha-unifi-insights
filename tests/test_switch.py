@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Protect switch platform."""
 
 from __future__ import annotations
@@ -8,7 +9,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -46,6 +49,7 @@ from custom_components.unifi_insights.switch import (
     UnifiVpnClientSwitch,
     UnifiWifiSwitch,
     _find_gateway_device_id,
+    _get_firewall_rule_action,
     _prune_orphaned_switch_entities,
     async_setup_entry,
 )
@@ -255,6 +259,34 @@ class TestAsyncSetupEntry:
         listener()
 
         assert async_add_entities.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_setup_entry_removes_client_block_switches_when_disabled(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Test setup removes client block switches when client_control is disabled."""
+        mock_entry = MockConfigEntry(
+            domain=DOMAIN,
+            entry_id="entry_123",
+            options={CONF_CLIENT_CONTROL: False},
+        )
+        mock_entry.add_to_hass(hass)
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        registry = er.async_get(hass)
+        reg_entry = registry.async_get_or_create(
+            "switch",
+            DOMAIN,
+            "entry_123_client1_block_switch",
+            config_entry=mock_entry,
+        )
+        assert registry.async_get(reg_entry.entity_id) is not None
+
+        async_add_entities = MagicMock()
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        assert registry.async_get(reg_entry.entity_id) is None
 
 
 # (data_key, unique_id_suffix, availability_attr) -- availability_attr is
@@ -1925,6 +1957,21 @@ class TestUnifiPolicyBasedRouteSwitch:
             is True
         )
 
+    def test_unnamed_policy_based_route_switch(
+        self, mock_coordinator: MagicMock
+    ) -> None:
+        """Test unnamed policy route switch falls back to unnamed key."""
+        mock_coordinator.data.setdefault("policy_based_routes", {})["site1"] = {
+            "route_unnamed": {"id": "route_unnamed", "name": ""}
+        }
+        entity = UnifiPolicyBasedRouteSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            route_id="route_unnamed",
+        )
+        assert entity.translation_key == "policy_based_route_unnamed"
+        assert entity.translation_placeholders == {"route_id": "route_unnamed"}
+
 
 class TestAsyncSetupEntryPolicyBasedRoutes:
     """Tests policy-based route discovery in switch platform setup."""
@@ -2290,6 +2337,18 @@ class TestUnifiVpnClientSwitch:
 
         switch.async_write_ha_state.assert_not_called()
         assert mock_coordinator.data["vpn_clients"]["site1"]["vpn1"]["enabled"] is True
+
+    def test_unnamed_vpn_client_switch(self, mock_coordinator: MagicMock) -> None:
+        """Test unnamed VPN client switch falls back to unnamed key."""
+        mock_coordinator.data.setdefault("vpn_clients", {})["site1"] = {
+            "vpn_unnamed": {"id": "vpn_unnamed"}
+        }
+        entity = UnifiVpnClientSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            client_id="vpn_unnamed",
+        )
+        assert entity.translation_key == "vpn_client_unnamed"
 
 
 class TestAsyncSetupEntryVpnClients:
@@ -3756,6 +3815,49 @@ class TestUnifiOutletSwitch:
 
         assert switch.available is False
 
+    def test_outlet_switch_more_edge_cases(self, mock_coordinator: MagicMock) -> None:
+        """Test outlet switch edge cases for non-list table and alternative keys."""
+        mock_coordinator.data["devices"]["site1"]["pdu1"]["outlet_table"] = "not_a_list"
+        switch = UnifiOutletSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="pdu1",
+            outlet_index=1,
+            outlet_data={"relay_state": True},
+        )
+        assert switch._get_outlet_data() is None
+
+        mock_coordinator.data["devices"]["site1"]["pdu1"]["outlet_table"] = [
+            {"outlet_idx": 1, "relay_state": True, "name": "Outlet 1"}
+        ]
+        assert switch._get_outlet_data() == {
+            "outlet_idx": 1,
+            "relay_state": True,
+            "name": "Outlet 1",
+        }
+
+        switch._update_local_state(relay_state=True, cycle_enabled=False)
+        assert (
+            mock_coordinator.data["devices"]["site1"]["pdu1"]["outlet_table"][0][
+                "cycle_enabled"
+            ]
+            is False
+        )
+
+        mock_coordinator.data["devices"]["site1"]["pdu1"]["outlet_table"] = [
+            {
+                "index": 1,
+                "outlet_caps": 3,
+                "outlet_voltage": 120.0,
+                "outlet_current": 1.0,
+                "outlet_power": 120.0,
+                "outlet_power_factor": 0.99,
+            }
+        ]
+        attrs = switch.extra_state_attributes
+        assert attrs["outlet_voltage"] == 120.0
+        assert attrs["outlet_power_factor"] == 0.99
+
 
 class TestUnifiOutletCycleSwitch:
     """Tests for UnifiOutletCycleSwitch entity."""
@@ -4001,6 +4103,43 @@ class TestUnifiOutletCycleSwitch:
             is True
         )
 
+    def test_cycle_switch_more_edge_cases(self, mock_coordinator: MagicMock) -> None:
+        """Test cycle switch edge cases for non-list table and offline state."""
+        switch = UnifiOutletCycleSwitch(
+            coordinator=mock_coordinator,
+            site_id="site1",
+            device_id="pdu1",
+            outlet_index=1,
+            outlet_data={"cycle_enabled": True},
+        )
+
+        mock_coordinator.data["devices"]["site1"].pop("pdu1", None)
+        assert switch._get_outlet_data() is None
+
+        mock_coordinator.data["devices"]["site1"]["pdu1"] = {"outlet_table": None}
+        assert switch._get_outlet_data() is None
+
+        mock_coordinator.data["devices"]["site1"]["pdu1"] = {
+            "state": "ONLINE",
+            "outlet_table": [
+                "not_a_dict",
+                {"index": "invalid_int", "cycle_enabled": False},
+                {"outlet_idx": 1, "cycle_enabled": True},
+            ],
+        }
+        assert switch._get_outlet_data()["outlet_idx"] == 1
+
+        switch._update_local_state(cycle_enabled=False)
+        assert (
+            mock_coordinator.data["devices"]["site1"]["pdu1"]["outlet_table"][2][
+                "cycle_enabled"
+            ]
+            is False
+        )
+
+        mock_coordinator.data["devices"]["site1"]["pdu1"]["state"] = "OFFLINE"
+        assert switch.available is False
+
 
 class TestFindGatewayDeviceId:
     """Tests for grouping site-level switches under the site's gateway."""
@@ -4028,6 +4167,25 @@ class TestFindGatewayDeviceId:
             {"gw": {"model": "Unknown", "wans": [{"key": "wan1"}]}}
         )
         assert _find_gateway_device_id(coordinator, "site1") is None
+
+    def test_non_dict_site_devices(self) -> None:
+        """Test when site devices is not a dict."""
+        coordinator = MagicMock()
+        coordinator.data = {"devices": {"site1": None}}
+        assert _find_gateway_device_id(coordinator, "site1") is None
+
+    def test_non_dict_device_entry(self) -> None:
+        """Test when site devices has non-dict entry."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {
+                "site1": {
+                    "invalid_device": "not_a_dict",
+                    "gw": {"model": "UCG-Ultra"},
+                }
+            }
+        }
+        assert _find_gateway_device_id(coordinator, "site1") == "gw"
 
 
 class TestProtectSwitchPatchBodies:
@@ -4116,3 +4274,18 @@ class TestProtectSwitchPatchBodies:
             client.build_api_path("/cameras/camera1"),
             json_data={"videoMode": "default"},
         )
+
+
+class TestGetFirewallRuleAction:
+    """Tests for _get_firewall_rule_action helper."""
+
+    def test_dict_action_with_type(self) -> None:
+        """Test action as dict with type returns type as string."""
+        assert _get_firewall_rule_action({"action": {"type": "DROP"}}) == "DROP"
+        assert _get_firewall_rule_action({"action": {"type": None}}) is None
+
+    def test_non_dict_action(self) -> None:
+        """Test action as string or None."""
+        assert _get_firewall_rule_action({"action": "ACCEPT"}) == "ACCEPT"
+        assert _get_firewall_rule_action({"action": None}) is None
+        assert _get_firewall_rule_action({}) is None

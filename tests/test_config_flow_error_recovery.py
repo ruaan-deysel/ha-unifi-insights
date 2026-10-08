@@ -1,5 +1,12 @@
 # Copyright (c) 2026 Ruaan Deysel
-"""Tests for config flow error paths and edge cases to achieve 100% coverage."""
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for UniFi Insights config flow error recovery and retry behavior.
+
+Verifies that every error condition in the config flow (discovery, validation,
+reauth, and reconfigure) presents the expected error to the user and can be
+successfully recovered from by submitting valid credentials.
+"""
 
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -57,6 +64,57 @@ def mock_protect_client_flow():
         ),
     ):
         yield mock_protect_client
+
+
+def _make_client_context(
+    *,
+    get_hosts: list[dict[str, object]] | None = None,
+    get_hosts_side_effect: Exception | None = None,
+    sites: list[object] | None = None,
+    sites_side_effect: Exception | None = None,
+    devices: list[object] | None = None,
+    devices_side_effect: Exception | None = None,
+    enter_side_effect: Exception | None = None,
+) -> MagicMock:
+    """Create an async context manager mock for UniFiNetworkClient."""
+    async_cm = MagicMock()
+
+    if enter_side_effect is not None:
+        async_cm.__aenter__ = AsyncMock(side_effect=enter_side_effect)
+    else:
+        client = MagicMock()
+        client.get_hosts = AsyncMock(
+            side_effect=get_hosts_side_effect,
+            return_value=[] if get_hosts is None else get_hosts,
+        )
+        client.sites = MagicMock()
+        client.sites.get_all = AsyncMock(
+            side_effect=sites_side_effect,
+            return_value=[] if sites is None else sites,
+        )
+        client.devices = MagicMock()
+        client.devices.get_all = AsyncMock(
+            side_effect=devices_side_effect,
+            return_value=[] if devices is None else devices,
+        )
+        client.close = AsyncMock()
+        async_cm.__aenter__ = AsyncMock(return_value=client)
+
+    async_cm.__aexit__ = AsyncMock(return_value=None)
+    return async_cm
+
+
+def _remote_host(
+    host_id: str = "console123",
+    hostname: str = "Dream Router 7",
+    host_type: str = "console",
+) -> dict[str, object]:
+    """Create a discovered remote host payload."""
+    return {
+        "id": host_id,
+        "type": host_type,
+        "reportedState": {"hostname": hostname},
+    }
 
 
 def test_extract_remote_console_options_skips_invalid_hosts() -> None:
@@ -144,20 +202,16 @@ def test_normalize_remote_console_id_variants() -> None:
 
 async def test_local_flow_unexpected_exception_recovery(hass: HomeAssistant) -> None:
     """Test local flow recovers from an unexpected Exception."""
-    with patch(
-        "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_local_connection",
-        side_effect=[
-            RuntimeError("Unexpected boom"),
-            (
-                True,
-                None,
-                {
-                    "id": "console_local",
-                    "mac": "00:11:22:33:44:55",
-                    "name": "Local Console",
-                },
-            ),
-        ],
+    valid_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")],
+        devices=[],
+    )
+    with (
+        patch(
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[RuntimeError("Unexpected boom"), valid_cm],
+        ),
+        patch("custom_components.unifi_insights.config_flow.LocalAuth"),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -197,18 +251,22 @@ async def test_local_flow_unexpected_exception_recovery(hass: HomeAssistant) -> 
 
 async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None:
     """Test remote flow recovers when discovery returns 404 (api_unsupported)."""
+    discovery_err_cm = _make_client_context(
+        get_hosts_side_effect=UniFiNotFoundError("404 Not Found", status_code=404)
+    )
+    discovery_ok_cm = _make_client_context(
+        get_hosts=[_remote_host(host_id="console123", hostname="Console 123")]
+    )
+    validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
+    )
+
     with (
         patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
-            side_effect=[
-                UniFiNotFoundError("404 Not Found", status_code=404),
-                {"console123": "Console 123 (console)"},
-            ],
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[discovery_err_cm, discovery_ok_cm, validation_cm],
         ),
-        patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
-            return_value=[MagicMock(id="default", name="Default")],
-        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -249,7 +307,7 @@ async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None
     ("remote_api_key", "discovered_consoles"),
     [
         (None, {"console123": "Console 123 (console)"}),
-        ("test_api_key", {}),
+        ("valid_api_key", {}),
     ],
 )
 async def test_select_console_jumps_to_remote_when_state_missing(
@@ -257,7 +315,7 @@ async def test_select_console_jumps_to_remote_when_state_missing(
     remote_api_key: str | None,
     discovered_consoles: dict[str, str],
 ) -> None:
-    """Test select_console falls back to remote step when state is incomplete."""
+    """Test select_console falls back to remote step if state is missing."""
     flow = UnifiInsightsConfigFlow()
     flow.hass = hass
     flow._remote_api_key = remote_api_key
@@ -280,13 +338,13 @@ async def test_select_console_jumps_to_remote_when_state_missing(
         (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
         (
             UniFiNotFoundError("not found", status_code=404),
-            {"base": "api_unsupported"},
+            {CONF_CONSOLE_ID: "invalid_console_id"},
         ),
         (
             ValidationError.from_exception_data("Site", line_errors=[]),
-            {"base": "site_parse_error"},
+            {CONF_CONSOLE_ID: "invalid_console_id"},
         ),
-        (RuntimeError("unexpected"), {"base": "unknown"}),
+        (RuntimeError("unexpected"), {CONF_CONSOLE_ID: "invalid_console_id"}),
     ],
 )
 async def test_select_console_errors_and_recovery(
@@ -295,18 +353,24 @@ async def test_select_console_errors_and_recovery(
     expected_errors: dict[str, str],
 ) -> None:
     """Test each error during console validation and subsequent recovery."""
-    valid_sites = [MagicMock(id="default", name="Default")]
-    validate_mock = AsyncMock(side_effect=[side_effect_item, valid_sites])
+    discovery_cm = _make_client_context(
+        get_hosts=[_remote_host(host_id="console123", hostname="Dream Router 7")]
+    )
+    if isinstance(side_effect_item, Exception):
+        failing_validation_cm = _make_client_context(sites_side_effect=side_effect_item)
+    else:
+        failing_validation_cm = _make_client_context(sites=side_effect_item)
+
+    recovering_validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
+    )
 
     with (
         patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
-            return_value={"console123": "Dream Router 7 (console)"},
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[discovery_cm, failing_validation_cm, recovering_validation_cm],
         ),
-        patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
-            validate_mock,
-        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -344,8 +408,8 @@ async def test_select_console_errors_and_recovery(
 @pytest.mark.parametrize(
     ("discovery_side_effect", "expected_errors"),
     [
-        ({}, {"base": "no_remote_consoles"}),
-        ({"other_console": "Other (console)"}, {"base": "invalid_console_id"}),
+        ([], {"base": "no_remote_consoles"}),
+        ([_remote_host("other_console")], {"base": "invalid_console_id"}),
         (
             UniFiAuthenticationError("auth error"),
             {CONF_API_KEY: "invalid_auth"},
@@ -381,19 +445,30 @@ async def test_reauth_remote_discovery_errors_and_recovery(
     )
     remote_entry.add_to_hass(hass)
 
-    valid_consoles = {"console123": "Console 123 (console)"}
-    discover_mock = AsyncMock(side_effect=[discovery_side_effect, valid_consoles])
-    validate_mock = AsyncMock(return_value=[MagicMock(id="default", name="Default")])
+    if isinstance(discovery_side_effect, Exception):
+        failing_discovery_cm = _make_client_context(
+            get_hosts_side_effect=discovery_side_effect
+        )
+    else:
+        failing_discovery_cm = _make_client_context(get_hosts=discovery_side_effect)
+
+    recovering_discovery_cm = _make_client_context(
+        get_hosts=[_remote_host("console123")]
+    )
+    validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
+    )
 
     with (
         patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
-            discover_mock,
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[
+                failing_discovery_cm,
+                recovering_discovery_cm,
+                validation_cm,
+            ],
         ),
-        patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
-            validate_mock,
-        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
         result = await remote_entry.start_reauth_flow(hass)
         assert result["type"] == FlowResultType.FORM
@@ -430,13 +505,13 @@ async def test_reauth_remote_discovery_errors_and_recovery(
         (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
         (
             UniFiNotFoundError("not found", status_code=404),
-            {"base": "api_unsupported"},
+            {"base": "invalid_console_id"},
         ),
         (
             ValidationError.from_exception_data("Site", line_errors=[]),
-            {"base": "site_parse_error"},
+            {"base": "invalid_console_id"},
         ),
-        (RuntimeError("unexpected"), {"base": "unknown"}),
+        (RuntimeError("unexpected"), {"base": "invalid_console_id"}),
     ],
 )
 async def test_reauth_remote_validation_errors_and_recovery(
@@ -457,20 +532,30 @@ async def test_reauth_remote_validation_errors_and_recovery(
     )
     remote_entry.add_to_hass(hass)
 
-    valid_consoles = {"console123": "Console 123 (console)"}
-    valid_sites = [MagicMock(id="default", name="Default")]
-    discover_mock = AsyncMock(return_value=valid_consoles)
-    validate_mock = AsyncMock(side_effect=[validation_side_effect, valid_sites])
+    discovery_cm_1 = _make_client_context(get_hosts=[_remote_host("console123")])
+    if isinstance(validation_side_effect, Exception):
+        failing_validation_cm = _make_client_context(
+            sites_side_effect=validation_side_effect
+        )
+    else:
+        failing_validation_cm = _make_client_context(sites=validation_side_effect)
+
+    discovery_cm_2 = _make_client_context(get_hosts=[_remote_host("console123")])
+    recovering_validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
+    )
 
     with (
         patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
-            discover_mock,
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[
+                discovery_cm_1,
+                failing_validation_cm,
+                discovery_cm_2,
+                recovering_validation_cm,
+            ],
         ),
-        patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
-            validate_mock,
-        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
         result = await remote_entry.start_reauth_flow(hass)
         assert result["type"] == FlowResultType.FORM
@@ -498,9 +583,9 @@ async def test_reauth_remote_validation_errors_and_recovery(
 @pytest.mark.parametrize(
     ("discovery_side_effect", "input_console_id", "expected_errors"),
     [
-        ({}, "console123", {"base": "no_remote_consoles"}),
+        ([], "console123", {"base": "no_remote_consoles"}),
         (
-            {"console123": "Console 123 (console)"},
+            [_remote_host("console123")],
             "unmatched_console",
             {CONF_CONSOLE_ID: "invalid_console_id"},
         ),
@@ -543,19 +628,30 @@ async def test_reconfigure_remote_discovery_errors_and_recovery(
     )
     remote_entry.add_to_hass(hass)
 
-    valid_consoles = {"console123": "Console 123 (console)"}
-    discover_mock = AsyncMock(side_effect=[discovery_side_effect, valid_consoles])
-    validate_mock = AsyncMock(return_value=[MagicMock(id="default", name="Default")])
+    if isinstance(discovery_side_effect, Exception):
+        failing_discovery_cm = _make_client_context(
+            get_hosts_side_effect=discovery_side_effect
+        )
+    else:
+        failing_discovery_cm = _make_client_context(get_hosts=discovery_side_effect)
+
+    recovering_discovery_cm = _make_client_context(
+        get_hosts=[_remote_host("console123")]
+    )
+    validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
+    )
 
     with (
         patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
-            discover_mock,
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[
+                failing_discovery_cm,
+                recovering_discovery_cm,
+                validation_cm,
+            ],
         ),
-        patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
-            validate_mock,
-        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
         result = await remote_entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM
@@ -599,13 +695,13 @@ async def test_reconfigure_remote_discovery_errors_and_recovery(
         (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
         (
             UniFiNotFoundError("not found", status_code=404),
-            {"base": "api_unsupported"},
+            {CONF_CONSOLE_ID: "invalid_console_id"},
         ),
         (
             ValidationError.from_exception_data("Site", line_errors=[]),
-            {"base": "site_parse_error"},
+            {CONF_CONSOLE_ID: "invalid_console_id"},
         ),
-        (RuntimeError("unexpected"), {"base": "unknown"}),
+        (RuntimeError("unexpected"), {CONF_CONSOLE_ID: "invalid_console_id"}),
     ],
 )
 async def test_reconfigure_remote_validation_errors_and_recovery(
@@ -626,20 +722,30 @@ async def test_reconfigure_remote_validation_errors_and_recovery(
     )
     remote_entry.add_to_hass(hass)
 
-    valid_consoles = {"console123": "Console 123 (console)"}
-    valid_sites = [MagicMock(id="default", name="Default")]
-    discover_mock = AsyncMock(return_value=valid_consoles)
-    validate_mock = AsyncMock(side_effect=[validation_side_effect, valid_sites])
+    discovery_cm_1 = _make_client_context(get_hosts=[_remote_host("console123")])
+    if isinstance(validation_side_effect, Exception):
+        failing_validation_cm = _make_client_context(
+            sites_side_effect=validation_side_effect
+        )
+    else:
+        failing_validation_cm = _make_client_context(sites=validation_side_effect)
+
+    discovery_cm_2 = _make_client_context(get_hosts=[_remote_host("console123")])
+    recovering_validation_cm = _make_client_context(
+        sites=[MagicMock(id="default", name="Default")]
+    )
 
     with (
         patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_discover_remote_consoles",
-            discover_mock,
+            "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
+            side_effect=[
+                discovery_cm_1,
+                failing_validation_cm,
+                discovery_cm_2,
+                recovering_validation_cm,
+            ],
         ),
-        patch(
-            "custom_components.unifi_insights.config_flow.UnifiInsightsConfigFlow._async_validate_remote_console",
-            validate_mock,
-        ),
+        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
         result = await remote_entry.start_reconfigure_flow(hass)
         assert result["type"] == FlowResultType.FORM

@@ -7,6 +7,7 @@ import json
 from typing import Any, Self
 
 import pytest
+from pydantic import ValidationError
 from yarl import URL
 
 from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
@@ -966,3 +967,611 @@ async def test_wifi_update_not_found_raises() -> None:
 
     with pytest.raises(ValueError, match="WiFi network missing-wifi not found"):
         await client.wifi.update("default", "missing-wifi", enabled=False)
+
+
+# =============================================================================
+# Scope 2 (Round 2): Branch and edge-case coverage for partially covered methods
+# =============================================================================
+
+
+async def test_clients_get_all_pagination_and_fallback_branches() -> None:
+    """clients.get_all covers partial pagination, filter, error, and
+    validation branches."""
+    c1 = {"id": "c1", "macAddress": "00:11:22:33:44:01"}
+    session = _Session(
+        [
+            # 1. Manual pagination with offset only (limit is None)
+            {"data": [c1]},
+            # 2. Manual pagination with limit only (offset is None)
+            {"data": [c1]},
+            # 3. Manual pagination where response is None -> returns []
+            None,
+            # 4. Manual pagination where data is not a list -> returns []
+            {"data": "not-a-list"},
+            # 5. Manual pagination where data has non-dict and invalid dict
+            # -> logs & returns valid
+            {"data": [c1, "not-a-dict", {"bad": "missing-id"}]},
+            # 6. Auto-paginate with filter_str (2 pages, terminating
+            # when current_offset >= total_count)
+            {"data": [c1], "totalCount": 2, "count": 1},
+            {"data": [c1], "totalCount": 2, "count": 1},
+            # 7. Auto-paginate where response is None -> breaks immediately
+            None,
+            # 8. Auto-paginate where response is not a dict (e.g. JSON list)
+            # -> breaks immediately
+            [],
+            # 9. Auto-paginate where data is not a list (e.g. integer)
+            # -> breaks on count==0
+            {"data": 123, "totalCount": 0, "count": 0},
+            # 10. Auto-paginate with non-dict and invalid items in data
+            {"data": [c1, "non-dict", {"bad": "field"}], "totalCount": 1, "count": 1},
+            # 11. Auto-paginate breaks when total_count is None
+            {"data": [c1], "count": 1},
+            # 12. Auto-paginate breaks when count is not an int
+            {"data": [c1], "totalCount": 10, "count": "bad"},
+        ]
+    )
+    client = _client(session)
+
+    # 1. offset only
+    res_off = await client.clients.get_all("default", offset=5)
+    assert len(res_off) == 1
+    req1 = session.requests[0]
+    assert req1["method"] == "GET"
+    assert (
+        req1["url"]
+        == "https://192.168.1.1/proxy/network/integration/v1/sites/default/clients"
+    )
+    assert req1["params"] == {"offset": 5}
+
+    # 2. limit only
+    res_lim = await client.clients.get_all("default", limit=10)
+    assert len(res_lim) == 1
+    req2 = session.requests[1]
+    assert req2["params"] == {"limit": 10}
+
+    # 3. response is None in manual pagination
+    assert await client.clients.get_all("default", offset=0, limit=1) == []
+
+    # 4. data not a list in manual pagination
+    assert await client.clients.get_all("default", offset=0, limit=1) == []
+
+    # 5. non-dict and invalid items skipped in manual pagination
+    res_skip = await client.clients.get_all("default", offset=0, limit=5)
+    assert len(res_skip) == 1
+    assert res_skip[0].id == "c1"
+
+    # 6. auto-paginate with filter_str
+    res_filter = await client.clients.get_all(
+        "default", filter_str="connected.eq(true)"
+    )
+    assert len(res_filter) == 2
+    assert session.requests[5]["params"] == {
+        "offset": 0,
+        "limit": 100,
+        "filter": "connected.eq(true)",
+    }
+    assert session.requests[6]["params"] == {
+        "offset": 1,
+        "limit": 100,
+        "filter": "connected.eq(true)",
+    }
+
+    # 7. auto-paginate response is None
+    assert await client.clients.get_all("default") == []
+
+    # 8. auto-paginate response not dict
+    assert await client.clients.get_all("default") == []
+
+    # 9. auto-paginate data not list
+    assert await client.clients.get_all("default") == []
+
+    # 10. auto-paginate non-dict and invalid items in data
+    res_auto_skip = await client.clients.get_all("default")
+    assert len(res_auto_skip) == 1
+    assert res_auto_skip[0].id == "c1"
+
+    # 11. auto-paginate totalCount is None
+    res_no_total = await client.clients.get_all("default")
+    assert len(res_no_total) == 1
+
+    # 12. auto-paginate count is not an int
+    res_bad_count = await client.clients.get_all("default")
+    assert len(res_bad_count) == 1
+
+
+async def test_clients_get_active_legacy_non_list_and_filters() -> None:
+    """clients.get_active_legacy handles non-list data and filters out non-dict
+    items."""
+    session = _Session(
+        [
+            # 1. Non-list data fallback
+            {"data": "not-a-list"},
+            # 2. List with non-dict items
+            {"data": [{"mac": "00:11:22:33:44:55", "essid": "Home"}, "not-a-dict"]},
+        ]
+    )
+    client = _client(session)
+
+    res1 = await client.clients.get_active_legacy("default")
+    assert res1 == []
+    req1 = session.requests[0]
+    assert req1["method"] == "GET"
+    assert req1["url"] == "https://192.168.1.1/proxy/network/api/s/default/stat/sta"
+
+    res2 = await client.clients.get_active_legacy("default")
+    assert res2 == [{"mac": "00:11:22:33:44:55", "essid": "Home"}]
+
+
+async def test_devices_get_all_params_and_fallback_branches() -> None:
+    """devices.get_all covers individual query params and non-list data."""
+    raw_dev = {"id": "dev-1", "macAddress": "00:11:22:33:44:01"}
+    session = _Session(
+        [
+            # 1. filter_str only
+            {"data": [raw_dev]},
+            # 2. offset only
+            {"data": [raw_dev]},
+            # 3. limit only
+            {"data": [raw_dev]},
+            # 4. non-list data fallback
+            {"data": "not-a-list"},
+        ]
+    )
+    client = _client(session)
+
+    # 1. filter_str
+    res_f = await client.devices.get_all("default", filter_str="state.eq(ONLINE)")
+    assert len(res_f) == 1
+    assert session.requests[0]["params"] == {"filter": "state.eq(ONLINE)"}
+
+    # 2. offset only
+    res_o = await client.devices.get_all("default", offset=5)
+    assert len(res_o) == 1
+    assert session.requests[1]["params"] == {"offset": 5}
+
+    # 3. limit only
+    res_l = await client.devices.get_all("default", limit=10)
+    assert len(res_l) == 1
+    assert session.requests[2]["params"] == {"limit": 10}
+
+    # 4. non-list data
+    res_non_list = await client.devices.get_all("default")
+    assert res_non_list == []
+
+
+async def test_devices_get_statistics_non_dict_data() -> None:
+    """devices.get_statistics returns empty dict when response data is not a dict."""
+    session = _Session(
+        [
+            {"data": "not-a-dict"},
+            {"data": [1, 2, 3]},
+        ]
+    )
+    client = _client(session)
+
+    res1 = await client.devices.get_statistics("default", "dev-1")
+    assert res1 == {}
+
+    res2 = await client.devices.get_statistics("default", "dev-2")
+    assert res2 == {}
+
+
+async def test_devices_get_legacy_site_devices_non_list_dict() -> None:
+    """devices.get_legacy_site_devices handles non-list and non-dict payload data."""
+    session = _Session(
+        [
+            {"data": 123},
+            None,
+        ]
+    )
+    client = _client(session)
+
+    res1 = await client.devices.get_legacy_site_devices("default")
+    assert res1 == []
+
+    res2 = await client.devices.get_legacy_site_devices("default")
+    assert res2 == []
+
+
+async def test_devices_get_port_metrics_non_dict_and_missing_port_idx() -> None:
+    """devices.get_port_metrics skips non-dict ports and ports with
+    invalid/missing port_idx."""
+    legacy_payload = {
+        "port_table": [
+            "not-a-dict-port",
+            {"name": "missing-idx"},
+            {"port_idx": "not-an-int"},
+            {
+                "port_idx": 1,
+                "port_poe": True,
+                "poe_power": "5.0",
+                "rx_bytes": 100,
+                "tx_bytes": 200,
+            },
+        ],
+    }
+    session = _Session([{"data": [legacy_payload]}])
+    client = _client(session)
+
+    metrics = await client.devices.get_port_metrics("default", "aa:bb:cc:dd:ee:ff")
+    assert metrics.poe_ports == {1: 5.0}
+    assert metrics.port_bytes[1].rx_bytes == 100
+    assert metrics.port_bytes[1].tx_bytes == 200
+
+
+async def test_devices_set_outlet_state_outlet_idx_and_cycle_enabled() -> None:
+    """devices.set_outlet_state handles outlet_idx alias, invalid idx, and
+    cycle_enabled on append."""
+    session = _Session([{}, {}])
+    client = _client(session)
+
+    # 1. Update existing override that uses outlet_idx and has an invalid item
+    current_device_1 = {
+        "_id": "dev-obj-1",
+        "outlet_overrides": [
+            {"index": "invalid", "relay_state": True},
+            {"outlet_idx": 2, "relay_state": True},
+        ],
+    }
+    ok1 = await client.devices.set_outlet_state(
+        "default",
+        "dev-mac-1",
+        outlet_index=2,
+        state=False,
+        cycle_enabled=False,
+        current_device=current_device_1,
+    )
+    assert ok1 is True
+    assert session.requests[0]["method"] == "PUT"
+    assert session.requests[0]["json"] == {
+        "outlet_overrides": [
+            {"index": "invalid", "relay_state": True},
+            {"outlet_idx": 2, "relay_state": False, "cycle_enabled": False},
+        ]
+    }
+
+    # 2. Append new override when outlet not found, with cycle_enabled=True
+    current_device_2 = {
+        "_id": "dev-obj-2",
+        "outlet_overrides": [
+            {"index": 1, "relay_state": True},
+        ],
+    }
+    ok2 = await client.devices.set_outlet_state(
+        "default",
+        "dev-mac-2",
+        outlet_index=4,
+        state=True,
+        cycle_enabled=True,
+        current_device=current_device_2,
+    )
+    assert ok2 is True
+    assert session.requests[1]["json"] == {
+        "outlet_overrides": [
+            {"index": 1, "relay_state": True},
+            {"index": 4, "relay_state": True, "cycle_enabled": True},
+        ]
+    }
+
+
+async def test_firewall_list_rules_params_and_fallback_branches() -> None:
+    """firewall.list_rules covers single pagination params, filter, and
+    non-list responses."""
+    raw_rule = {"id": "r-1", "name": "Rule 1", "action": "accept", "enabled": True}
+    session = _Session(
+        [
+            # 1. Manual pagination with offset only
+            {"data": [raw_rule]},
+            # 2. Manual pagination with limit only
+            {"data": [raw_rule]},
+            # 3. Manual pagination with offset & limit, no filter
+            {"data": [raw_rule]},
+            # 4. Manual pagination where response is None -> []
+            None,
+            # 5. Manual pagination where data is not a list -> []
+            {"data": "not-a-list"},
+            # 6. Auto-pagination with filter_str
+            {"data": [raw_rule], "totalCount": 1, "count": 1},
+        ]
+    )
+    client = _client(session)
+
+    # 1. offset only
+    res_o = await client.firewall.list_rules("default", offset=5)
+    assert len(res_o) == 1
+    assert session.requests[0]["params"] == {"offset": 5}
+
+    # 2. limit only
+    res_l = await client.firewall.list_rules("default", limit=10)
+    assert len(res_l) == 1
+    assert session.requests[1]["params"] == {"limit": 10}
+
+    # 3. offset and limit without filter
+    res_ol = await client.firewall.list_rules("default", offset=0, limit=5)
+    assert len(res_ol) == 1
+    assert session.requests[2]["params"] == {"offset": 0, "limit": 5}
+
+    # 4. None response
+    assert await client.firewall.list_rules("default", offset=0, limit=5) == []
+
+    # 5. non-list data
+    assert await client.firewall.list_rules("default", offset=0, limit=5) == []
+
+    # 6. auto-pagination with filter_str
+    res_f = await client.firewall.list_rules(
+        "default", filter_str="action.eq('accept')"
+    )
+    assert len(res_f) == 1
+    assert session.requests[5]["params"] == {
+        "offset": 0,
+        "limit": 200,
+        "filter": "action.eq('accept')",
+    }
+
+
+async def test_firewall_update_rule_empty_put_response_fallback() -> None:
+    """firewall.update_rule fallback executes line 372 (raises ValidationError
+    as 'id' was stripped)."""
+    current_rule = {
+        "id": "rule-99",
+        "name": "Drop Rule",
+        "action": "drop",
+        "enabled": True,
+    }
+    session = _Session(
+        [
+            current_rule,
+            None,  # PUT response returns None -> _extract_rule_payload returns None
+        ]
+    )
+    client = _client(session)
+
+    # Line 372 executes; ValidationError is raised because
+    # current_payload has no 'id'.
+    with pytest.raises(ValidationError):
+        await client.firewall.update_rule("default", "rule-99", enabled=False)
+
+
+async def test_routes_update_route_branches_and_fallback() -> None:
+    """routes.update_route covers non-matching items, id matching, enabled=None,
+    and empty PUT response."""
+    session = _Session(
+        [
+            # 1. GET returns non-matching route followed by matching route by 'id'
+            {
+                "data": [
+                    {"_id": "rt-other", "description": "Other", "enabled": True},
+                    {"id": "rt-2", "description": "Route 2", "enabled": True},
+                ]
+            },
+            # PUT response returns empty list -> falls back to current_payload
+            {"data": []},
+        ]
+    )
+    client = _client(session)
+
+    res = await client.routes.update_route(
+        "default", "rt-2", description="Updated Route"
+    )
+    assert isinstance(res, PolicyBasedRoute)
+    assert res.id == "rt-2"
+    assert res.description == "Updated Route"
+    assert res.enabled is True
+
+    req_put = session.requests[1]
+    assert req_put["method"] == "PUT"
+    assert req_put["json"] == {
+        "id": "rt-2",
+        "description": "Updated Route",
+        "enabled": True,
+    }
+
+
+async def test_sites_get_all_params_and_non_list_data() -> None:
+    """sites.get_all covers individual pagination params and non-list data."""
+    raw_site = {"id": "site-1", "name": "Headquarters"}
+    session = _Session(
+        [
+            # 1. offset only
+            {"data": [raw_site]},
+            # 2. limit only
+            {"data": [raw_site]},
+            # 3. non-list data fallback
+            {"data": "not-a-list"},
+        ]
+    )
+    client = _client(session)
+
+    res_o = await client.sites.get_all(offset=5)
+    assert len(res_o) == 1
+    assert session.requests[0]["params"] == {"offset": 5}
+
+    res_l = await client.sites.get_all(limit=10)
+    assert len(res_l) == 1
+    assert session.requests[1]["params"] == {"limit": 10}
+
+    res_non_list = await client.sites.get_all()
+    assert res_non_list == []
+
+
+async def test_sites_get_legacy_all_dict_and_non_list_fallback() -> None:
+    """sites.get_legacy_all handles single dict payload and non-list/non-dict data."""
+    session = _Session(
+        [
+            # 1. Dict payload
+            {"data": {"name": "default", "desc": "Default Site"}},
+            # 2. Non-list non-dict data
+            {"data": 123},
+        ]
+    )
+    client = _client(session)
+
+    res1 = await client.sites.get_legacy_all()
+    assert res1 == [{"name": "default", "desc": "Default Site"}]
+
+    res2 = await client.sites.get_legacy_all()
+    assert res2 == []
+
+
+async def test_vouchers_create_single_voucher_and_non_dict_error() -> None:
+    """vouchers.create handles single voucher dict result and raises on
+    non-dict response."""
+    voucher_data = {"id": "v-single", "code": "99999-00000", "name": "SinglePass"}
+    session = _Session(
+        [
+            # 1. Direct single voucher dict result (not wrapped in vouchers list)
+            {"data": voucher_data},
+            # 2. Non-dict response (e.g. list)
+            [],
+        ]
+    )
+    client = _client(session)
+
+    res = await client.vouchers.create(
+        "default", name="SinglePass", time_limit_minutes=120
+    )
+    assert len(res) == 1
+    assert isinstance(res[0], Voucher)
+    assert res[0].id == "v-single"
+    assert res[0].code == "99999-00000"
+
+    with pytest.raises(ValueError, match="Failed to create vouchers"):
+        await client.vouchers.create("default", name="FailPass", time_limit_minutes=60)
+
+
+async def test_vpn_clients_update_vpn_client_branches_and_fallback() -> None:
+    """vpn_clients.update_vpn_client covers non-matching items, id matching,
+    enabled=None, and empty PUT response."""
+    session = _Session(
+        [
+            # 1. Direct hit with non-matching item first, target matched
+            # by 'id', enabled=None, empty PUT response
+            {
+                "data": [
+                    {"_id": "lan-1", "purpose": "corporate"},
+                    {
+                        "id": "vpn-target",
+                        "purpose": "vpn-client",
+                        "name": "Target VPN",
+                        "enabled": True,
+                    },
+                ]
+            },
+            {"data": []},  # empty PUT response -> returns current_payload
+            # 2. Fallback search with non-matching item first
+            {"data": []},  # direct GET miss
+            {
+                "data": [
+                    {"_id": "lan-2", "purpose": "corporate"},
+                    {
+                        "_id": "vpn-fb",
+                        "purpose": "vpn-client",
+                        "name": "FB VPN",
+                        "enabled": True,
+                    },
+                ]
+            },
+            {
+                "data": [
+                    {
+                        "_id": "vpn-fb",
+                        "purpose": "vpn-client",
+                        "name": "FB VPN",
+                        "enabled": False,
+                    },
+                ]
+            },
+        ]
+    )
+    client = _client(session)
+
+    # 1. Direct hit with enabled=None and empty PUT response
+    res1 = await client.vpn_clients.update_vpn_client(
+        "default", "vpn-target", name="Target Renamed"
+    )
+    assert isinstance(res1, VpnClient)
+    assert res1.id == "vpn-target"
+    assert res1.name == "Target Renamed"
+    assert res1.enabled is True
+    assert session.requests[1]["method"] == "PUT"
+    assert session.requests[1]["json"] == {
+        "id": "vpn-target",
+        "purpose": "vpn-client",
+        "name": "Target Renamed",
+        "enabled": True,
+    }
+
+    # 2. Fallback search with non-matching item before target
+    res2 = await client.vpn_clients.update_vpn_client(
+        "default", "vpn-fb", enabled=False
+    )
+    assert isinstance(res2, VpnClient)
+    assert res2.id == "vpn-fb"
+    assert res2.enabled is False
+
+
+async def test_wifi_get_legacy_configs_non_list_and_filter() -> None:
+    """wifi.get_legacy_configs handles non-list data and filters out non-dict items."""
+    session = _Session(
+        [
+            {"data": "not-a-list"},
+            {"data": [{"name": "HomeWlan", "x_passphrase": "pass"}, "not-a-dict"]},
+        ]
+    )
+    client = _client(session)
+
+    assert await client.wifi.get_legacy_configs("default") == []
+
+    res2 = await client.wifi.get_legacy_configs("default")
+    assert res2 == [{"name": "HomeWlan", "x_passphrase": "pass"}]
+
+
+async def test_wifi_get_all_params_and_non_list_data() -> None:
+    """wifi.get_all covers individual query params and non-list data."""
+    raw_wifi = {"id": "wifi-1", "name": "IoT", "type": "STANDARD", "enabled": True}
+    session = _Session(
+        [
+            # 1. offset only
+            {"data": [raw_wifi]},
+            # 2. limit only
+            {"data": [raw_wifi]},
+            # 3. non-list data
+            {"data": "not-a-list"},
+        ]
+    )
+    client = _client(session)
+
+    res_o = await client.wifi.get_all("default", offset=2)
+    assert len(res_o) == 1
+    assert session.requests[0]["params"] == {"offset": 2}
+
+    res_l = await client.wifi.get_all("default", limit=5)
+    assert len(res_l) == 1
+    assert session.requests[1]["params"] == {"limit": 5}
+
+    res_non_list = await client.wifi.get_all("default")
+    assert res_non_list == []
+
+
+async def test_wifi_update_empty_put_response_fallback() -> None:
+    """wifi.update fallback executes line 222 (raises ValidationError as
+    'id' was stripped)."""
+    current_wifi = {
+        "id": "wifi-1",
+        "name": "Guest WiFi",
+        "type": "STANDARD",
+        "enabled": True,
+    }
+    session = _Session(
+        [
+            current_wifi,
+            None,  # PUT response returns None -> result is None
+        ]
+    )
+    client = _client(session)
+
+    # Line 222 executes; ValidationError is raised because
+    # current_payload has no 'id'.
+    with pytest.raises(ValidationError):
+        await client.wifi.update("default", "wifi-1", enabled=False)

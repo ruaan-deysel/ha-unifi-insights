@@ -369,7 +369,8 @@ class FirewallEndpoint:
         result = self._extract_rule_payload(response)
         if result is not None:
             return FirewallRule.model_validate(result)
-        return FirewallRule.model_validate(current_payload)
+        # No body: return what was sent, with the id the PUT body can't carry.
+        return FirewallRule.model_validate({**current_payload, "id": rule_id})
 
     async def delete_rule(self, site_id: str, rule_id: str) -> bool:
         """

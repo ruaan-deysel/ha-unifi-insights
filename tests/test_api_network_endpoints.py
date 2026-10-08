@@ -7,7 +7,6 @@ import json
 from typing import Any, Self
 
 import pytest
-from pydantic import ValidationError
 from yarl import URL
 
 from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
@@ -1310,36 +1309,6 @@ async def test_firewall_list_rules_params_and_fallback_branches() -> None:
     }
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValidationError,
-    reason=(
-        "Bug: update_rule strips 'id' from the payload before the PUT, then "
-        "builds the fallback model from that payload when the PUT returns no "
-        "body, so validation fails on the missing required id. See #262."
-    ),
-)
-async def test_firewall_update_rule_empty_put_response_fallback() -> None:
-    """An empty PUT response falls back to the sent rule, keeping its id."""
-    current_rule = {
-        "id": "rule-99",
-        "name": "Drop Rule",
-        "action": "drop",
-        "enabled": True,
-    }
-    session = _Session(
-        [
-            current_rule,
-            None,  # PUT response returns None -> _extract_rule_payload returns None
-        ]
-    )
-    client = _client(session)
-
-    rule = await client.firewall.update_rule("default", "rule-99", enabled=False)
-    assert rule.id == "rule-99"
-    assert rule.enabled is False
-
-
 async def test_routes_update_route_branches_and_fallback() -> None:
     """routes.update_route covers non-matching items, id matching, enabled=None,
     and empty PUT response."""
@@ -1559,33 +1528,3 @@ async def test_wifi_get_all_params_and_non_list_data() -> None:
 
     res_non_list = await client.wifi.get_all("default")
     assert res_non_list == []
-
-
-@pytest.mark.xfail(
-    strict=True,
-    raises=ValidationError,
-    reason=(
-        "Bug: wifi.update strips 'id' from the payload before the PUT, then "
-        "builds the fallback model from that payload when the PUT returns no "
-        "body, so validation fails on the missing required id. See #262."
-    ),
-)
-async def test_wifi_update_empty_put_response_fallback() -> None:
-    """An empty PUT response falls back to the sent network, keeping its id."""
-    current_wifi = {
-        "id": "wifi-1",
-        "name": "Guest WiFi",
-        "type": "STANDARD",
-        "enabled": True,
-    }
-    session = _Session(
-        [
-            current_wifi,
-            None,  # PUT response returns None -> result is None
-        ]
-    )
-    client = _client(session)
-
-    network = await client.wifi.update("default", "wifi-1", enabled=False)
-    assert network.id == "wifi-1"
-    assert network.enabled is False

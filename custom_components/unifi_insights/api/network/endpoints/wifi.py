@@ -219,7 +219,8 @@ class WifiEndpoint:
         result = self._extract_wifi_payload(response)
         if result is not None:
             return WifiNetwork.model_validate(result)
-        return WifiNetwork.model_validate(current_payload)
+        # No body: return what was sent, with the id the PUT body can't carry.
+        return WifiNetwork.model_validate({**current_payload, "id": wifi_id})
 
     async def delete(self, site_id: str, wifi_id: str) -> bool:
         """

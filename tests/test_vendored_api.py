@@ -40,10 +40,12 @@ from custom_components.unifi_insights.api.exceptions import (
 )
 from custom_components.unifi_insights.api.network import (
     DEFAULT_SITE_REPORT_ATTRS,
+    FirewallRule,
     PolicyBasedRoute,
     SiteReportBucket,
     UniFiNetworkClient,
     VpnClient,
+    WifiNetwork,
     parse_outlet_metrics,
 )
 from custom_components.unifi_insights.api.network.models.firewall import (
@@ -877,6 +879,97 @@ async def test_wifi_update_uses_put_with_existing_payload() -> None:
     )
     client._patch.assert_not_awaited()
     assert result.enabled is True
+
+
+# The forms a successful PUT with no body reaches the fallback as: the base
+# client returns None for an empty response, and the extractor treats an
+# empty list or a null/empty "data" list as no payload.
+EMPTY_PUT_RESPONSES = [None, [], {"data": []}, {"data": None}]
+
+
+@pytest.mark.parametrize("put_response", EMPTY_PUT_RESPONSES)
+async def test_wifi_update_empty_put_response_fallback(
+    put_response: dict[str, Any] | list[Any] | None,
+) -> None:
+    """With no PUT body, the result is the sent payload with the requested id."""
+    client = _network_client()
+    client._get = AsyncMock(
+        return_value={
+            "data": {
+                "id": "wifi-1",
+                "type": "STANDARD",
+                "name": "Guest WiFi",
+                "enabled": False,
+                "metadata": {"origin": "USER_DEFINED"},
+            }
+        }
+    )
+    client._put = AsyncMock(return_value=put_response)
+    client._patch = AsyncMock()
+
+    result = await client.wifi.update("site-1", "wifi-1", enabled=True)
+
+    assert isinstance(result, WifiNetwork)
+    assert result.id == "wifi-1"
+    assert result.enabled is True
+    client._put.assert_awaited_once_with(
+        "/proxy/network/integration/v1/sites/site-1/wifi/broadcasts/wifi-1",
+        json_data={"type": "STANDARD", "name": "Guest WiFi", "enabled": True},
+    )
+    client._patch.assert_not_awaited()
+
+
+@pytest.mark.parametrize("put_response", EMPTY_PUT_RESPONSES)
+async def test_firewall_update_rule_empty_put_response_fallback(
+    put_response: dict[str, Any] | list[Any] | None,
+) -> None:
+    """With no PUT body, the result is the sent payload with the requested id."""
+    client = _network_client()
+    path = "/proxy/network/integration/v1/sites/site-1/firewall/policies/rule-1"
+    client._get = AsyncMock(
+        return_value={
+            "data": {
+                "id": "rule-1",
+                "name": "Drop Rule",
+                "action": "drop",
+                "enabled": True,
+                "index": 3,
+                "metadata": {"origin": "USER_DEFINED"},
+            }
+        }
+    )
+    client._put = AsyncMock(return_value=put_response)
+    client._patch = AsyncMock()
+
+    result = await client.firewall.update_rule("site-1", "rule-1", enabled=False)
+
+    assert isinstance(result, FirewallRule)
+    assert result.id == "rule-1"
+    assert result.enabled is False
+    assert result.name == "Drop Rule"
+    client._get.assert_awaited_once_with(path)
+    client._put.assert_awaited_once_with(
+        path, json_data={"name": "Drop Rule", "action": "drop", "enabled": False}
+    )
+    client._patch.assert_not_awaited()
+
+
+async def test_firewall_update_rule_returns_put_response() -> None:
+    """When the PUT returns the rule, that is what update_rule returns."""
+    client = _network_client()
+    client._get = AsyncMock(
+        return_value={"id": "rule-1", "name": "Drop Rule", "enabled": True}
+    )
+    client._put = AsyncMock(
+        return_value={
+            "data": {"id": "rule-1", "name": "Drop Rule", "enabled": False, "index": 7}
+        }
+    )
+
+    result = await client.firewall.update_rule("site-1", "rule-1", enabled=False)
+
+    assert result.enabled is False
+    assert result.index == 7
 
 
 async def test_clients_get_all_paginates_automatically() -> None:

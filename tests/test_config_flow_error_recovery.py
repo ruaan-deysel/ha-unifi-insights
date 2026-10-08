@@ -336,37 +336,61 @@ async def test_select_console_jumps_to_remote_when_state_missing(
 
 
 @pytest.mark.parametrize(
-    ("side_effect_item", "expected_errors"),
+    ("side_effect_item", "raise_at", "expected_errors"),
     [
-        ([], {CONF_CONSOLE_ID: "invalid_console_id"}),
+        ([], "call", {CONF_CONSOLE_ID: "invalid_console_id"}),
         (
             UniFiAuthenticationError("auth error"),
+            "construct",
             {CONF_CONSOLE_ID: "invalid_console_id"},
         ),
-        (UniFiConnectionError("conn error"), {"base": "cannot_connect"}),
-        (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
+        (UniFiConnectionError("conn error"), "call", {"base": "cannot_connect"}),
+        (UniFiTimeoutError("timeout"), "construct", {"base": "cannot_connect"}),
+        # Raised by the API call, the probe classifies these as not usable,
+        # so the step reports an invalid console.
         (
             UniFiNotFoundError("not found", status_code=404),
+            "call",
+            {CONF_CONSOLE_ID: "invalid_console_id"},
+        ),
+        (
+            ValidationError.from_exception_data("Site", line_errors=[]),
+            "call",
+            {CONF_CONSOLE_ID: "invalid_console_id"},
+        ),
+        (RuntimeError("unexpected"), "call", {CONF_CONSOLE_ID: "invalid_console_id"}),
+        # Raised while building the client, before the probe runs, these
+        # reach the step's own defensive except branches.
+        (
+            UniFiNotFoundError("not found", status_code=404),
+            "construct",
             {"base": "api_unsupported"},
         ),
         (
             ValidationError.from_exception_data("Site", line_errors=[]),
+            "construct",
             {"base": "site_parse_error"},
         ),
-        (RuntimeError("unexpected"), {"base": "unknown"}),
+        (RuntimeError("unexpected"), "construct", {"base": "unknown"}),
     ],
 )
 async def test_select_console_errors_and_recovery(
     hass: HomeAssistant,
     side_effect_item: object,
+    raise_at: str,
     expected_errors: dict[str, str],
 ) -> None:
     """Test each error during console validation and subsequent recovery."""
     discovery_cm = _make_client_context(
         get_hosts=[_remote_host(host_id="console123", hostname="Dream Router 7")]
     )
-    if isinstance(side_effect_item, Exception):
+    failing_validation_item: object
+    if raise_at == "construct":
         failing_validation_item = side_effect_item
+    elif isinstance(side_effect_item, Exception):
+        failing_validation_item = _make_client_context(
+            sites_side_effect=side_effect_item
+        )
     else:
         failing_validation_item = _make_client_context(sites=side_effect_item)
 

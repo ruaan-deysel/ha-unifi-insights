@@ -338,13 +338,13 @@ async def test_select_console_jumps_to_remote_when_state_missing(
         (UniFiTimeoutError("timeout"), {"base": "cannot_connect"}),
         (
             UniFiNotFoundError("not found", status_code=404),
-            {CONF_CONSOLE_ID: "invalid_console_id"},
+            {"base": "api_unsupported"},
         ),
         (
             ValidationError.from_exception_data("Site", line_errors=[]),
-            {CONF_CONSOLE_ID: "invalid_console_id"},
+            {"base": "site_parse_error"},
         ),
-        (RuntimeError("unexpected"), {CONF_CONSOLE_ID: "invalid_console_id"}),
+        (RuntimeError("unexpected"), {"base": "unknown"}),
     ],
 )
 async def test_select_console_errors_and_recovery(
@@ -357,9 +357,9 @@ async def test_select_console_errors_and_recovery(
         get_hosts=[_remote_host(host_id="console123", hostname="Dream Router 7")]
     )
     if isinstance(side_effect_item, Exception):
-        failing_validation_cm = _make_client_context(sites_side_effect=side_effect_item)
+        failing_validation_item = side_effect_item
     else:
-        failing_validation_cm = _make_client_context(sites=side_effect_item)
+        failing_validation_item = _make_client_context(sites=side_effect_item)
 
     recovering_validation_cm = _make_client_context(
         sites=[MagicMock(id="default", name="Default")]
@@ -368,7 +368,11 @@ async def test_select_console_errors_and_recovery(
     with (
         patch(
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
-            side_effect=[discovery_cm, failing_validation_cm, recovering_validation_cm],
+            side_effect=[
+                discovery_cm,
+                failing_validation_item,
+                recovering_validation_cm,
+            ],
         ),
         patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
     ):
@@ -533,7 +537,9 @@ async def test_reauth_remote_validation_errors_and_recovery(
     remote_entry.add_to_hass(hass)
 
     discovery_cm_1 = _make_client_context(get_hosts=[_remote_host("console123")])
-    if isinstance(validation_side_effect, Exception):
+    if isinstance(validation_side_effect, UniFiAuthenticationError):
+        failing_validation_cm = validation_side_effect
+    elif isinstance(validation_side_effect, Exception):
         failing_validation_cm = _make_client_context(
             sites_side_effect=validation_side_effect
         )

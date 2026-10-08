@@ -27,4 +27,3 @@ ignore:
   - "tests/**/*"
   - "script/**/*"
   - "custom_components/unifi_insights/api/**/*"
-  - "custom_components/unifi_insights/coordinator.py"

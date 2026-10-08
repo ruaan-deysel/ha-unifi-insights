@@ -38,15 +38,24 @@ asyncio_default_fixture_loop_scope = "function"
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+# Prevent hanging tests (pytest-timeout)
+timeout = 30
 addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
     "--cov=custom_components.unifi_insights",
     "--cov-branch",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-report=xml",
     "--cov-fail-under=90",
-    "-v",
-    "-ra",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "asyncio: Async tests",
+    "requires_auth: Tests that require authentication",
 ]
 
 [tool.coverage.run]
@@ -55,8 +64,6 @@ omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/site-packages/*",
-    "custom_components/unifi_insights/coordinator.py",
-    "custom_components/unifi_insights/data_transforms.py",
     "custom_components/unifi_insights/api/*",
 ]
 
@@ -70,6 +77,7 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
     "@abstractmethod",
+    "@overload",
 ]
 
 [tool.ruff]

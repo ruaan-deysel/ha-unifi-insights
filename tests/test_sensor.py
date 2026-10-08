@@ -1,6 +1,7 @@
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Insights sensors."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -50,6 +51,8 @@ from custom_components.unifi_insights.sensor import (
     _bytes_to_gb,
     _calculate_storage_available,
     _calculate_storage_percent,
+    _discover_outlet_sensors,
+    _discover_protect_sensors,
     _discover_site_internet_activity_sensors,
     _get_client_type,
     _get_port_label,
@@ -3972,3 +3975,247 @@ class TestUnifiSiteInternetActivitySensor:
         assert sensor.native_value is None
         coordinator.data = None
         assert sensor.native_value is None
+
+
+class TestSensorAdditionalCoverageGaps:
+    """Targeted tests for remaining sensor.py coverage gaps."""
+
+    def test_temperature_fallbacks(self):
+        """Test get_network_device_temperature fallback branches."""
+        assert get_network_device_temperature({"generalTemperature": 40.0}) == 40.0
+        assert get_network_device_temperature({"temperatures": "invalid"}) is None
+        assert get_network_device_temperature({"temperatures": [None, 123]}) is None
+        assert (
+            get_network_device_temperature(
+                {"temperatures": [{"name": "ambient", "value": 35.5}]}
+            )
+            == 35.5
+        )
+        assert (
+            get_network_device_temperature(
+                {"temperatures": [{"name": "ambient", "value": "unknown"}]}
+            )
+            is None
+        )
+
+    def test_has_storage_info_total_size_fallback(self):
+        """Test _has_storage_info when only total_size is present."""
+        data = {"storageInfo": {"total_size": 1000}}
+        assert _has_storage_info(data) is True
+
+    def test_outlet_has_metering_invalid_caps(self):
+        """Test _outlet_has_metering when outlet_caps cannot be parsed as int."""
+        outlet = {"outlet_caps": "invalid_caps"}
+        assert _outlet_has_metering(outlet) is False
+
+    def test_migrate_sensor_units_skips_non_sensor_domain(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test _migrate_sensor_units skips entities whose domain is not sensor."""
+        mock_ent = MagicMock(domain="switch", unique_id="site1_dev1_switch")
+        mock_reg = MagicMock()
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_reg,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_ent],
+            ),
+        ):
+            _migrate_sensor_units(hass, mock_config_entry)
+        mock_reg.async_update_entity_options.assert_not_called()
+
+    def test_outlet_discovery_edge_cases(self):
+        """Test _discover_outlet_sensors skips invalid outlets and dedupes."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {
+                "site1": {
+                    "dev1": {
+                        "id": "dev1",
+                        "name": "PDU",
+                        "state": "ONLINE",
+                    }
+                }
+            }
+        }
+        known_keys: set[tuple[Any, ...]] = set()
+        entities: list[Any] = []
+
+        device_data = {
+            "outlet_table": [
+                "not_a_dict",
+                {"name": "No index"},
+                {"index": "unparseable_idx"},
+                {"index": 1},  # no metering -> skipped
+                {"index": 2, "outlet_power": 10.0},  # valid metering -> created
+            ]
+        }
+        _discover_outlet_sensors(
+            coordinator, "site1", "dev1", device_data, known_keys, entities
+        )
+        assert len(entities) > 0
+
+        entities_second: list[Any] = []
+        _discover_outlet_sensors(
+            coordinator, "site1", "dev1", device_data, known_keys, entities_second
+        )
+        assert len(entities_second) == 0
+
+    def test_protect_sensors_discovery_guards(self):
+        """Test _discover_protect_sensors returns early if no client or invalid data."""
+        coordinator = MagicMock()
+        coordinator.protect_client = None
+        entities: list[Any] = []
+        _discover_protect_sensors(coordinator, set(), entities)
+        assert len(entities) == 0
+
+        coordinator.protect_client = MagicMock()
+        coordinator.data = {"protect": "not_a_dict"}
+        _discover_protect_sensors(coordinator, set(), entities)
+        assert len(entities) == 0
+
+    def test_outlet_sensor_branches(self):
+        """Test UnifiOutletSensor available and native_value branches."""
+        coordinator = MagicMock()
+        coordinator.device_available = True
+        coordinator.data = {
+            "devices": {
+                "site1": {
+                    "dev1": {
+                        "id": "dev1",
+                        "name": "PDU",
+                        "state": "ONLINE",
+                        "outlet_table": [
+                            "not_a_dict",
+                            {"outletIdx": "bad_idx"},
+                            {
+                                "outletIdx": "1",
+                                "name": "Main Outlet",
+                                "relay_state": True,
+                                "power": 25.0,
+                            },
+                        ],
+                    }
+                }
+            }
+        }
+        desc = OUTLET_SENSOR_TYPES[0]
+        sensor = UnifiOutletSensor(coordinator, desc, "site1", "dev1", outlet_index=1)
+
+        assert sensor.available is True
+        assert sensor.native_value == 25.0
+        assert sensor.extra_state_attributes == {
+            "index": 1,
+            "name": "Main Outlet",
+            "relay_state": True,
+        }
+
+        coordinator.device_available = False
+        assert sensor.available is False
+        coordinator.device_available = True
+
+        coordinator.data["devices"]["site1"]["dev1"]["outlet_table"] = "not_a_list"
+        assert sensor._find_outlet_data() is None
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes is None
+
+    def test_site_client_sensor_clients_not_dict(self):
+        """Test UnifiSiteClientSensor native_value with invalid clients."""
+        coordinator = MagicMock()
+        coordinator.device_available = True
+        coordinator.data = {"clients": {"site1": None}}
+        desc = SITE_CLIENT_SENSOR_TYPES[0]
+        sensor = UnifiSiteClientSensor(coordinator, desc, "site1")
+        assert sensor.native_value == 0
+
+    def test_wifi_client_count_sensor_branches(self):
+        """Test UnifiWifiClientCountSensor name fallbacks, values, and attributes."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "wifi": {
+                "site1": {
+                    "w1": {
+                        "ssid": "MyGuestSSID",
+                        "isGuest": True,
+                        "enabled": True,
+                        "num_connected_clients": 5,
+                    },
+                    "w2": {
+                        "num_connected_clients": "not_an_int",
+                    },
+                }
+            }
+        }
+        sensor1 = UnifiWifiClientCountSensor(coordinator, "site1", "w1")
+        assert sensor1.native_value == 5
+        attrs = sensor1.extra_state_attributes
+        assert attrs["ssid"] == "MyGuestSSID"
+        assert attrs["is_guest"] is True
+        assert attrs["enabled"] is True
+
+        sensor2 = UnifiWifiClientCountSensor(coordinator, "site1", "w2")
+        assert sensor2.native_value == 0
+
+    async def test_async_setup_entry_stale_port_cleanup_and_branches(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Test stale port sensor cleanup and async_setup_entry branches."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "devices": {
+                "site1": {
+                    "device1": {
+                        "id": "device1",
+                        "name": "Switch",
+                        "state": "ONLINE",
+                        "interfaces": {"ports": [{"idx": 1, "state": "UP"}]},
+                    },
+                    "invalid_device": "not_a_dict",
+                },
+                "invalid_site": "not_a_dict",
+            },
+            "clients": {"site1": {}},
+            "wifi": {
+                "site1": {
+                    "w1": {"name": "WiFi", "num_connected_clients": 2},
+                    "invalid_wifi": "not_a_dict",
+                },
+                "invalid_wifi_site": "not_a_dict",
+            },
+        }
+        coordinator.protect_client = None
+        coordinator.async_add_listener = MagicMock()
+
+        mock_config_entry.runtime_data = MagicMock(coordinator=coordinator)
+        async_add_entities = MagicMock()
+
+        mock_stale = MagicMock(
+            domain="sensor",
+            unique_id="site1_device1_port_99_speed",
+            entity_id="sensor.stale_port",
+        )
+        mock_reg = MagicMock()
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=mock_reg,
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[mock_stale],
+            ),
+        ):
+            await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+        mock_reg.async_remove.assert_called_with("sensor.stale_port")
+        assert coordinator.async_add_listener.called
+
+        discover_callback = coordinator.async_add_listener.call_args[0][0]
+        discover_callback()
+
+        coordinator.data = None
+        discover_callback()

@@ -1163,9 +1163,13 @@ async def test_protect_and_site_subscription_cleanup_idempotent(
     protect_unsub = connection.subscriptions[401]
     protect_unsub()
     protect_unsub()
+    # Unsubscribing stops watching the entry, and a late unload is a no-op.
+    assert protect_watchers[init_integration.entry_id].isdisjoint(protect_cbs)
+    sent = connection.send_message.call_count
     for cb in protect_cbs:
         cb()
         cb()
+    assert connection.send_message.call_count == sent
 
     # Site health subscription cleanup
     connection.subscriptions = {}
@@ -1179,9 +1183,12 @@ async def test_protect_and_site_subscription_cleanup_idempotent(
     site_unsub = connection.subscriptions[402]
     site_unsub()
     site_unsub()
+    assert site_watchers[init_integration.entry_id].isdisjoint(site_cbs)
+    sent = connection.send_message.call_count
     for cb in site_cbs:
         cb()
         cb()
+    assert connection.send_message.call_count == sent
 
 
 async def test_site_subscription_forwarder_branches(

@@ -62,7 +62,6 @@ power_cycle_port:
           min: 1
           mode: box
 
-
 # UniFi Protect Camera services
 set_recording_mode:
   name: Set Recording Mode

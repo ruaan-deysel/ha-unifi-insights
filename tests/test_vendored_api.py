@@ -19,6 +19,7 @@ from custom_components.unifi_insights.api import (
 )
 from custom_components.unifi_insights.api import base as api_base
 from custom_components.unifi_insights.api.base import (
+    BaseUniFiClient,
     RequestRateLimiter,
     parse_retry_after,
 )
@@ -31,11 +32,13 @@ from custom_components.unifi_insights.api.const import (
     RATE_LIMIT_WINDOW_MARGIN,
 )
 from custom_components.unifi_insights.api.exceptions import (
+    UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiGlobalAlarmManagerError,
     UniFiNotFoundError,
     UniFiRateLimitError,
     UniFiResponseError,
+    UniFiTimeoutError,
     UniFiValidationError,
 )
 from custom_components.unifi_insights.api.network import (
@@ -2872,6 +2875,7 @@ def _response_context(
     response = MagicMock()
     response.status = status
     response.headers = headers
+    response.content_type = headers.get("Content-Type")
     response.text = AsyncMock(
         return_value="Too many requests" if status == 429 else "response body"
     )
@@ -3079,6 +3083,83 @@ async def test_binary_request_is_throttled(fake_clock: _FakeClock) -> None:
 
     assert await client._get_binary("/cameras/abc/snapshot") == b"jpeg"
     assert fake_clock.sleeps == [pytest.approx(1.0)]
+
+
+async def test_protect_client_get_binary_auth_error_raises_connection_error() -> None:
+    """UniFiProtectClient._get_binary wraps auth error in UniFiConnectionError."""
+    client = _protect_client()
+    client._session = _binary_session(401, {})
+    with pytest.raises(UniFiConnectionError) as exc:
+        await client._get_binary("/cameras/abc/snapshot")
+    assert isinstance(exc.value.__cause__, UniFiAuthenticationError)
+    assert "401" in str(exc.value)
+
+    client._session = _binary_session(403, {})
+    with pytest.raises(UniFiConnectionError) as exc403:
+        await client._get_binary("/cameras/abc/snapshot")
+    assert isinstance(exc403.value.__cause__, UniFiAuthenticationError)
+    assert "403" in str(exc403.value)
+
+
+async def test_base_client_get_binary_success() -> None:
+    """The base binary GET returns the data and the content type."""
+    client = _protect_client()
+    session = _binary_session(200, {"Content-Type": "image/png"})
+    client._session = session
+
+    data, content_type = await BaseUniFiClient._get_binary_with_content_type(
+        client, "/test/path"
+    )
+    assert data == b"jpeg"
+    assert content_type == "image/png"
+
+
+async def test_base_client_get_binary_404_raises_not_found() -> None:
+    """The base binary GET raises UniFiNotFoundError on 404."""
+    client = _protect_client()
+    client._session = _binary_session(404, {})
+    with pytest.raises(UniFiNotFoundError) as exc:
+        await BaseUniFiClient._get_binary_with_content_type(client, "/missing")
+    assert exc.value.status_code == 404
+
+
+async def test_base_client_get_binary_auth_errors() -> None:
+    """The base binary GET raises UniFiAuthenticationError on 401/403."""
+    client = _protect_client()
+    client._session = _binary_session(401, {})
+    with pytest.raises(UniFiAuthenticationError) as exc:
+        await BaseUniFiClient._get_binary_with_content_type(client, "/unauthorized")
+    assert exc.value.status_code == 401
+
+    client._session = _binary_session(403, {})
+    with pytest.raises(UniFiAuthenticationError) as exc2:
+        await BaseUniFiClient._get_binary_with_content_type(client, "/forbidden")
+    assert exc2.value.status_code == 403
+
+
+async def test_base_client_get_binary_500_raises_response_error() -> None:
+    """The base binary GET raises UniFiResponseError on 500."""
+    client = _protect_client()
+    client._session = _binary_session(500, {})
+    with pytest.raises(UniFiResponseError) as exc:
+        await BaseUniFiClient._get_binary_with_content_type(client, "/server-error")
+    assert exc.value.status_code == 500
+
+
+async def test_base_client_get_binary_network_errors() -> None:
+    """The base binary GET converts network and timeout errors."""
+    client = _protect_client()
+    session = MagicMock()
+    session.closed = False
+
+    session.get = MagicMock(side_effect=TimeoutError("timeout"))
+    client._session = session
+    with pytest.raises(UniFiTimeoutError):
+        await BaseUniFiClient._get_binary_with_content_type(client, "/timeout")
+
+    session.get = MagicMock(side_effect=aiohttp.ClientError("network failure"))
+    with pytest.raises(UniFiConnectionError):
+        await BaseUniFiClient._get_binary_with_content_type(client, "/net-err")
 
 
 class TestUniFiInnerSpaceClient:

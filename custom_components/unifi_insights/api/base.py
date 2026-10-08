@@ -650,6 +650,123 @@ class BaseUniFiClient(ABC):
         """
         return await self._request("DELETE", path, params=params)
 
+    async def _get_binary_with_content_type(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bytes, str]:
+        """
+        Make a GET request that returns binary data and its content type.
+
+        Args:
+            path: API path.
+            params: Query parameters.
+
+        Returns:
+            Tuple of (binary_content, content_type).
+
+        A 429 is waited out and retried once, like the JSON requests: see
+        `_retry_once_after_rate_limit`.
+
+        Raises:
+            UniFiAuthenticationError: If authentication fails.
+            UniFiConnectionError: If connection fails.
+            UniFiNotFoundError: If resource not found.
+            UniFiRateLimitError: If rate limited.
+            UniFiResponseError: If API returns an error.
+            UniFiTimeoutError: If request times out.
+
+        """
+        return await self._retry_once_after_rate_limit(
+            lambda: self._get_binary_once(path, params=params),
+            f"GET {path}",
+        )
+
+    async def _get_binary_once(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bytes, str]:
+        """
+        Make a single binary GET request.
+
+        Raises:
+            UniFiAuthenticationError: If authentication fails.
+            UniFiConnectionError: If connection fails.
+            UniFiNotFoundError: If resource not found.
+            UniFiRateLimitError: If rate limited.
+            UniFiResponseError: If API returns an error.
+            UniFiTimeoutError: If request times out.
+
+        """
+        await self._throttle()
+        session = await self._ensure_session()
+        url = self._build_url(path)
+        headers = self._get_headers()
+        # Remove JSON content type for binary requests
+        headers.pop(HEADER_CONTENT_TYPE, None)
+        headers[HEADER_ACCEPT] = "*/*"
+
+        _LOGGER.debug(
+            "Making binary GET request to %s",
+            url,
+        )
+
+        try:
+            async with session.get(
+                url,
+                params=params,
+                headers=headers,
+            ) as response:
+                status = response.status
+                if status >= HTTPStatus.BAD_REQUEST:
+                    text = await response.text()
+                    if status == HTTPStatus.UNAUTHORIZED:
+                        msg = "Authentication failed. Check your API key."
+                        raise UniFiAuthenticationError(msg, status_code=status)
+                    if status == HTTPStatus.FORBIDDEN:
+                        msg = "Access forbidden. Check your API key permissions."
+                        raise UniFiAuthenticationError(msg, status_code=status)
+                    if status == HTTPStatus.NOT_FOUND:
+                        msg = "Resource not found"
+                        raise UniFiNotFoundError(
+                            msg,
+                            status_code=status,
+                            response_body=text,
+                        )
+                    if status == HTTPStatus.TOO_MANY_REQUESTS:
+                        msg = "Rate limited by API"
+                        raise UniFiRateLimitError(
+                            msg,
+                            status_code=status,
+                            response_body=text,
+                            retry_after=parse_retry_after(response.headers),
+                        )
+                    msg = f"API error (status {status})"
+                    raise UniFiResponseError(
+                        msg,
+                        status_code=status,
+                        response_body=text,
+                    )
+
+                data = await response.read()
+                content_type = response.content_type or response.headers.get(
+                    HEADER_CONTENT_TYPE, "application/octet-stream"
+                )
+                return data, content_type
+
+        except aiohttp.ClientConnectorError as err:
+            msg = f"Failed to connect to {url}: {err}"
+            raise UniFiConnectionError(msg) from err
+        except TimeoutError as err:
+            msg = f"Request to {url} timed out"
+            raise UniFiTimeoutError(msg) from err
+        except aiohttp.ClientError as err:
+            msg = f"Request to {url} failed: {err}"
+            raise UniFiConnectionError(msg) from err
+
     @abstractmethod
     async def validate_connection(self) -> bool:
         """

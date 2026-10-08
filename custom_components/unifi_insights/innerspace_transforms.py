@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
+from urllib.parse import unquote, urlsplit, urlunsplit
+
+from .api.innerspace.client import is_valid_asset_segment
 
 _MAC_HEX_LEN = 12
 
@@ -143,6 +146,59 @@ def transform_innerspace_project(project_data: Any) -> dict[str, Any] | None:
     }
 
 
+_MIN_ASSET_PATH_PARTS = 4
+
+
+def strip_url_query(url: str | None) -> str | None:
+    """
+    Return `url` without its query string, fragment, and userinfo.
+
+    Floor plan image URLs are shown in entity attributes and logs, where a
+    signed or token-bearing query must not appear. Scheme, host, and path are
+    kept; only the parts that can carry credentials are dropped.
+    """
+    if not isinstance(url, str) or not url:
+        return None
+    parts = urlsplit(url)
+    host = parts.netloc.rpartition("@")[2]
+    return urlunsplit((parts.scheme, host, parts.path, "", ""))
+
+
+def parse_floor_plan_asset_path(
+    image_url: str | None,
+) -> tuple[str, str] | None:
+    """
+    Parse the floor plan ID and asset filename from an image URL.
+
+    Accepts only paths ending in `/assets/<plan_id>/<filename>` (ignoring
+    scheme, host, query string, and fragment). Each segment is percent-decoded
+    (the URL path carries names such as `floor%20plan.png` encoded) and must
+    then pass `is_valid_asset_segment`.
+
+    Returns:
+        Tuple of the decoded (plan_id, filename) if valid, or None.
+
+    """
+    if not isinstance(image_url, str) or not image_url.strip():
+        return None
+
+    path = urlsplit(image_url).path
+    if not path:
+        return None
+
+    parts = path.split("/")
+    if len(parts) < _MIN_ASSET_PATH_PARTS or parts[-3] != "assets":
+        return None
+
+    plan_id = unquote(parts[-2])
+    filename = unquote(parts[-1])
+
+    if not is_valid_asset_segment(plan_id) or not is_valid_asset_segment(filename):
+        return None
+
+    return plan_id, filename
+
+
 def transform_innerspace_floor_plan(
     floor_plan_data: Any,
     *,
@@ -152,7 +208,8 @@ def transform_innerspace_floor_plan(
     Normalize a UniFi InnerSpace floor plan record.
 
     Merges project plan metadata (such as `siteId`, `ordering`, `attenuation`,
-    `projectId`) while intentionally excluding `image_url`.
+    `projectId`) and keeps the plan's own asset `image_url`. Project plans carry
+    no image, so `project_plan` never supplies one.
     """
     raw = _to_mapping(floor_plan_data)
     proj = project_plan if isinstance(project_plan, dict) else {}
@@ -178,6 +235,7 @@ def transform_innerspace_floor_plan(
         ),
         "floor_number": _valid_int(raw.get("floor_number") or raw.get("floorNumber")),
         "site_id": site_id if isinstance(site_id, str) and site_id else None,
+        "image_url": raw.get("image_url") or raw.get("imageUrl"),
         "project_id": (
             project_id if isinstance(project_id, str) and project_id else None
         ),
@@ -489,7 +547,8 @@ def normalize_innerspace_snapshot(
     Build the normalized InnerSpace coordinator snapshot.
 
     Keeps unplaced inventory distinct from placed access points and switches,
-    excludes raw shapes and image URLs, and computes unambiguous MAC correlations.
+    keeps floor plan image URLs (but not raw shapes), and computes unambiguous
+    MAC correlations.
     """
     normalized_project = transform_innerspace_project(project)
     project_plans_by_id: dict[str, dict[str, Any]] = {}

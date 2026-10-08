@@ -119,6 +119,10 @@ class InnerSpaceFloorPlan(InnerSpaceBaseModel):
 
     id: str
     name: str
+    image_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("image_url", "imageUrl"),
+    )
     floor_number: float | int | None = Field(
         default=None,
         validation_alias=AliasChoices("floor_number", "floorNumber"),

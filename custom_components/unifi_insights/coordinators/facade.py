@@ -1018,6 +1018,19 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._protect_coordinator is not None:
             await self._protect_coordinator.async_request_refresh()
 
+    async def async_get_floor_plan_image(
+        self,
+        plan_id: str,
+        filename: str,
+    ) -> tuple[bytes, str] | None:
+        """Download floor plan image binary data and content type."""
+        if not self.innerspace_client:
+            return None
+        return await self.innerspace_client.download_floor_plan_image(
+            plan_id,
+            filename,
+        )
+
     async def async_create_liveview(
         self,
         *,

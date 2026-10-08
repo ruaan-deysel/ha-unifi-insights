@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.diagnostics import REDACTED
@@ -14,7 +14,15 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from custom_components.unifi_insights import innerspace_transforms
+from custom_components.unifi_insights.api.auth import ApiKeyAuth, LocalAuth
+from custom_components.unifi_insights.api.const import ConnectionType
+from custom_components.unifi_insights.api.exceptions import UniFiValidationError
+from custom_components.unifi_insights.api.innerspace import UniFiInnerSpaceClient
+from custom_components.unifi_insights.api.innerspace import client as innerspace_client
+from custom_components.unifi_insights.api.innerspace.models import InnerSpaceFloorPlan
 from custom_components.unifi_insights.const import DOMAIN
+from custom_components.unifi_insights.coordinators import UnifiFacadeCoordinator
 from custom_components.unifi_insights.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -28,7 +36,9 @@ from custom_components.unifi_insights.innerspace_transforms import (
     _to_mapping,
     correlate_innerspace_devices,
     normalize_innerspace_snapshot,
+    parse_floor_plan_asset_path,
     transform_innerspace_device,
+    transform_innerspace_floor_plan,
     transform_innerspace_project,
 )
 from custom_components.unifi_insights.sensor import (
@@ -424,3 +434,318 @@ def test_innerspace_transforms_edge_cases() -> None:
         inventory=[{"id": ""}],
     )
     assert "fp-from-proj" in norm["floor_plans"]
+
+
+def test_innerspace_floor_plan_model_image_url() -> None:
+    """InnerSpaceFloorPlan parses snake_case and camelCase image_url."""
+    plan_snake = InnerSpaceFloorPlan.model_validate(
+        {
+            "id": "fp-1",
+            "name": "First Floor",
+            "image_url": "/proxy/innerspace/integration/v1/assets/fp-1/floor.png",
+        }
+    )
+    assert (
+        plan_snake.image_url == "/proxy/innerspace/integration/v1/assets/fp-1/floor.png"
+    )
+
+    plan_camel = InnerSpaceFloorPlan.model_validate(
+        {
+            "id": "fp-2",
+            "name": "Second Floor",
+            "imageUrl": "/proxy/innerspace/integration/v1/assets/fp-2/plan.jpeg",
+        }
+    )
+    assert (
+        plan_camel.image_url == "/proxy/innerspace/integration/v1/assets/fp-2/plan.jpeg"
+    )
+
+
+def test_transform_innerspace_floor_plan_image_url() -> None:
+    """transform_innerspace_floor_plan preserves image_url from the plan itself."""
+    transformed = transform_innerspace_floor_plan(
+        {
+            "id": "fp-1",
+            "name": "Main Floor",
+            "image_url": "/proxy/innerspace/integration/v1/assets/fp-1/floor.png",
+        }
+    )
+    assert (
+        transformed["image_url"]
+        == "/proxy/innerspace/integration/v1/assets/fp-1/floor.png"
+    )
+
+    transformed_camel = transform_innerspace_floor_plan(
+        {
+            "id": "fp-2",
+            "name": "Upper Floor",
+            "imageUrl": "/proxy/innerspace/integration/v1/assets/fp-2/plan.png",
+        }
+    )
+    assert (
+        transformed_camel["image_url"]
+        == "/proxy/innerspace/integration/v1/assets/fp-2/plan.png"
+    )
+
+    # Project plans never carry an image, so the project plan cannot supply one.
+    transformed_from_proj = transform_innerspace_floor_plan(
+        {"id": "fp-3", "name": "Basement"},
+        project_plan={"id": "fp-3", "name": "Basement"},
+    )
+    assert transformed_from_proj["image_url"] is None
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/floor.png",
+            ("3fa85f64", "floor.png"),
+        ),
+        (
+            (
+                "/v1/connector/consoles/c1/innerspace/integration/v1"
+                "/assets/3fa85f64/plan.jpeg"
+            ),
+            ("3fa85f64", "plan.jpeg"),
+        ),
+        (
+            "/assets/fp-1/ground.png",
+            ("fp-1", "ground.png"),
+        ),
+        (
+            (
+                "https://192.168.1.1/proxy/innerspace/integration/v1"
+                "/assets/3fa85f64/img.png?token=xyz#frag"
+            ),
+            ("3fa85f64", "img.png"),
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/..",
+            None,
+        ),
+        (
+            "/assets/3fa85f64/../secret.png",
+            None,
+        ),
+        (
+            "/assets/../img.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/sub/img.png",
+            None,
+        ),
+        (
+            r"/proxy/innerspace/integration/v1/assets/3fa85f64/sub\img.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/notassets/3fa85f64/floor.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/floor.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/floor.png/",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/floor%20plan%20%231.png",
+            ("3fa85f64", "floor plan #1.png"),
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/pl%C3%A4n.png",
+            ("3fa85f64", "plän.png"),
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/" + "a" * 255,
+            ("3fa85f64", "a" * 255),
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/" + "a" * 256,
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/.hidden.png",
+            ("3fa85f64", ".hidden.png"),
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/%2e%2e",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/%2E",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/sub%2Fimg.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/sub%5Cimg.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/img%00.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/img%0A.png",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/3fa85f64/%20%20",
+            None,
+        ),
+        (
+            "/proxy/innerspace/integration/v1/assets/%2E%2E/floor.png",
+            None,
+        ),
+        ("", None),
+        ("   ", None),
+        ("?a=1", None),
+        ("#frag", None),
+        ("https://host", None),
+        (None, None),
+        (123, None),
+    ],
+)
+def test_parse_floor_plan_asset_path(
+    url: Any, expected: tuple[str, str] | None
+) -> None:
+    """Extract plan_id and filename correctly or return None for invalid URLs."""
+    assert parse_floor_plan_asset_path(url) == expected
+
+
+@pytest.mark.asyncio
+async def test_download_floor_plan_image_local_and_remote() -> None:
+    """Test download_floor_plan_image constructs correct path and passes parameters."""
+    local_client = UniFiInnerSpaceClient(
+        auth=LocalAuth(api_key="k", verify_ssl=False),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    local_client._get_binary_with_content_type = AsyncMock(
+        return_value=(b"local_png_bytes", "image/png")
+    )
+    res = await local_client.download_floor_plan_image("fp-123", "floor.png")
+    assert res == (b"local_png_bytes", "image/png")
+    local_client._get_binary_with_content_type.assert_awaited_once_with(
+        "/proxy/innerspace/integration/v1/assets/fp-123/floor.png"
+    )
+
+    remote_client = UniFiInnerSpaceClient(
+        auth=ApiKeyAuth(api_key="k"),
+        connection_type=ConnectionType.REMOTE,
+        console_id="console-abc",
+    )
+    remote_client._get_binary_with_content_type = AsyncMock(
+        return_value=(b"remote_jpeg_bytes", "image/jpeg")
+    )
+    res_remote = await remote_client.download_floor_plan_image("fp-456", "plan.jpeg")
+    assert res_remote == (b"remote_jpeg_bytes", "image/jpeg")
+    remote_client._get_binary_with_content_type.assert_awaited_once_with(
+        "/v1/connector/consoles/console-abc/innerspace/integration/v1"
+        "/assets/fp-456/plan.jpeg"
+    )
+
+
+@pytest.mark.asyncio
+async def test_download_floor_plan_image_quotes_path_segments() -> None:
+    """Decoded names (spaces, unicode, 255 chars) are percent-encoded in the path."""
+    client = UniFiInnerSpaceClient(
+        auth=LocalAuth(api_key="k", verify_ssl=False),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    client._get_binary_with_content_type = AsyncMock(return_value=(b"x", "image/png"))
+
+    await client.download_floor_plan_image("fp-1", "floor plan #1.png")
+    client._get_binary_with_content_type.assert_awaited_with(
+        "/proxy/innerspace/integration/v1/assets/fp-1/floor%20plan%20%231.png"
+    )
+
+    await client.download_floor_plan_image("fp-1", ".hidden")
+    client._get_binary_with_content_type.assert_awaited_with(
+        "/proxy/innerspace/integration/v1/assets/fp-1/.hidden"
+    )
+
+    long_name = "b" * 255
+    await client.download_floor_plan_image("fp-1", long_name)
+    client._get_binary_with_content_type.assert_awaited_with(
+        f"/proxy/innerspace/integration/v1/assets/fp-1/{long_name}"
+    )
+
+
+def test_asset_segment_check_is_shared() -> None:
+    """The client and the transforms use one asset segment definition."""
+    assert (
+        innerspace_transforms.is_valid_asset_segment
+        is innerspace_client.is_valid_asset_segment
+    )
+
+
+@pytest.mark.parametrize(
+    ("plan_id", "filename"),
+    [
+        ("..", "image.png"),
+        ("fp-1", ".."),
+        ("fp-1", "dir/image.png"),
+        ("fp-1", "dir\\image.png"),
+        ("dir/fp-1", "image.png"),
+        ("", "image.png"),
+        ("fp-1", ""),
+        ("   ", "image.png"),
+        ("fp-1", "   "),
+        ("fp-1", "a\x00b.png"),
+        ("fp-1", "a\nb.png"),
+        ("fp-1", "a\x7fb.png"),
+        ("fp-1", "a\x85b.png"),
+        ("fp\x00", "image.png"),
+        ("fp-1", "a" * 256),
+        ("a" * 256, "image.png"),
+        (".", "image.png"),
+        ("fp-1", "."),
+    ],
+)
+@pytest.mark.asyncio
+async def test_download_floor_plan_image_rejects_invalid_segments_before_request(
+    plan_id: str,
+    filename: str,
+) -> None:
+    """Client validates plan_id and filename and rejects bad segments."""
+    client = UniFiInnerSpaceClient(
+        auth=LocalAuth(api_key="k", verify_ssl=False),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+    )
+    client._get_binary_with_content_type = AsyncMock()
+
+    with pytest.raises(UniFiValidationError):
+        await client.download_floor_plan_image(plan_id, filename)
+
+    client._get_binary_with_content_type.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_facade_coordinator_async_get_floor_plan_image() -> None:
+    """Test async_get_floor_plan_image with and without client."""
+    coordinator = MagicMock(spec=UnifiFacadeCoordinator)
+    coordinator.innerspace_client = None
+    res_none = await UnifiFacadeCoordinator.async_get_floor_plan_image(
+        coordinator, "fp-1", "plan.png"
+    )
+    assert res_none is None
+
+    mock_client = AsyncMock()
+    mock_client.download_floor_plan_image.return_value = (b"bytes", "image/png")
+    coordinator.innerspace_client = mock_client
+
+    res = await UnifiFacadeCoordinator.async_get_floor_plan_image(
+        coordinator, "fp-1", "plan.png"
+    )
+    assert res == (b"bytes", "image/png")
+    mock_client.download_floor_plan_image.assert_awaited_once_with("fp-1", "plan.png")

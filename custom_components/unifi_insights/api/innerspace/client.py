@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import TYPE_CHECKING, Any, NoReturn
+from urllib.parse import quote
 
 from custom_components.unifi_insights.api.base import BaseUniFiClient
 from custom_components.unifi_insights.api.const import (
@@ -12,7 +14,10 @@ from custom_components.unifi_insights.api.const import (
     INNERSPACE_INTEGRATION_PATH,
     ConnectionType,
 )
-from custom_components.unifi_insights.api.exceptions import UniFiResponseError
+from custom_components.unifi_insights.api.exceptions import (
+    UniFiResponseError,
+    UniFiValidationError,
+)
 
 from .models import (
     InnerSpaceAccessPoint,
@@ -26,6 +31,27 @@ if TYPE_CHECKING:
     import aiohttp
 
     from custom_components.unifi_insights.api.auth import ApiKeyAuth, LocalAuth
+
+
+# The spec's asset `filename` is a 1-255 character string with no pattern.
+MAX_ASSET_SEGMENT_LENGTH = 255
+
+
+def is_valid_asset_segment(segment: str) -> bool:
+    """
+    Validate a decoded asset path segment (plan ID or filename).
+
+    Accepts 1-255 characters and rejects anything that could change the
+    request path: blank segments, `.`/`..`, path separators, and control
+    characters (Unicode category Cc, which includes NUL). Callers pass the
+    percent-decoded segment; the client percent-encodes it again when building
+    the request path.
+    """
+    if not segment.strip() or len(segment) > MAX_ASSET_SEGMENT_LENGTH:
+        return False
+    if segment in (".", ".."):
+        return False
+    return not any(ch in "/\\" or unicodedata.category(ch) == "Cc" for ch in segment)
 
 
 class UniFiInnerSpaceClient(BaseUniFiClient):
@@ -253,6 +279,35 @@ class UniFiInnerSpaceClient(BaseUniFiClient):
         response = await self._get(path, params=params)
         items = self._extract_list(response, "devices", "/v1/inventory")
         return [InnerSpaceInventoryDevice.model_validate(item) for item in items]
+
+    async def download_floor_plan_image(
+        self, plan_id: str, filename: str
+    ) -> tuple[bytes, str]:
+        """
+        Download floor plan image binary data (`GET /v1/assets/{planId}/{filename}`).
+
+        Args:
+            plan_id: Floor plan ID (percent-decoded).
+            filename: Asset filename (percent-decoded).
+
+        Returns:
+            Tuple of (binary_content, content_type).
+
+        Raises:
+            UniFiValidationError: If plan_id or filename is invalid.
+
+        """
+        if not is_valid_asset_segment(plan_id):
+            msg = f"Invalid floor plan ID: {plan_id!r}"
+            raise UniFiValidationError(msg)
+        if not is_valid_asset_segment(filename):
+            msg = f"Invalid asset filename: {filename!r}"
+            raise UniFiValidationError(msg)
+
+        path = self._build_api_path(
+            f"assets/{quote(plan_id, safe='')}/{quote(filename, safe='')}"
+        )
+        return await self._get_binary_with_content_type(path)
 
     async def validate_connection(self) -> bool:
         """

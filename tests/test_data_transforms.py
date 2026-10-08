@@ -4,6 +4,7 @@ from custom_components.unifi_insights.data_transforms import (
     map_device_status,
     normalize_innerspace_snapshot,
     normalize_legacy_wans,
+    parse_floor_plan_asset_path,
     transform_network_device,
     transform_protect_camera,
     transform_protect_chime,
@@ -315,9 +316,12 @@ def test_normalize_innerspace_snapshot_excludes_shapes_and_urls_and_correlates_m
         protect_devices=protect_devices,
     )
 
-    # Project shapes and floor_plan image_url must be excluded
+    # Project shapes must be excluded, floor_plan image_url preserved for image entity
     assert "shapes" not in snapshot["project"]
-    assert "image_url" not in snapshot["floor_plans"]["fp-1"]
+    assert (
+        snapshot["floor_plans"]["fp-1"]["image_url"]
+        == "/proxy/innerspace/assets/fp-1.png"
+    )
     assert snapshot["floor_plans"]["fp-1"]["site_id"] == "site-a"
 
     # Placed AP has placement_state='placed', site_id='site-a', and matches net-ap-a
@@ -342,3 +346,9 @@ def test_normalize_innerspace_snapshot_excludes_shapes_and_urls_and_correlates_m
     assert inv_rec["matched_domain"] == "protect"
     assert inv_rec["matched_protect_type"] == "camera"
     assert inv_rec["matched_device_id"] == "cam-1"
+
+
+def test_parse_floor_plan_asset_path_reexport() -> None:
+    """Test parse_floor_plan_asset_path is exported from data_transforms."""
+    url = "/proxy/innerspace/integration/v1/assets/fp-1/floor.png"
+    assert parse_floor_plan_asset_path(url) == ("fp-1", "floor.png")

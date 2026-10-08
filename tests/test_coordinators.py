@@ -13,6 +13,7 @@ import aiohttp
 import pytest
 from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -93,6 +94,7 @@ from custom_components.unifi_insights.coordinators.protect import (
     UnifiProtectCoordinator,
 )
 from custom_components.unifi_insights.entity import is_device_online
+from custom_components.unifi_insights.helpers import async_get_device_entry
 from tests.conftest import mock_device_lookup_method, set_mock_device_lookup
 from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
@@ -7210,6 +7212,113 @@ class TestUnifiInsightsInnerSpaceCoordinator:
             mock_innerspace_client.get_project.side_effect = exc
             with pytest.raises(UpdateFailed):
                 await coord._async_update_data()
+
+    @pytest.mark.asyncio
+    async def test_stale_floor_plan_device_removed_current_kept(
+        self,
+        hass: HomeAssistant,
+        mock_network_client: MagicMock,
+        mock_protect_client: MagicMock,
+        mock_innerspace_client: MagicMock,
+        mock_config_entry: MockConfigEntry,
+    ) -> None:
+        """A floor plan that disappears loses its device; present ones keep it."""
+        mock_config_entry.add_to_hass(hass)
+        registry = dr.async_get(hass)
+        for plan_id in ("fp-1", "fp-2"):
+            registry.async_get_or_create(
+                config_entry_id=mock_config_entry.entry_id,
+                identifiers={(DOMAIN, f"innerspace_floor_plan_{plan_id}")},
+            )
+
+        def plans(*ids: str) -> list[InnerSpaceFloorPlan]:
+            return [
+                InnerSpaceFloorPlan(
+                    id=plan_id,
+                    name=plan_id,
+                    image_url=f"/v1/assets/{plan_id}/plan.png",
+                )
+                for plan_id in ids
+            ]
+
+        mock_innerspace_client.get_project.return_value = InnerSpaceProject(
+            project=InnerSpaceProjectIdentity(id="proj-1"),
+        )
+        coord = UnifiInsightsInnerSpaceCoordinator(
+            hass=hass,
+            network_client=mock_network_client,
+            protect_client=mock_protect_client,
+            innerspace_client=mock_innerspace_client,
+            entry=mock_config_entry,
+        )
+
+        def device(plan_id: str) -> object:
+            return async_get_device_entry(
+                registry,
+                (DOMAIN, f"innerspace_floor_plan_{plan_id}"),
+                mock_config_entry.entry_id,
+            )
+
+        mock_innerspace_client.list_floor_plans.return_value = plans("fp-1", "fp-2")
+        await coord._async_update_data()
+        assert device("fp-1") is not None
+        assert device("fp-2") is not None
+
+        mock_innerspace_client.list_floor_plans.return_value = plans("fp-1")
+        await coord._async_update_data()
+        assert device("fp-1") is not None
+        assert device("fp-2") is None
+
+        # A plan that vanishes without ever having had a device is a no-op.
+        registry.async_clear_config_entry(mock_config_entry.entry_id)
+        mock_innerspace_client.list_floor_plans.return_value = []
+        await coord._async_update_data()
+        assert device("fp-1") is None
+
+    @pytest.mark.asyncio
+    async def test_failed_refresh_keeps_floor_plan_devices(
+        self,
+        hass: HomeAssistant,
+        mock_network_client: MagicMock,
+        mock_protect_client: MagicMock,
+        mock_innerspace_client: MagicMock,
+        mock_config_entry: MockConfigEntry,
+    ) -> None:
+        """A failed poll keeps the last snapshot and must not prune devices."""
+        mock_config_entry.add_to_hass(hass)
+        registry = dr.async_get(hass)
+        registry.async_get_or_create(
+            config_entry_id=mock_config_entry.entry_id,
+            identifiers={(DOMAIN, "innerspace_floor_plan_fp-1")},
+        )
+        mock_innerspace_client.get_project.return_value = InnerSpaceProject(
+            project=InnerSpaceProjectIdentity(id="proj-1"),
+        )
+        mock_innerspace_client.list_floor_plans.return_value = [
+            InnerSpaceFloorPlan(
+                id="fp-1", name="fp-1", image_url="/v1/assets/fp-1/plan.png"
+            )
+        ]
+        coord = UnifiInsightsInnerSpaceCoordinator(
+            hass=hass,
+            network_client=mock_network_client,
+            protect_client=mock_protect_client,
+            innerspace_client=mock_innerspace_client,
+            entry=mock_config_entry,
+        )
+        await coord._async_update_data()
+
+        mock_innerspace_client.get_project.side_effect = UniFiConnectionError("Down")
+        with pytest.raises(UpdateFailed):
+            await coord._async_update_data()
+        assert (
+            async_get_device_entry(
+                registry,
+                (DOMAIN, "innerspace_floor_plan_fp-1"),
+                mock_config_entry.entry_id,
+            )
+            is not None
+        )
 
     @pytest.mark.asyncio
     async def test_refresh_retains_warning_on_200_html_and_preserves_snapshot(

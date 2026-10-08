@@ -721,6 +721,11 @@
       "mobility_location": {
         "name": "Location"
       }
+    },
+    "image": {
+      "floor_plan": {
+        "name": "Floor plan"
+      }
     }
   },
   "exceptions": {

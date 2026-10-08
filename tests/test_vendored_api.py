@@ -1704,6 +1704,153 @@ async def test_chime_play_posts_undocumented_play_route() -> None:
     client._post.assert_awaited_once_with(client.build_api_path("/chimes/chime-1/play"))
 
 
+async def test_chimes_set_volume_sends_only_spec_fields() -> None:
+    """Volume goes in each ringSettings entry; the PATCH has no top-level volume."""
+    client = _protect_client()
+    chime = {
+        "id": "chime-1",
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "cameraIds": ["doorbell-1", "doorbell-2"],
+        "ringSettings": [
+            {
+                "cameraId": "doorbell-1",
+                "repeatTimes": 2,
+                "ringtoneId": "tone-a",
+                "volume": 40,
+            },
+            {
+                "cameraId": "doorbell-2",
+                "repeatTimes": 1,
+                "ringtoneId": "tone-b",
+                "volume": 90,
+                "notInSpec": True,
+            },
+        ],
+    }
+    client._get = AsyncMock(return_value=chime)
+    client._patch = AsyncMock(return_value={**chime, "ringSettings": []})
+    calls = MagicMock()
+    calls.attach_mock(client._get, "get")
+    calls.attach_mock(client._patch, "patch")
+
+    result = await client.chimes.set_volume("chime-1", 75)
+
+    path = client.build_api_path("/chimes/chime-1")
+    assert [name for name, _, _ in calls.mock_calls] == ["get", "patch"]
+    client._get.assert_awaited_once_with(path)
+    client._patch.assert_awaited_once_with(
+        path,
+        json_data={
+            "ringSettings": [
+                {
+                    "cameraId": "doorbell-1",
+                    "repeatTimes": 2,
+                    "ringtoneId": "tone-a",
+                    "volume": 75,
+                },
+                {
+                    "cameraId": "doorbell-2",
+                    "repeatTimes": 1,
+                    "ringtoneId": "tone-b",
+                    "volume": 75,
+                },
+            ]
+        },
+    )
+    assert result.id == "chime-1"
+
+
+@pytest.mark.parametrize("ring_settings", [[], None])
+async def test_chime_set_volume_without_paired_doorbell_raises(
+    ring_settings: list[Any] | None,
+) -> None:
+    """With no ring settings there is nothing to set, so nothing is sent."""
+    client = _protect_client()
+    chime: dict[str, Any] = {"id": "chime-1", "mac": "AA:BB:CC:DD:EE:FF"}
+    if ring_settings is not None:
+        chime["ringSettings"] = ring_settings
+    client._get = AsyncMock(return_value={"data": chime})
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="no paired doorbell"):
+        await client.chimes.set_volume("chime-1", 50)
+
+    client._patch.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "ring_settings",
+    [
+        ["not-a-dict"],
+        [{"cameraId": "doorbell-1", "repeatTimes": 1, "volume": 40}],
+        {"cameraId": "doorbell-1"},
+    ],
+)
+async def test_chime_set_volume_with_incomplete_ring_settings_raises(
+    ring_settings: Any,
+) -> None:
+    """An entry without a required field fails before the PATCH, not at the API."""
+    client = _protect_client()
+    client._get = AsyncMock(
+        return_value={
+            "id": "chime-1",
+            "mac": "AA:BB:CC:DD:EE:FF",
+            "ringSettings": ring_settings,
+        }
+    )
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="incomplete ring settings"):
+        await client.chimes.set_volume("chime-1", 50)
+
+    client._patch.assert_not_awaited()
+
+
+async def test_chime_set_volume_get_failure_sends_nothing() -> None:
+    """A failed GET propagates, and no PATCH is sent."""
+    client = _protect_client()
+    client._get = AsyncMock(
+        side_effect=UniFiNotFoundError("Chime not found", status_code=404)
+    )
+    client._patch = AsyncMock()
+
+    with pytest.raises(UniFiNotFoundError):
+        await client.chimes.set_volume("chime-1", 50)
+
+    client._patch.assert_not_awaited()
+
+
+@pytest.mark.parametrize("volume", [0, 100])
+async def test_chime_set_volume_accepts_range_limits(volume: int) -> None:
+    """0 (silent) and 100 are both valid chime volumes."""
+    client = _protect_client()
+    ring = {"cameraId": "doorbell-1", "repeatTimes": 1, "ringtoneId": "tone-a"}
+    chime = {"id": "chime-1", "mac": "AA:BB:CC:DD:EE:FF", "ringSettings": [ring]}
+    client._get = AsyncMock(return_value=chime)
+    client._patch = AsyncMock(return_value=chime)
+
+    await client.chimes.set_volume("chime-1", volume)
+
+    client._patch.assert_awaited_once_with(
+        client.build_api_path("/chimes/chime-1"),
+        json_data={"ringSettings": [{**ring, "volume": volume}]},
+    )
+
+
+@pytest.mark.parametrize("volume", [-1, 101])
+async def test_chime_set_volume_rejects_out_of_range(volume: int) -> None:
+    """An out-of-range volume fails before any request."""
+    client = _protect_client()
+    client._get = AsyncMock()
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="between 0 and 100"):
+        await client.chimes.set_volume("chime-1", volume)
+
+    client._get.assert_not_awaited()
+    client._patch.assert_not_awaited()
+
+
 async def test_devices_get_all_skips_malformed_items() -> None:
     """Devices get_all should skip invalid/malformed items without failing."""
     client = _network_client()

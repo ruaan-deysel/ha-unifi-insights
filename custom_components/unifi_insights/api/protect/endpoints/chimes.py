@@ -14,6 +14,10 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Fields kept from each ringSettings entry when only the volume changes. The
+# v7.3.70 chime PATCH requires these plus volume and rejects any other key.
+_RING_SETTINGS_KEPT = ("cameraId", "repeatTimes", "ringtoneId")
+
 
 class ChimesEndpoint:
     """Endpoint for managing UniFi Protect chimes."""
@@ -129,6 +133,10 @@ class ChimesEndpoint:
         """
         Set chime volume.
 
+        The chime PATCH body has no top-level volume: it is set per paired
+        doorbell in ``ringSettings``. This reads the chime's current ring
+        settings and sends them back with ``volume`` changed in each entry.
+
         Args:
             chime_id: The chime ID.
             volume: Volume level (0-100).
@@ -137,10 +145,29 @@ class ChimesEndpoint:
         Returns:
             The updated chime.
 
+        Raises:
+            ValueError: If the volume is out of range, the chime has no paired
+                doorbell to set it for, or an entry lacks a required field.
+
         """
         if not 0 <= volume <= 100:
             raise ValueError("Volume must be between 0 and 100")
-        return await self.update(chime_id, site_id, volume=volume)
+        chime = await self.get(chime_id, site_id)
+        entries = (chime.model_extra or {}).get("ringSettings")
+        if not entries:
+            raise ValueError(
+                f"Chime {chime_id} has no paired doorbell to set the volume for"
+            )
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and all(key in entry for key in _RING_SETTINGS_KEPT)
+            for entry in entries
+        ):
+            raise ValueError(f"Chime {chime_id} has incomplete ring settings")
+        ring_settings = [
+            {key: entry[key] for key in _RING_SETTINGS_KEPT} | {"volume": volume}
+            for entry in entries
+        ]
+        return await self.update(chime_id, site_id, ringSettings=ring_settings)
 
     async def play(self, chime_id: str, site_id: str | None = None) -> bool:
         """

@@ -1376,6 +1376,15 @@ async def test_link_stations_get_returns_model() -> None:
     client._get.assert_awaited_once_with(client.build_api_path("/link-stations/ls-1"))
 
 
+async def test_chime_play_posts_undocumented_play_route() -> None:
+    """chimes.play() posts to a route the v7.3.70 spec lacks; not live-verified."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert await client.chimes.play("chime-1") is True
+    client._post.assert_awaited_once_with(client.build_api_path("/chimes/chime-1/play"))
+
+
 async def test_devices_get_all_skips_malformed_items() -> None:
     """Devices get_all should skip invalid/malformed items without failing."""
     client = _network_client()

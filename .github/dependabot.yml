@@ -52,6 +52,13 @@ updates:
     directory: /frontend
     schedule:
       interval: weekly
+    groups:
+      # @vitest/* packages peer on the exact vitest version, so bumping one
+      # without the others breaks `npm ci`. Keep them in one PR.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
     ignore:
       # typescript-eslint peers on typescript <6.1.0, so a TypeScript 7 bump
       # breaks `npm ci`. Drop this once typescript-eslint supports 7.

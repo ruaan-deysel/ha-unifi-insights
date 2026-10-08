@@ -327,7 +327,7 @@ class TestUnifiProtectChimePlayButton:
         coordinator.network_client.base_url = "https://192.168.1.1"
         coordinator.protect_client = MagicMock()
         coordinator.protect_client.base_url = "https://192.168.1.1"
-        coordinator.protect_client.play_chime = AsyncMock()
+        coordinator.protect_client.chimes.play = AsyncMock()
         coordinator.data = {
             "sites": {},
             "devices": {},
@@ -376,6 +376,20 @@ class TestUnifiProtectChimePlayButton:
         assert attrs["chime_name"] == "Front Door Chime"
         assert attrs["chime_ringtone_id"] == "mechanical"
 
+    async def test_chime_button_press_uses_facade(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """The facade coroutine receives exactly the chime id."""
+        mock_coordinator.async_play_chime = AsyncMock()
+        button = UnifiProtectChimePlayButton(
+            coordinator=mock_coordinator,
+            chime_id="chime1",
+        )
+
+        await button.async_press()
+
+        mock_coordinator.async_play_chime.assert_awaited_once_with("chime1")
+
     async def test_chime_button_press(self, hass: HomeAssistant, mock_coordinator):
         """Test chime play button press."""
         button = UnifiProtectChimePlayButton(
@@ -385,16 +399,13 @@ class TestUnifiProtectChimePlayButton:
 
         await button.async_press()
 
-        mock_coordinator.protect_client.play_chime.assert_called_once_with(
-            chime_id="chime1",
-            ringtone_id="mechanical",
-        )
+        mock_coordinator.protect_client.chimes.play.assert_awaited_once_with("chime1")
 
     async def test_chime_button_press_exception(
         self, hass: HomeAssistant, mock_coordinator
     ):
         """Test chime button handles exception."""
-        mock_coordinator.protect_client.play_chime = AsyncMock(
+        mock_coordinator.protect_client.chimes.play = AsyncMock(
             side_effect=Exception("API Error")
         )
 
@@ -860,7 +871,7 @@ class TestChimePlayButtonEdgeCases:
         coordinator.network_client.base_url = "https://192.168.1.1"
         coordinator.protect_client = MagicMock()
         coordinator.protect_client.base_url = "https://192.168.1.1"
-        coordinator.protect_client.play_chime = AsyncMock()
+        coordinator.protect_client.chimes.play = AsyncMock()
         coordinator.data = {
             "sites": {},
             "devices": {},
@@ -901,7 +912,7 @@ class TestChimePlayButtonEdgeCases:
     async def test_chime_button_press_with_empty_ring_settings(
         self, hass: HomeAssistant, mock_coordinator
     ):
-        """Test chime button press with empty ring settings uses default."""
+        """Chime press still plays when the chime has no ring settings."""
         button = UnifiProtectChimePlayButton(
             coordinator=mock_coordinator,
             chime_id="chime1",
@@ -909,10 +920,7 @@ class TestChimePlayButtonEdgeCases:
 
         await button.async_press()
 
-        mock_coordinator.protect_client.play_chime.assert_called_once_with(
-            chime_id="chime1",
-            ringtone_id="default",  # Defaults to "default" when no ring settings
-        )
+        mock_coordinator.protect_client.chimes.play.assert_awaited_once_with("chime1")
 
 
 class TestAsyncSetupEntryWithClients:

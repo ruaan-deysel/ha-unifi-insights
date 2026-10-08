@@ -325,26 +325,15 @@ class UnifiProtectChimePlayButton(UnifiProtectEntity, ButtonEntity):
 
     async def async_press(self) -> None:
         """Play the chime ringtone."""
-        chime_data = self.coordinator.data["protect"]["chimes"].get(self._device_id, {})
-
-        # Get current ringtone from ring settings
-        ring_settings = chime_data.get("ringSettings", [])
-        ringtone_id = CHIME_RINGTONE_DEFAULT
-
-        if ring_settings:
-            ringtone_id = ring_settings[0].get("ringtoneId", CHIME_RINGTONE_DEFAULT)
-
-        _LOGGER.debug("Playing ringtone %s on chime %s", ringtone_id, self._device_id)
+        _LOGGER.debug("Playing chime %s", self._device_id)
 
         await async_call_coordinator_action(
             self.coordinator,
             "async_play_chime",
             f"Unable to play ringtone on chime {self._device_id}",
             self._device_id,
-            ringtone_id,
-            fallback_factory=lambda: self.coordinator.protect_client.play_chime(  # type: ignore[union-attr]
-                chime_id=self._device_id,
-                ringtone_id=ringtone_id,
+            fallback_factory=lambda: self.coordinator.protect_client.chimes.play(  # type: ignore[union-attr]
+                self._device_id
             ),
         )
 

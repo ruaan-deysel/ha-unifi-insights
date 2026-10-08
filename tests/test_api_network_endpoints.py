@@ -1316,7 +1316,7 @@ async def test_firewall_list_rules_params_and_fallback_branches() -> None:
     reason=(
         "Bug: update_rule strips 'id' from the payload before the PUT, then "
         "builds the fallback model from that payload when the PUT returns no "
-        "body, so validation fails on the missing required id."
+        "body, so validation fails on the missing required id. See #262."
     ),
 )
 async def test_firewall_update_rule_empty_put_response_fallback() -> None:
@@ -1567,7 +1567,7 @@ async def test_wifi_get_all_params_and_non_list_data() -> None:
     reason=(
         "Bug: wifi.update strips 'id' from the payload before the PUT, then "
         "builds the fallback model from that payload when the PUT returns no "
-        "body, so validation fails on the missing required id."
+        "body, so validation fails on the missing required id. See #262."
     ),
 )
 async def test_wifi_update_empty_put_response_fallback() -> None:

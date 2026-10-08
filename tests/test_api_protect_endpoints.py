@@ -465,7 +465,7 @@ async def test_chimes_set_volume_out_of_range(vol: int) -> None:
     reason=(
         "Off-spec: PATCH /v1/chimes/{id} only accepts name, cameraIds and "
         "ringSettings (additionalProperties: false), but set_volume sends a "
-        "top-level volume. Volume belongs in each ringSettings entry."
+        "top-level volume. Volume belongs in each ringSettings entry. See #260."
     ),
 )
 @pytest.mark.asyncio

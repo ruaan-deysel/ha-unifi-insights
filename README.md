@@ -147,6 +147,7 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 | _Client name_ Allow                                 | Switch         | Block or allow a client (needs **Enable Client Control**)                            |
 | _Client name_ Reconnect                             | Button         | Reconnect a client (needs **Enable Client Control**)                                 |
 | Restart                                             | Button         | Restart a device                                                                     |
+| _Port_ PoE Power Cycle                              | Button         | Cut and restore power on a port with PoE enabled, disabled by default                |
 | WiFi QR code                                        | Image          | Scan to join a Wi-Fi network                                                         |
 | Client tracker                                      | Device tracker | Presence of each client (needs **Track WiFi Clients** or **Track Wired Clients**)    |
 | Firmware                                            | Update         | Installed and available firmware version (no installation)                           |
@@ -159,6 +160,7 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 | `unifi_insights.authorize_guest`  | Authorize a guest client on a hotspot network |
 | `unifi_insights.generate_voucher` | Create one or more hotspot vouchers           |
 | `unifi_insights.delete_voucher`   | Delete a hotspot voucher                      |
+| `unifi_insights.power_cycle_port` | Power cycle a switch port with PoE enabled    |
 
 ```yaml
 # Restart a network device
@@ -183,6 +185,15 @@ data:
   site_id: "your-site-id"
   count: 1
   duration_minutes: 480
+```
+
+```yaml
+# Power cycle the device on PoE port 5 of a switch
+action: unifi_insights.power_cycle_port
+data:
+  site_id: "your-site-id"
+  device_id: "device-id"
+  port_idx: 5
 ```
 
 `authorize_guest` doesn't send a duration or limits yet, so the `duration_minutes` and limit fields are ignored and a warning is logged. The guest network's default access time and limits from UniFi apply.

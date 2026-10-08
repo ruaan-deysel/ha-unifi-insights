@@ -10,7 +10,7 @@ applyTo: "tests/**/*.py"
 
 - **pytest** with `pytest-homeassistant-custom-component`
 - **pytest-asyncio** for async test support
-- **Coverage:** 90% minimum (branch coverage enabled)
+- **Coverage:** 95% minimum (branch coverage enabled)
 
 ## Running Tests
 

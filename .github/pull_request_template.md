@@ -45,7 +45,7 @@ Closes # <!-- Link any related issues, e.g. Closes #123 -->
 - [ ] `script/lint` (or `ruff check .` and `ruff format .`) passed with 0 errors.
 - [ ] `mypy custom_components/unifi_insights` passed with 0 errors.
 - [ ] `bandit -r custom_components/unifi_insights` passed with 0 vulnerabilities.
-- [ ] `pytest` passed with ≥ 90% branch coverage (`pytest --cov=custom_components/unifi_insights`) and Codecov coverage targets met.
+- [ ] `pytest` passed with ≥ 95% branch coverage (`pytest --cov=custom_components/unifi_insights`) and Codecov coverage targets met.
 - [ ] `CHANGELOG.md` updated under `[Unreleased]` with clear user-facing descriptions.
 - [ ] Tested on a live local Home Assistant instance (`./script/develop`) without errors in logs.
 

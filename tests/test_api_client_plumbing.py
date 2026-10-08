@@ -24,6 +24,7 @@ from custom_components.unifi_insights.api.const import (
     RATE_LIMIT_MAX_RETRY_AFTER,
 )
 from custom_components.unifi_insights.api.exceptions import (
+    UniFiAuthenticationError,
     UniFiConnectionError,
     UniFiTimeoutError,
 )
@@ -321,3 +322,38 @@ async def test_network_client_get_application_info() -> None:
     msg = "Unable to retrieve application info"
     with pytest.raises(ValueError, match=msg):
         await client.get_application_info()
+
+
+async def test_base_client_context_manager_and_auth_errors() -> None:
+    """Base client async context manager and 401/403 status mappings."""
+    session = _Session(
+        [
+            _Response("Unauthorized", status=401),
+            _Response("Forbidden", status=403),
+        ]
+    )
+    async with _DummyClient(
+        auth=ApiKeyAuth(api_key="key"),
+        base_url="https://192.168.1.1",
+        session=session,  # type: ignore[arg-type]
+    ) as client:
+        assert client.base_url == URL("https://192.168.1.1")
+
+        with pytest.raises(UniFiAuthenticationError, match="Authentication failed"):
+            await client._get("/unauth")
+
+        with pytest.raises(UniFiAuthenticationError, match="Access forbidden"):
+            await client._get("/forbidden")
+
+
+def test_network_client_build_api_path_remote() -> None:
+    """Network client build_api_path prefixes remote connector path."""
+    client = UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="key"),
+        connection_type=ConnectionType.REMOTE,
+        console_id="cid-99",
+    )
+    assert (
+        client.build_api_path("sites")
+        == "/v1/connector/consoles/cid-99/network/integration/v1/sites"
+    )

@@ -94,7 +94,7 @@ This integration follows Home Assistant's [integration quality standards](https:
 - Full async patterns for all I/O
 - Config flow with reauth and reconfigure support
 - Multi-coordinator architecture for efficient data fetching
-- 90% minimum test coverage
+- 95% minimum test coverage
 
 ## Pull Request Process
 
@@ -108,7 +108,7 @@ When submitting a pull request:
    script/lint                               # Linting & code formatting
    mypy custom_components/unifi_insights     # Strict type checking
    bandit -r custom_components/unifi_insights # Security scanning
-   pytest                                    # Unit tests (90% minimum coverage)
+   pytest                                    # Unit tests (95% minimum coverage)
    ```
 5. Verify your changes against a live Home Assistant instance (`./script/develop`).
 6. Update `CHANGELOG.md` under `[Unreleased]` with a clear, user-facing summary of your changes.

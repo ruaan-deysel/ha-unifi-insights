@@ -81,7 +81,7 @@ Treat the official Quality Scale rules as mandatory review criteria:
 
 ### Testing
 
-- [ ] 90%+ coverage maintained
+- [ ] 95%+ coverage maintained
 - [ ] Config flow tested (success + error paths)
 - [ ] Coordinator tested (success + failure paths)
 - [ ] Entity state and availability tested

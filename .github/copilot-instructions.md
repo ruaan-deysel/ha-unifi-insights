@@ -12,7 +12,7 @@
 - Binary sensor patterns: Motion/person/vehicle/animal/package detection and ring events rely on coordinator-stored `lastMotion*`, `lastSmartDetectTypes`, `lastRing*`; doorbell detection falls back on `_camera_type`, API type strings, or name heuristics.
 - Services: [../custom_components/unifi_insights/services.py](../custom_components/unifi_insights/services.py) registers HA services for refresh, restart_device, Protect controls (recording/hdr/video mode, mic volume, light mode/level, PTZ move/patrol, chime volume/ringtone/repeat, alarm/liveview helpers), and Network actions (authorize_guest, voucher CRUD). Route every action to the owning console with `_get_coordinator_for_network_resource`/`_get_coordinator_for_protect_resource` and raise `HomeAssistantError` with user-facing messages.
 - Update flow: Coordinator fetches sites → per-site devices/clients/stats → Protect devices; cleans stale devices from the registry using previously seen IDs. When adding data, ensure the coordinator’s `data` schema remains consistent for entity lookups.
-- Testing/linting: `pytest` (configured in [../pyproject.toml](../pyproject.toml) with coverage >=90%, HTML/XML reports) and `./script/lint` (ruff format + check --fix). Type checks via mypy strict settings; ignore_missing_imports is on. Security checks via bandit.
+- Testing/linting: `pytest` (configured in [../pyproject.toml](../pyproject.toml) with coverage >=95%, HTML/XML reports) and `./script/lint` (ruff format + check --fix). Type checks via mypy strict settings; ignore_missing_imports is on. Security checks via bandit.
 - Dev server: `./script/develop` boots Home Assistant using ./config with `PYTHONPATH` set to custom_components; ensure dependencies are installed via `./script/setup/bootstrap`.
 - Conventions: `PARALLEL_UPDATES` set to 0 for coordinator-driven entities, 1 for action-based Protect entities; prefer camelCase tolerance via `get_field`; keep service schemas in sync with `services.yaml`; avoid duplicating API paths or constants.
 - Vendored API package: [../custom_components/unifi_insights/api](../custom_components/unifi_insights/api) contains the local copy of the upstream UniFi API client; reuse its client methods (network_client/protect_client) rather than manual HTTP calls.
@@ -44,6 +44,6 @@ Flag any PR as needing closer human inspection before approval if it introduces:
 
 ### 4. Testing & Coverage Requirements
 - Every new entity, coordinator branch, service action, or API client method must have tests in `tests/`.
-- Ensure tests maintain the project's minimum 90% branch coverage requirement.
+- Ensure tests maintain the project's minimum 95% branch coverage requirement.
 - Flag any test attempting real network I/O; all external interactions must be mocked.
 - For frontend pull requests (`frontend/src/**`), ensure TypeScript types are sound and tests pass.

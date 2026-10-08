@@ -1,3 +1,4 @@
+# Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Insights entity base classes."""
 
 from typing import TYPE_CHECKING
@@ -10,6 +11,10 @@ from homeassistant.helpers.entity import EntityDescription
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from unittest.mock import AsyncMock
+
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.unifi_insights.const import (
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_LIGHT,
@@ -20,6 +25,9 @@ from custom_components.unifi_insights.const import (
 from custom_components.unifi_insights.entity import (
     UnifiInsightsEntity,
     UnifiProtectEntity,
+    async_call_coordinator_action,
+    camera_supports_ptz,
+    device_has_feature,
     first_not_none,
     get_field,
     is_device_online,
@@ -192,6 +200,138 @@ class TestIsGatewayDevice:
     def test_is_gateway_device(self, device, expected):
         """Model prefix or a gateway/router feature identify a gateway."""
         assert is_gateway_device(device) is expected
+
+
+class TestDeviceHasFeature:
+    """Tests for device_has_feature helper."""
+
+    def test_device_has_feature_list(self):
+        """Test device_has_feature with feature list."""
+        assert device_has_feature({"features": ["poe", "switching"]}, "poe") is True
+        assert device_has_feature({"features": ["switching"]}, "poe") is False
+
+    def test_device_has_feature_dict(self):
+        """Test device_has_feature with feature dict."""
+        assert device_has_feature({"features": {"poe": True}}, "poe") is True
+        assert device_has_feature({"features": {"poe": False}}, "poe") is False
+
+    def test_device_has_feature_non_container(self):
+        """Test device_has_feature with non-list non-dict."""
+        assert device_has_feature({"features": "poe"}, "poe") is False
+        assert device_has_feature({"features": None}, "poe") is False
+        assert device_has_feature({}, "poe") is False
+
+
+class TestCameraSupportsPtz:
+    """Tests for camera_supports_ptz helper."""
+
+    def test_camera_supports_ptz_boolean_flags(self):
+        """Test camera_supports_ptz when direct boolean flag is present."""
+        assert camera_supports_ptz({"isPtz": True}) is True
+        assert camera_supports_ptz({"isPtz": False}) is False
+        assert camera_supports_ptz({"is_ptz": True}) is True
+        assert camera_supports_ptz({"hasPtz": True}) is True
+
+    def test_camera_supports_ptz_fallback_feature_flags(self):
+        """Test camera_supports_ptz when falling back to featureFlags dict."""
+        assert (
+            camera_supports_ptz({"isPtz": "invalid", "featureFlags": {"hasPtz": True}})
+            is True
+        )
+        assert (
+            camera_supports_ptz(
+                {"isPtz": "invalid", "feature_flags": {"has_ptz": True}}
+            )
+            is True
+        )
+        assert (
+            camera_supports_ptz({"isPtz": "invalid", "featureFlags": {"hasPtz": False}})
+            is False
+        )
+
+    def test_camera_supports_ptz_fallback_invalid_feature_flags(self):
+        """Test camera_supports_ptz when featureFlags is not a dict."""
+        assert (
+            camera_supports_ptz({"isPtz": "invalid", "featureFlags": "not_a_dict"})
+            is False
+        )
+        assert camera_supports_ptz({"isPtz": "invalid", "featureFlags": None}) is False
+
+
+class TestAsyncCallCoordinatorAction:
+    """Tests for async_call_coordinator_action helper."""
+
+    async def test_action_handler_success(self):
+        """Test calling action on coordinator directly succeeds."""
+        coordinator = MagicMock()
+        coordinator.custom_action = AsyncMock(return_value={"status": "ok"})
+        result = await async_call_coordinator_action(
+            coordinator, "custom_action", "Error message", "arg1", key="val"
+        )
+        assert result == {"status": "ok"}
+        coordinator.custom_action.assert_awaited_once_with("arg1", key="val")
+
+    async def test_action_handler_reraises_ha_error(self):
+        """Test calling action reraises HomeAssistantError."""
+        coordinator = MagicMock()
+        coordinator.custom_action = AsyncMock(
+            side_effect=HomeAssistantError("Action failed")
+        )
+        with pytest.raises(HomeAssistantError, match="Action failed"):
+            await async_call_coordinator_action(
+                coordinator, "custom_action", "Error message"
+            )
+
+    async def test_action_handler_wraps_generic_exception(self):
+        """Test calling action wraps generic exception in HomeAssistantError."""
+        coordinator = MagicMock()
+        coordinator.custom_action = AsyncMock(side_effect=ValueError("boom"))
+        with pytest.raises(HomeAssistantError, match="Custom error message"):
+            await async_call_coordinator_action(
+                coordinator, "custom_action", "Custom error message"
+            )
+
+    async def test_missing_handler_no_fallback_raises(self):
+        """Test missing handler without fallback raises HomeAssistantError."""
+        coordinator = MagicMock(spec=[])
+        with pytest.raises(HomeAssistantError, match="No fallback available"):
+            await async_call_coordinator_action(
+                coordinator, "missing_action", "No fallback available"
+            )
+
+    async def test_missing_handler_fallback_success(self):
+        """Test missing handler with fallback executes fallback."""
+        coordinator = MagicMock(spec=[])
+        fallback = AsyncMock(return_value="fallback_ok")
+        result = await async_call_coordinator_action(
+            coordinator, "missing_action", "Error message", fallback_factory=fallback
+        )
+        assert result == "fallback_ok"
+        fallback.assert_awaited_once()
+
+    async def test_missing_handler_fallback_reraises_ha_error(self):
+        """Test fallback reraises HomeAssistantError."""
+        coordinator = MagicMock(spec=[])
+        fallback = AsyncMock(side_effect=HomeAssistantError("Fallback HA error"))
+        with pytest.raises(HomeAssistantError, match="Fallback HA error"):
+            await async_call_coordinator_action(
+                coordinator,
+                "missing_action",
+                "Error message",
+                fallback_factory=fallback,
+            )
+
+    async def test_missing_handler_fallback_wraps_generic_exception(self):
+        """Test fallback wraps generic exception in HomeAssistantError."""
+        coordinator = MagicMock(spec=[])
+        fallback = AsyncMock(side_effect=RuntimeError("Fallback generic error"))
+        with pytest.raises(HomeAssistantError, match="Fallback failure message"):
+            await async_call_coordinator_action(
+                coordinator,
+                "missing_action",
+                "Fallback failure message",
+                fallback_factory=fallback,
+            )
 
 
 class TestUnifiInsightsEntity:
@@ -954,6 +1094,27 @@ class TestUnifiProtectEntity:
         device_info = entity.device_info
         assert device_info.get("suggested_area") == "Security"
 
+    async def test_protect_entity_empty_mac_in_lookup(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test protect entity with empty mac address does not match network device."""
+        mock_coordinator.data["protect"]["cameras"]["cam_empty_mac"] = {
+            "id": "cam_empty_mac",
+            "name": "No MAC Cam",
+            "state": "CONNECTED",
+            "mac": None,
+        }
+
+        entity = UnifiProtectEntity(
+            coordinator=mock_coordinator,
+            device_type=DEVICE_TYPE_CAMERA,
+            device_id="cam_empty_mac",
+        )
+
+        device_info = entity.device_info
+        identifiers = device_info.get("identifiers", set())
+        assert (DOMAIN, "site1_device1") not in identifiers
+
 
 class TestUnifiInsightsEntityEdgeCases:
     """Tests for edge cases in UnifiInsightsEntity."""
@@ -1253,3 +1414,33 @@ class TestUnifiInsightsEntityEdgeCases:
         hw_version = device_info.get("hw_version", "")
         # Should only include valid radio entry
         assert "ra0 (ng)" in hw_version
+
+    async def test_entity_radio_table_missing_name_or_type(
+        self, hass: HomeAssistant, mock_coordinator_with_ports
+    ):
+        """Test entity handles radio table with missing name or type."""
+        mock_coordinator_with_ports.data["devices"]["site1"]["ap_empty_radio"] = {
+            "id": "ap_empty_radio",
+            "name": "Empty Radio AP",
+            "model": "UAP",
+            "state": "ONLINE",
+            "radio_table": [
+                {"name": "", "radio": "ng"},
+                {"name": "ra0", "radio": ""},
+                {"name": "ra1", "radio": "na"},
+            ],
+        }
+
+        description = EntityDescription(key="test", name="Test")
+
+        entity = UnifiInsightsEntity(
+            coordinator=mock_coordinator_with_ports,
+            description=description,
+            site_id="site1",
+            device_id="ap_empty_radio",
+        )
+
+        device_info = entity.device_info
+        hw_version = device_info.get("hw_version", "")
+        assert "ra1 (na)" in hw_version
+        assert "ra0" not in hw_version

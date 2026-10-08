@@ -466,7 +466,10 @@ async def test_subscribe_with_callback_logs_state_callback_exception(
     fake_ws = _make_ws([close_msg])
     ws_socket._connect = AsyncMock(return_value=fake_ws)
 
-    def bad_callback(_state: object) -> None:
+    states: list[object] = []
+
+    def bad_callback(state: object) -> None:
+        states.append(state)
         err_msg = "boom"
         raise RuntimeError(err_msg)
 
@@ -481,6 +484,7 @@ async def test_subscribe_with_callback_logs_state_callback_exception(
         )
 
     assert "on_connection_state_change callback raised" in caplog.text
+    assert states == [True, False]
 
 
 @pytest.mark.asyncio
@@ -518,6 +522,7 @@ async def test_subscribe_with_callback_reconnects_after_non_429_handshake_error(
             reconnect_delay=0,
         )
 
+    assert connect_calls == 2
     assert "connection error subscribing to devices" in caplog.text
 
 
@@ -528,12 +533,17 @@ async def test_subscribe_with_callback_handles_error_ws_message() -> None:
     ws_socket = ProtectWebSocket(client)
 
     err_msg = MagicMock(type=aiohttp.WSMsgType.ERROR)
-    fake_ws = _make_ws([err_msg])
+    later_msg = MagicMock(type=aiohttp.WSMsgType.TEXT, data='{"event": "after-error"}')
+    fake_ws = _make_ws([err_msg, later_msg])
     ws_socket._connect = AsyncMock(return_value=fake_ws)
 
+    received: list[object] = []
     await ws_socket.subscribe_with_callback(
-        "nvr1", "default", "devices", lambda _msg: None, reconnect=False
+        "nvr1", "default", "devices", received.append, reconnect=False
     )
+
+    assert received == []
+    fake_ws.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,10 @@ from custom_components.unifi_insights.api.base import _retry_after_seconds
 from custom_components.unifi_insights.api.const import DEFAULT_RATE_LIMIT_RETRY_AFTER
 from custom_components.unifi_insights.api.exceptions import UniFiResponseError
 from custom_components.unifi_insights.api.site_manager import UniFiSiteManagerClient
+from custom_components.unifi_insights.api.site_manager.client import (
+    _MAX_ITEMS,
+    _MAX_PAGES,
+)
 
 
 class _Response:
@@ -460,9 +464,10 @@ async def test_list_devices_anonymous_groups() -> None:
     client = _client(session)
 
     devices = await client.list_devices()
-    assert len(devices) == 2
-    assert devices[0]["devices"][0]["id"] == "anon-dev-1"
-    assert devices[1]["devices"][0]["id"] == "anon-dev-2"
+    assert devices == [
+        {"hostId": "", "devices": [{"id": "anon-dev-1", "name": "Standalone"}]},
+        {"hostId": None, "devices": [{"id": "anon-dev-2", "name": "Unmanaged"}]},
+    ]
 
 
 async def test_list_paginated_item_and_page_limits() -> None:
@@ -470,14 +475,18 @@ async def test_list_paginated_item_and_page_limits() -> None:
     # 1. Exceeded item limit
     session_items = _Session(
         [
-            {"data": [{"id": f"item-{i}"} for i in range(5000)], "nextToken": "tok-1"},
-            {"data": [{"id": f"item-{i}"} for i in range(5001)], "nextToken": "tok-2"},
+            {
+                "data": [{"id": f"item-{i}"} for i in range(_MAX_ITEMS)],
+                "nextToken": "tok-1",
+            },
+            {"data": [{"id": "item-over-limit"}], "nextToken": "tok-2"},
         ]
     )
     client_items = _client(session_items)
     with pytest.raises(UniFiResponseError) as error:
         await client_items.list_sites()
     assert "exceeded the item limit" in error.value.args[0]
+    assert len(session_items.requests) == 2
 
     # 2. Empty page with nextToken
     session_empty = _Session(
@@ -492,12 +501,16 @@ async def test_list_paginated_item_and_page_limits() -> None:
 
     # 3. Exceeded page limit (100 pages)
     session_pages = _Session(
-        [{"data": [{"id": f"site-{i}"}], "nextToken": f"tok-{i}"} for i in range(105)]
+        [
+            {"data": [{"id": f"site-{i}"}], "nextToken": f"tok-{i}"}
+            for i in range(_MAX_PAGES + 1)
+        ]
     )
     client_pages = _client(session_pages)
     with pytest.raises(UniFiResponseError) as error:
         await client_pages.list_sites()
     assert "exceeded the page limit" in error.value.args[0]
+    assert len(session_pages.requests) == _MAX_PAGES
 
 
 async def test_iso_timestamp_requires_timezone_offset() -> None:

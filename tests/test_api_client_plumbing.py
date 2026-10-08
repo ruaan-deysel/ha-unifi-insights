@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any, Self
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import aiohttp
 import pytest
@@ -57,11 +58,13 @@ class _Response:
         pass
 
     async def text(self) -> str:
+        """Return a placeholder body, or empty when there is none."""
         if self._body is None:
             return ""
         return "mock-body"
 
     async def json(self) -> Any:
+        """Return the configured JSON body."""
         return self._body
 
 
@@ -77,10 +80,12 @@ class _Session:
         self.requests: list[dict[str, Any]] = []
 
     def request(self, method: str, url: object, **kwargs: Any) -> _Response:
+        """Record a request and return the next queued response."""
         self.requests.append({"method": method, "url": str(url), **kwargs})
         return next(self._responses)
 
     async def close(self) -> None:
+        """Mark the session closed."""
         self.closed = True
 
 
@@ -99,9 +104,10 @@ class _DummyClient(BaseUniFiClient):
 def test_parse_retry_after_edge_cases() -> None:
     """parse_retry_after handles naive datetime and non-finite numbers."""
     # 1. Naive datetime without tzinfo
-    res_naive = parse_retry_after({"Retry-After": "Wed, 21 Oct 2026 07:28:00"})
-    assert res_naive is not None
-    assert res_naive >= 0.0
+    with patch("custom_components.unifi_insights.api.base.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 10, 21, 7, 27, tzinfo=UTC)
+        res_naive = parse_retry_after({"Retry-After": "Wed, 21 Oct 2026 07:28:00"})
+    assert res_naive == 60
 
     # 2. Non-finite float (inf / nan)
     assert parse_retry_after({"Retry-After": "inf"}) == DEFAULT_RATE_LIMIT_RETRY_AFTER

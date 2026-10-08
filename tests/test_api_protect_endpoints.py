@@ -218,16 +218,6 @@ ENDPOINT_CASES = [
         lambda r: isinstance(r, Chime) and r.id == "chime-1",
     ),
     EndpointCase(
-        "chimes.set_volume",
-        lambda c: c.chimes.set_volume("chime-1", 80),
-        "PATCH",
-        "/proxy/protect/integration/v1/chimes/chime-1",
-        None,
-        {"volume": 80},
-        SAMPLE_CHIME,
-        lambda r: isinstance(r, Chime) and r.id == "chime-1",
-    ),
-    EndpointCase(
         "lights.get_all",
         lambda c: c.lights.get_all(),
         "GET",
@@ -468,6 +458,26 @@ async def test_chimes_set_volume_out_of_range(vol: int) -> None:
     client, _, _ = make_client()
     with pytest.raises(ValueError, match="Volume must be between 0 and 100"):
         await client.chimes.set_volume("chime-1", vol)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Off-spec: PATCH /v1/chimes/{id} only accepts name, cameraIds and "
+        "ringSettings (additionalProperties: false), but set_volume sends a "
+        "top-level volume. Volume belongs in each ringSettings entry."
+    ),
+)
+@pytest.mark.asyncio
+async def test_chimes_set_volume_sends_only_spec_fields() -> None:
+    """set_volume must not send fields the chime PATCH schema rejects."""
+    client, session, _ = make_client(json_data=SAMPLE_CHIME)
+    await client.chimes.set_volume("chime-1", 80)
+
+    method_called = session.request.call_args[0][0]
+    body = session.request.call_args[1].get("json")
+    assert method_called == "PATCH"
+    assert set(body) <= {"name", "cameraIds", "ringSettings"}
 
 
 @pytest.mark.asyncio

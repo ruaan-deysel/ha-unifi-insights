@@ -490,7 +490,6 @@ async def test_cameras_create_rtsps_stream_custom_qualities() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_data", [None, {"data": None}])
-@pytest.mark.asyncio
 async def test_cameras_create_rtsps_stream_invalid_response(invalid_data: Any) -> None:
     """Non-dict response raises ValueError."""
     client, _, _ = make_client(json_data=invalid_data)
@@ -513,7 +512,6 @@ async def test_liveviews_create_with_slots() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_data", [None, {"data": None}])
-@pytest.mark.asyncio
 async def test_liveviews_create_invalid_response(invalid_data: Any) -> None:
     """Non-dict response raises ValueError."""
     client, _, _ = make_client(json_data=invalid_data)
@@ -539,7 +537,6 @@ async def test_nvr_get_empty_list_raises() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_data", [None, {"data": None}])
-@pytest.mark.asyncio
 async def test_chimes_update_invalid_response(invalid_data: Any) -> None:
     """Non-dict response on chime update raises ValueError."""
     client, _, _ = make_client(json_data=invalid_data)
@@ -549,7 +546,6 @@ async def test_chimes_update_invalid_response(invalid_data: Any) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_data", [None, {"data": None}])
-@pytest.mark.asyncio
 async def test_cameras_update_invalid_response(invalid_data: Any) -> None:
     """Non-dict response on camera update raises ValueError."""
     client, _, _ = make_client(json_data=invalid_data)
@@ -559,7 +555,6 @@ async def test_cameras_update_invalid_response(invalid_data: Any) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_data", [None, {"data": None}])
-@pytest.mark.asyncio
 async def test_lights_update_invalid_response(invalid_data: Any) -> None:
     """Non-dict response on light update raises ValueError."""
     client, _, _ = make_client(json_data=invalid_data)
@@ -569,7 +564,6 @@ async def test_lights_update_invalid_response(invalid_data: Any) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("invalid_data", [None, {"data": None}])
-@pytest.mark.asyncio
 async def test_viewers_update_invalid_response(invalid_data: Any) -> None:
     """Non-dict response on viewer update raises ValueError."""
     client, _, _ = make_client(json_data=invalid_data)

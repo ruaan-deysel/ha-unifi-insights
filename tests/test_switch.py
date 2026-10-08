@@ -9,8 +9,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_registry import (
+    EntityRegistry,
+    RegistryEntry,
+)
+from homeassistant.helpers.entity_registry import (
+    async_get as async_get_entity_registry,
+)
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 if TYPE_CHECKING:
@@ -265,7 +271,7 @@ class TestAsyncSetupEntry:
         self, hass: HomeAssistant, mock_coordinator: MagicMock
     ) -> None:
         """Test setup removes client block switches when client_control is disabled."""
-        mock_entry = MockConfigEntry(
+        mock_entry: MockConfigEntry = MockConfigEntry(
             domain=DOMAIN,
             entry_id="entry_123",
             options={CONF_CLIENT_CONTROL: False},
@@ -274,8 +280,8 @@ class TestAsyncSetupEntry:
         mock_entry.runtime_data = MagicMock()
         mock_entry.runtime_data.coordinator = mock_coordinator
 
-        registry = er.async_get(hass)
-        reg_entry = registry.async_get_or_create(
+        registry: EntityRegistry = async_get_entity_registry(hass)
+        reg_entry: RegistryEntry = registry.async_get_or_create(
             "switch",
             DOMAIN,
             "entry_123_client1_block_switch",
@@ -283,7 +289,7 @@ class TestAsyncSetupEntry:
         )
         assert registry.async_get(reg_entry.entity_id) is not None
 
-        async_add_entities = MagicMock()
+        async_add_entities: MagicMock = MagicMock()
         await async_setup_entry(hass, mock_entry, async_add_entities)
 
         assert registry.async_get(reg_entry.entity_id) is None

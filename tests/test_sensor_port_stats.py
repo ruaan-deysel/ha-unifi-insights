@@ -117,20 +117,23 @@ class TestEndToEndLegacyPortStatsPath:
         )
 
         t0 = 1000.0
-        # First sample
+        # First sample: derive the stats the update pipeline would extract from
+        # the same legacy port_table that was merged above, rather than
+        # hand-building a second copy of the data.
+        port_table = legacy_device["port_table"]
         device_coord.data = {
             "stats": {
                 "site1": {
                     "device1": {
                         "port_bytes": {
-                            1: {"tx_bytes": 100000, "rx_bytes": 200000},
-                            2: {"tx_bytes": 0, "rx_bytes": 0},
-                            3: {"tx_bytes": 50000, "rx_bytes": 50000},
+                            p["port_idx"]: {
+                                "tx_bytes": p["tx_bytes"],
+                                "rx_bytes": p["rx_bytes"],
+                            }
+                            for p in port_table
                         },
                         "poe_ports": {
-                            1: "1.5",
-                            2: 0,
-                            3: "bad",
+                            p["port_idx"]: p["poe_power"] for p in port_table
                         },
                     }
                 }
@@ -142,6 +145,7 @@ class TestEndToEndLegacyPortStatsPath:
         # Second sample 10 seconds later:
         # Port 1: +10,000 bytes tx (1,000 B/s), +20,000 bytes rx (2,000 B/s)
         # Port 2: 0 bytes delta (0 B/s -> rate MUST stay 0)
+        # Port 3: +10,000 bytes tx (1,000 B/s), +20,000 bytes rx (2,000 B/s)
         t1 = t0 + 10.0
         device_coord.data["stats"]["site1"]["device1"]["port_bytes"] = {
             1: {"tx_bytes": 110000, "rx_bytes": 220000},
@@ -156,6 +160,8 @@ class TestEndToEndLegacyPortStatsPath:
         assert rates[1]["rx_bytes_rate"] == 2000.0
         assert rates[2]["tx_bytes_rate"] == 0.0
         assert rates[2]["rx_bytes_rate"] == 0.0
+        assert rates[3]["tx_bytes_rate"] == 1000.0
+        assert rates[3]["rx_bytes_rate"] == 2000.0
 
         # Step 4: Bind data to a facade coordinator and query port sensors
         facade = MagicMock()

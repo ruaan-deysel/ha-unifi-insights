@@ -1121,12 +1121,13 @@ async def test_protect_subscription_forwarder_branches(
     facade.async_update_listeners()
     await _assert_no_event(client, 321)
 
-    # 2. Rebuild exception in _async_forward
+    # 2. Rebuild exception in _async_forward: fail at the snapshot-builder
+    # boundary so the real _protect_payload path still runs up to it.
     data["protect"]["nvrs"]["nvr-1"]["storage"]["used"] = 45.0
     with (
         caplog.at_level(logging.ERROR),
         patch(
-            "custom_components.unifi_insights.websocket_api._protect_payload",
+            "custom_components.unifi_insights.websocket_api.build_protect_snapshot",
             side_effect=RuntimeError("protect rebuild boom"),
         ),
     ):
@@ -1134,13 +1135,14 @@ async def test_protect_subscription_forwarder_branches(
     assert "Failed to rebuild protect snapshot" in caplog.text
     await _assert_no_event(client, 322)
 
-    # 3. Revision unchanged in _async_forward
-    data["protect"]["nvrs"]["nvr-1"]["storage"]["used"] = 50.0
-    with patch(
-        "custom_components.unifi_insights.websocket_api._protect_payload",
-        return_value={"revision": initial["event"].get("revision", "")},
-    ):
-        facade.async_update_listeners()
+    # 3. Revision unchanged in _async_forward: an unrelated device-registry
+    # entry changes the rebuild inputs but not the snapshot content.
+    data["protect"]["nvrs"]["nvr-1"]["storage"]["used"] = 45.0
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=init_integration.entry_id,
+        identifiers={(DOMAIN, "unrelated-device")},
+    )
+    facade.async_update_listeners()
     await _assert_no_event(client, 323)
 
 
@@ -1218,13 +1220,10 @@ async def test_site_subscription_forwarder_branches(
     facade.async_update_listeners()
     await _assert_no_event(client, 411)
 
-    # RequestError during forwarder rebuild
-    with patch(
-        "custom_components.unifi_insights.websocket_api._generic_site_payload",
-        side_effect=_RequestError("site_unavailable", "site gone"),
-    ):
-        init_integration.runtime_data.device_coordinator.last_update_success = False
-        facade.async_update_listeners()
+    # RequestError during forwarder rebuild: the site leaves the selection, so
+    # the real _generic_site_payload raises and the forwarder reports it.
+    init_integration.runtime_data.config_coordinator.data["sites"].pop(SITE)
+    facade.async_update_listeners()
 
     err_evt = await client.receive_json()
     assert err_evt["type"] == "event"

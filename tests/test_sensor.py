@@ -3980,7 +3980,7 @@ class TestUnifiSiteInternetActivitySensor:
 class TestSensorAdditionalCoverageGaps:
     """Targeted tests for remaining sensor.py coverage gaps."""
 
-    def test_temperature_fallbacks(self):
+    def test_temperature_fallbacks(self) -> None:
         """Test get_network_device_temperature fallback branches."""
         assert get_network_device_temperature({"generalTemperature": 40.0}) == 40.0
         assert get_network_device_temperature({"temperatures": "invalid"}) is None
@@ -3998,19 +3998,19 @@ class TestSensorAdditionalCoverageGaps:
             is None
         )
 
-    def test_has_storage_info_total_size_fallback(self):
+    def test_has_storage_info_total_size_fallback(self) -> None:
         """Test _has_storage_info when only total_size is present."""
         data = {"storageInfo": {"total_size": 1000}}
         assert _has_storage_info(data) is True
 
-    def test_outlet_has_metering_invalid_caps(self):
+    def test_outlet_has_metering_invalid_caps(self) -> None:
         """Test _outlet_has_metering when outlet_caps cannot be parsed as int."""
         outlet = {"outlet_caps": "invalid_caps"}
         assert _outlet_has_metering(outlet) is False
 
     def test_migrate_sensor_units_skips_non_sensor_domain(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
+        self, hass: HomeAssistant, mock_config_entry: MagicMock
+    ) -> None:
         """Test _migrate_sensor_units skips entities whose domain is not sensor."""
         mock_ent = MagicMock(domain="switch", unique_id="site1_dev1_switch")
         mock_reg = MagicMock()
@@ -4027,7 +4027,7 @@ class TestSensorAdditionalCoverageGaps:
             _migrate_sensor_units(hass, mock_config_entry)
         mock_reg.async_update_entity_options.assert_not_called()
 
-    def test_outlet_discovery_edge_cases(self):
+    def test_outlet_discovery_edge_cases(self) -> None:
         """Test _discover_outlet_sensors skips invalid outlets and dedupes."""
         coordinator = MagicMock()
         coordinator.data = {
@@ -4056,7 +4056,9 @@ class TestSensorAdditionalCoverageGaps:
         _discover_outlet_sensors(
             coordinator, "site1", "dev1", device_data, known_keys, entities
         )
-        assert len(entities) > 0
+        expected_keys = {("site1", "dev1", 2, d.key) for d in OUTLET_SENSOR_TYPES}
+        assert known_keys == expected_keys
+        assert len(entities) == len(OUTLET_SENSOR_TYPES)
 
         entities_second: list[Any] = []
         _discover_outlet_sensors(
@@ -4064,7 +4066,7 @@ class TestSensorAdditionalCoverageGaps:
         )
         assert len(entities_second) == 0
 
-    def test_protect_sensors_discovery_guards(self):
+    def test_protect_sensors_discovery_guards(self) -> None:
         """Test _discover_protect_sensors returns early if no client or invalid data."""
         coordinator = MagicMock()
         coordinator.protect_client = None
@@ -4077,7 +4079,7 @@ class TestSensorAdditionalCoverageGaps:
         _discover_protect_sensors(coordinator, set(), entities)
         assert len(entities) == 0
 
-    def test_outlet_sensor_branches(self):
+    def test_outlet_sensor_branches(self) -> None:
         """Test UnifiOutletSensor available and native_value branches."""
         coordinator = MagicMock()
         coordinator.device_available = True
@@ -4122,7 +4124,7 @@ class TestSensorAdditionalCoverageGaps:
         assert sensor.native_value is None
         assert sensor.extra_state_attributes is None
 
-    def test_site_client_sensor_clients_not_dict(self):
+    def test_site_client_sensor_clients_not_dict(self) -> None:
         """Test UnifiSiteClientSensor native_value with invalid clients."""
         coordinator = MagicMock()
         coordinator.device_available = True
@@ -4131,7 +4133,7 @@ class TestSensorAdditionalCoverageGaps:
         sensor = UnifiSiteClientSensor(coordinator, desc, "site1")
         assert sensor.native_value == 0
 
-    def test_wifi_client_count_sensor_branches(self):
+    def test_wifi_client_count_sensor_branches(self) -> None:
         """Test UnifiWifiClientCountSensor name fallbacks, values, and attributes."""
         coordinator = MagicMock()
         coordinator.data = {
@@ -4160,8 +4162,8 @@ class TestSensorAdditionalCoverageGaps:
         assert sensor2.native_value == 0
 
     async def test_async_setup_entry_stale_port_cleanup_and_branches(
-        self, hass: HomeAssistant, mock_config_entry
-    ):
+        self, hass: HomeAssistant, mock_config_entry: MagicMock
+    ) -> None:
         """Test stale port sensor cleanup and async_setup_entry branches."""
         coordinator = MagicMock()
         coordinator.data = {
@@ -4189,7 +4191,9 @@ class TestSensorAdditionalCoverageGaps:
         coordinator.protect_client = None
         coordinator.async_add_listener = MagicMock()
 
-        mock_config_entry.runtime_data = MagicMock(coordinator=coordinator)
+        mock_config_entry.runtime_data = MagicMock(
+            coordinator=coordinator, mobility_coordinator=None
+        )
         async_add_entities = MagicMock()
 
         mock_stale = MagicMock(

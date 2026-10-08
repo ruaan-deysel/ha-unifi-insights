@@ -378,11 +378,12 @@ class TestComputePortRatesBranches:
         mock_device_coordinator._compute_port_rates()
         assert "dev1" not in mock_device_coordinator._prev_port_bytes
 
-    def test_elapsed_zero_or_negative(self, mock_device_coordinator):
+    @pytest.mark.parametrize("offset", [0.0, 10.0], ids=["zero", "negative"])
+    def test_elapsed_zero_or_negative(self, mock_device_coordinator, offset: float):
         """Skip rate computation if elapsed <= 0."""
         now = time.monotonic()
         mock_device_coordinator._prev_port_bytes = {
-            "dev1": (now + 10, {1: {"tx_bytes": 1000, "rx_bytes": 2000}})
+            "dev1": (now + offset, {1: {"tx_bytes": 1000, "rx_bytes": 2000}})
         }
         mock_device_coordinator.data = {
             "stats": {

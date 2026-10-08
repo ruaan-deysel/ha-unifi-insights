@@ -17,7 +17,7 @@ from custom_components.unifi_insights.coordinators.facade import (
 
 
 @pytest.fixture
-def mock_sub_coordinators():
+def mock_sub_coordinators() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
     """Create mock sub-coordinators for facade tests."""
     config_coord = MagicMock()
     config_coord.data = {"sites": {"site1": {"name": "Default"}}}
@@ -86,8 +86,8 @@ def mock_sub_coordinators():
 def facade(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_sub_coordinators,
-):
+    mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
+) -> UnifiFacadeCoordinator:
     """Create a test facade coordinator with mock children."""
     config_coord, device_coord, protect_coord, innerspace_coord = mock_sub_coordinators
     network_client = MagicMock()
@@ -110,7 +110,7 @@ def facade(
 class TestFacadeBuildInnerspaceCorrKey:
     """Tests for _build_innerspace_corr_key."""
 
-    def test_build_innerspace_corr_key_full(self):
+    def test_build_innerspace_corr_key_full(self) -> None:
         """Test building correlation key with devices and protect data."""
         raw_innerspace = {"raw": 1}
         devices = {
@@ -139,7 +139,7 @@ class TestFacadeBuildInnerspaceCorrKey:
         assert ("site1", "dev1", "00:11:22:33:44:55") in key[1]
         assert ("cameras", "cam1", "11:22:33:44:55:66") in key[2]
 
-    def test_build_innerspace_corr_key_non_dict_inputs(self):
+    def test_build_innerspace_corr_key_non_dict_inputs(self) -> None:
         """Test building correlation key with non-dict devices and protect data."""
         raw_innerspace = {"raw": 2}
         key = UnifiFacadeCoordinator._build_innerspace_corr_key(
@@ -151,7 +151,9 @@ class TestFacadeBuildInnerspaceCorrKey:
 class TestFacadeInnerSpaceCaching:
     """Tests for InnerSpace data aggregation caching."""
 
-    def test_aggregate_data_innerspace_cache_hit(self, facade: UnifiFacadeCoordinator):
+    def test_aggregate_data_innerspace_cache_hit(
+        self, facade: UnifiFacadeCoordinator
+    ) -> None:
         """Test that repeated _aggregate_data calls reuse cached innerspace data."""
         facade._aggregate_data()
         assert facade._cached_innerspace_data is not None
@@ -166,7 +168,7 @@ class TestFacadeAsyncRefreshChildren:
 
     async def test_refresh_children_includes_innerspace(
         self, facade: UnifiFacadeCoordinator, mock_sub_coordinators
-    ):
+    ) -> None:
         """Test _async_refresh_children with include_innerspace=True."""
         _, _, _, innerspace_coord = mock_sub_coordinators
         failures = await facade._async_refresh_children(
@@ -179,16 +181,19 @@ class TestFacadeAsyncRefreshChildren:
 class TestFacadeClientTargetResolution:
     """Tests for _resolve_client_action_target."""
 
-    def test_resolve_client_action_target_success(self, facade: UnifiFacadeCoordinator):
+    def test_resolve_client_action_target_success(
+        self, facade: UnifiFacadeCoordinator
+    ) -> None:
         """Test resolving valid client target."""
+        facade._device_coordinator.get_legacy_site_name.return_value = "legacy-site"
         facade._aggregate_data()
         site_name, mac = facade._resolve_client_action_target("site1", "client1")
-        assert site_name == "default"
+        assert site_name == "legacy-site"
         assert mac == "AA:BB:CC:DD:EE:01"
 
     def test_resolve_client_action_target_missing_mac(
         self, facade: UnifiFacadeCoordinator
-    ):
+    ) -> None:
         """Test resolving client without MAC raises HomeAssistantError."""
         facade._aggregate_data()
         with pytest.raises(
@@ -199,7 +204,7 @@ class TestFacadeClientTargetResolution:
 
     def test_resolve_client_action_target_missing_client(
         self, facade: UnifiFacadeCoordinator
-    ):
+    ) -> None:
         """Test resolving non-existent client raises HomeAssistantError."""
         facade._aggregate_data()
         with pytest.raises(
@@ -214,7 +219,7 @@ class TestFacadeGenerateVoucher:
 
     async def test_generate_voucher_with_rate_limits(
         self, facade: UnifiFacadeCoordinator
-    ):
+    ) -> None:
         """Test async_generate_voucher with rate limits and usage limits."""
         await facade.async_generate_voucher(
             site_id="site1",
@@ -237,7 +242,7 @@ class TestFacadeGenerateVoucher:
 
     async def test_generate_voucher_without_limits(
         self, facade: UnifiFacadeCoordinator
-    ):
+    ) -> None:
         """Test async_generate_voucher without optional limits."""
         await facade.async_generate_voucher(
             site_id="site1",

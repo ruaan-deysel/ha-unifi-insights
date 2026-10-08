@@ -590,7 +590,7 @@ class TestPowerCyclePortService:
             json_data={"action": "POWER_CYCLE"},
         )
 
-    async def test_power_cycle_port_non_dict_and_port_idx_fallback(
+    async def test_power_cycle_port_skips_non_dict_ports(
         self, hass: HomeAssistant
     ) -> None:
         """Test power cycle port handles non-dict items in port list."""

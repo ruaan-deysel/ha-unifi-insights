@@ -119,7 +119,6 @@ def _create_mock_protect_client() -> MagicMock:
     client.cameras.create_rtsps_stream = AsyncMock(
         return_value=MagicMock(url="rtsps://192.168.1.1/stream")
     )
-    client.cameras.set_recording_mode = AsyncMock(return_value=True)
     client.cameras.set_hdr_mode = AsyncMock(return_value=True)
     client.cameras.set_video_mode = AsyncMock(return_value=True)
     client.cameras.set_microphone_volume = AsyncMock(return_value=True)

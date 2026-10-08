@@ -21,7 +21,7 @@ class PosLineItem(BaseModel):
     title: str
     quantity: int
 
-    model_config = {"populate_by_name": True, "extra": "allow"}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class PosLocation(BaseModel):
@@ -30,7 +30,7 @@ class PosLocation(BaseModel):
     id: str
     name: str | None = None
 
-    model_config = {"populate_by_name": True, "extra": "allow"}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class PosTransactionRequest(BaseModel):
@@ -45,7 +45,7 @@ class PosTransactionRequest(BaseModel):
     payment_types: list[str] | None = Field(default=None, alias="paymentTypes")
     timestamp: int | None = None
 
-    model_config = {"populate_by_name": True, "extra": "allow"}
+    model_config = {"populate_by_name": True, "extra": "forbid"}
 
 
 class PosTransactionResponse(BaseModel):

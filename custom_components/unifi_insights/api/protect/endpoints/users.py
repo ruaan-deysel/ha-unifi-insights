@@ -71,7 +71,8 @@ class UsersEndpoint:
                 _LOGGER.warning(
                     "Skipping user that failed to parse (id=%s): %s",
                     item.get("id") if isinstance(item, dict) else "?",
-                    err,
+                    # Never log the raw error: it echoes the input (email, names).
+                    err.errors(include_input=False, include_context=False),
                 )
         return users
 

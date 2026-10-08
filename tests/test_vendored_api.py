@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
+from pydantic import ValidationError
 
 from custom_components.unifi_insights.api import (
     ApiKeyAuth,
@@ -3679,4 +3680,84 @@ async def test_protect_pos_ingest_transaction_payload_variants_and_invalid_type(
             "cam-1",
             "invalid_string_payload",  # type: ignore[arg-type]
         )
+    client._post.assert_not_called()
+
+
+async def test_protect_users_malformed_item_log_omits_personal_data(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A malformed user must be logged by id only, never with email or names."""
+    client = _protect_client()
+    client._get = AsyncMock(
+        return_value=[
+            {
+                "id": "bad-user",
+                "email": "leak.email@example.com",
+                "firstName": "LeakFirst",
+                "lastName": "LeakLast",
+            }
+        ]
+    )
+    with caplog.at_level(logging.WARNING):
+        assert await client.users.get_all() == []
+
+    assert "bad-user" in caplog.text
+    assert "leak.email@example.com" not in caplog.text
+    assert "LeakFirst" not in caplog.text
+    assert "LeakLast" not in caplog.text
+
+
+async def test_protect_ulp_users_malformed_item_log_omits_personal_data(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A malformed ULP user must be logged by id only, never with email or names."""
+    client = _protect_client()
+    client._get = AsyncMock(
+        return_value=[
+            {
+                "id": "bad-ulp",
+                "email": "leak.email@example.com",
+                "firstName": "LeakFirst",
+                "lastName": "LeakLast",
+                "fullName": "LeakFirst LeakLast",
+            }
+        ]
+    )
+    with caplog.at_level(logging.WARNING):
+        assert await client.ulp_users.get_all() == []
+
+    assert "bad-ulp" in caplog.text
+    assert "leak.email@example.com" not in caplog.text
+    assert "LeakFirst" not in caplog.text
+    assert "LeakLast" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"type": "sale", "externalId": "tx-1", "amount": 1.0, "cashier": "bob"},
+        {
+            "type": "sale",
+            "externalId": "tx-1",
+            "amount": 1.0,
+            "lineItems": [{"title": "A", "quantity": 1, "sku": "X"}],
+        },
+        {
+            "type": "sale",
+            "externalId": "tx-1",
+            "amount": 1.0,
+            "location": {"id": "reg-1", "register": 3},
+        },
+    ],
+    ids=["request", "line-item", "location"],
+)
+async def test_protect_pos_ingest_transaction_rejects_unknown_keys(
+    payload: dict[str, Any],
+) -> None:
+    """Unknown keys must fail validation locally, before any request is sent."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value={"created": True, "eventId": "evt-1"})
+
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        await client.pos.ingest_transaction("cam-1", payload)
     client._post.assert_not_called()

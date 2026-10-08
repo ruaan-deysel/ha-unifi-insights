@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from ..models import Camera, RecordingMode
+from ..models import Camera
 from ..models.files import RTSPSStream, TalkbackSession
 
 if TYPE_CHECKING:
@@ -134,26 +134,6 @@ class CamerasEndpoint:
             if isinstance(result, dict):
                 return Camera.model_validate(result)
         raise ValueError("Failed to update camera")
-
-    async def set_recording_mode(
-        self,
-        camera_id: str,
-        mode: RecordingMode,
-        site_id: str | None = None,
-    ) -> Camera:
-        """
-        Set camera recording mode.
-
-        Args:
-            camera_id: The camera ID.
-            mode: The recording mode.
-            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
-
-        Returns:
-            The updated camera.
-
-        """
-        return await self.update(camera_id, site_id, recordingMode=mode.value)
 
     async def get_snapshot(
         self,

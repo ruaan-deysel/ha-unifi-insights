@@ -555,7 +555,7 @@ class TestProtectLightPatchBodies:
         )
 
     def _setup_light(
-        self, led_level: int | None = 3
+        self, led_level: float | None = 3
     ) -> tuple[MagicMock, UniFiProtectClient, UnifiProtectLight]:
         coordinator = MagicMock()
         client = UniFiProtectClient(
@@ -663,6 +663,19 @@ class TestProtectLightPatchBodies:
         _, _, light = self._setup_light(led_level=None)
         assert light._attr_brightness is None
         assert light._attr_extra_state_attributes[ATTR_LIGHT_LEVEL] is None
+
+    def test_light_read_brightness_accepts_whole_number_float(self) -> None:
+        """Test read path accepts a whole-number float ledLevel (spec: number)."""
+        _, _, light = self._setup_light(led_level=3.0)
+        assert light._attr_brightness == 128
+
+    @pytest.mark.parametrize("led_level", [3.5, True, 0.0, 7.0, float("nan")])
+    def test_light_read_brightness_rejects_invalid_led_level(
+        self, led_level: Any
+    ) -> None:
+        """Test read path maps fractions, bools and out-of-range to None."""
+        _, _, light = self._setup_light(led_level=led_level)
+        assert light._attr_brightness is None
 
     @pytest.mark.asyncio
     async def test_light_brightness_round_trip(self) -> None:

@@ -25,6 +25,7 @@ from .const import (
     LIGHT_MODE_OFF,
 )
 from .entity import UnifiProtectEntity, async_call_coordinator_action
+from .led_level import MAX_LED_LEVEL, MIN_LED_LEVEL, valid_led_level
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -34,9 +35,6 @@ if TYPE_CHECKING:
     from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-MIN_LED_LEVEL = 1
-MAX_LED_LEVEL = 6
 
 # Lights are action-based, allow parallel execution
 PARALLEL_UPDATES = 1
@@ -151,12 +149,9 @@ class UnifiProtectLight(UnifiProtectEntity, LightEntity):
             if isinstance(device_settings, dict)
             else None
         )
-        if (
-            isinstance(led_level, int)
-            and not isinstance(led_level, bool)
-            and MIN_LED_LEVEL <= led_level <= MAX_LED_LEVEL
-        ):
-            self._attr_brightness = round(led_level * 255 / MAX_LED_LEVEL)
+        valid_level = valid_led_level(led_level)
+        if valid_level is not None:
+            self._attr_brightness = round(valid_level * 255 / MAX_LED_LEVEL)
         else:
             self._attr_brightness = None
 

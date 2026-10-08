@@ -70,6 +70,7 @@ from .const import (
     VIDEO_MODE_SPORT,
 )
 from .coordinators.carrier_fabric import InvalidSubscriberIdError
+from .led_level import percent_to_led_level
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant, ServiceCall
@@ -1770,8 +1771,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             hass, resource_type="light", resource_id=raw_light_id
         )
 
-        _LOGGER.info("Setting light level for %s to %d%%", light_id, level)
-        await coordinator.async_set_light_brightness(light_id, level)
+        led_level = percent_to_led_level(level)
+        _LOGGER.info(
+            "Setting light level for %s to %d%% (led_level %d)",
+            light_id,
+            level,
+            led_level,
+        )
+        await coordinator.async_set_light_brightness(light_id, led_level)
 
     async def async_handle_ptz_move(call: ServiceCall) -> None:
         """Handle the ptz_move service call."""

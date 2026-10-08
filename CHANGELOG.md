@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The chime Play button failed on every press because it passed an extra ringtone argument to the coordinator; it now plays the chime.
 - Camera status light and video mode now send the field names the Protect API documents (`ledSettings`, `videoMode`).
 - Floodlight mode and brightness now send the field names the Protect API documents (`lightModeSettings.mode`, `lightDeviceSettings.ledLevel`), and brightness now reads and writes the Protect 1-6 LED level correctly (a fully bright floodlight previously showed about 6%).
+- The camera Status Light switch no longer fails on every toggle, and both switches now send the field names the Protect API documents (`ledSettings` and `videoMode`). [#242](https://github.com/ruaan-deysel/ha-unifi-insights/issues/242)
+- Floodlight mode and brightness now send the field names the Protect API documents (`lightModeSettings.mode`, `lightDeviceSettings.ledLevel`). Brightness now reads and writes the Protect 1-6 LED level (a fully bright floodlight previously showed about 6%). The `set_light_level` service and the Light Level number keep their 0-100 range and convert it to the 1-6 level.
 - Secrets in logged API responses are now fully redacted. Before, a password, Wi-Fi passphrase, token or API key containing a colon (`:`) or an escaped quote was only partly hidden: debug logs and "Response is not JSON" warnings showed the value up to its last colon, for example `"passphrase": "my:secret: "**REDACTED**"`. Now the whole value is replaced: `"passphrase": "**REDACTED**"`.
 
 ## [2026.10.1] - 2026-10-04

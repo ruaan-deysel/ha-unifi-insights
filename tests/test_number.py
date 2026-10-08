@@ -9,6 +9,8 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory
 import pytest
 
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from custom_components.unifi_insights.const import (
     ATTR_CAMERA_ID,
     ATTR_CAMERA_NAME,
@@ -32,6 +34,7 @@ from custom_components.unifi_insights.number import (
     UnifiProtectMicrophoneVolumeNumber,
     async_setup_entry,
 )
+from custom_components.unifi_insights.coordinators import UnifiFacadeCoordinator
 
 
 class TestParallelUpdates:
@@ -318,7 +321,8 @@ class TestUnifiProtectLightLevelNumber:
         coordinator = MagicMock()
         coordinator.protect_client = MagicMock()
         coordinator.protect_client.base_url = "https://192.168.1.1"
-        coordinator.protect_client.set_light_brightness = AsyncMock()
+        coordinator.protect_client.lights = MagicMock()
+        coordinator.protect_client.lights.set_brightness = AsyncMock()
         coordinator.network_client = MagicMock()
         coordinator.network_client.base_url = "https://192.168.1.1"
         coordinator.data = {
@@ -334,7 +338,7 @@ class TestUnifiProtectLightLevelNumber:
                         "mac": "AA:BB:CC:DD:EE:FF",
                         "type": "UP-Floodlight",
                         "firmwareVersion": "1.0.0",
-                        "lightDeviceSettings": {"ledLevel": 80},
+                        "lightDeviceSettings": {"ledLevel": 3},
                     }
                 },
                 "sensors": {},
@@ -367,7 +371,18 @@ class TestUnifiProtectLightLevelNumber:
             light_id="light1",
         )
 
-        assert number._attr_native_value == 80
+        # ledLevel 3 of 6 is shown on the 0-100 slider as 50
+        assert number._attr_native_value == 50
+
+    def test_slider_range_is_unchanged(self, mock_coordinator) -> None:
+        """Test the user-facing slider stays 0-100 in whole percent steps."""
+        number = UnifiProtectLightLevelNumber(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+        assert number.native_min_value == 0
+        assert number.native_max_value == 100
+        assert number.native_step == 1
 
     def test_extra_state_attributes(self, mock_coordinator) -> None:
         """Test extra state attributes."""
@@ -379,7 +394,7 @@ class TestUnifiProtectLightLevelNumber:
         attrs = number._attr_extra_state_attributes
         assert attrs[ATTR_LIGHT_ID] == "light1"
         assert attrs[ATTR_LIGHT_NAME] == "Test Light"
-        assert attrs[ATTR_LIGHT_LEVEL] == 80
+        assert attrs[ATTR_LIGHT_LEVEL] == 3
 
     @pytest.mark.asyncio
     async def test_async_set_native_value_success(self, mock_coordinator) -> None:
@@ -392,17 +407,18 @@ class TestUnifiProtectLightLevelNumber:
 
         await number.async_set_native_value(60.0)
 
-        mock_coordinator.protect_client.set_light_brightness.assert_called_once_with(
-            light_id="light1",
-            level=60,
+        # 60% maps to LED level 4, which reads back as 67%
+        mock_coordinator.protect_client.lights.set_brightness.assert_called_once_with(
+            "light1",
+            4,
         )
-        assert number._attr_native_value == 60.0
+        assert number._attr_native_value == 67
         number.async_write_ha_state.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_async_set_native_value_error(self, mock_coordinator) -> None:
         """Test setting light level with error."""
-        mock_coordinator.protect_client.set_light_brightness.side_effect = Exception(
+        mock_coordinator.protect_client.lights.set_brightness.side_effect = Exception(
             "API error"
         )
 
@@ -426,8 +442,94 @@ class TestUnifiProtectLightLevelNumber:
             light_id="light1",
         )
 
-        # Default is 100
+        assert number._attr_native_value is None
+        assert number._attr_extra_state_attributes[ATTR_LIGHT_LEVEL] is None
+
+    @pytest.mark.parametrize("led_level", [0, 7, "3", True, 3.5])
+    def test_invalid_led_level_reads_as_none(self, mock_coordinator, led_level) -> None:
+        """Test an invalid ledLevel gives no value instead of a bogus percentage."""
+        mock_coordinator.data["protect"]["lights"]["light1"]["lightDeviceSettings"][
+            "ledLevel"
+        ] = led_level
+
+        number = UnifiProtectLightLevelNumber(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+
+        assert number._attr_native_value is None
+
+    def test_whole_number_float_led_level_reads_as_percent(
+        self, mock_coordinator
+    ) -> None:
+        """Test a whole-number float ledLevel (spec: number) is accepted."""
+        mock_coordinator.data["protect"]["lights"]["light1"]["lightDeviceSettings"][
+            "ledLevel"
+        ] = 6.0
+
+        number = UnifiProtectLightLevelNumber(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+
         assert number._attr_native_value == 100
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("percent", "led_level", "shown"),
+        [(0, 1, 17), (50, 3, 50), (100, 6, 100)],
+    )
+    async def test_light_level_number_sends_spec_patch_body(
+        self, mock_coordinator, percent: float, led_level: int, shown: int
+    ) -> None:
+        """Test the slider reaches PATCH /lights/{id} as a 1-6 ledLevel."""
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(return_value={"id": "light1", "mac": "00:11:22"})
+        mock_coordinator.protect_client = client
+        # Real coordinator methods, so the whole path down to the client runs
+        mock_coordinator._require_protect_client = lambda: client
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_set_light_brightness = (
+            UnifiFacadeCoordinator.async_set_light_brightness.__get__(mock_coordinator)
+        )
+        number = UnifiProtectLightLevelNumber(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+        number.async_write_ha_state = MagicMock()
+
+        await number.async_set_native_value(percent)
+
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/lights/light1"),
+            json_data={"lightDeviceSettings": {"ledLevel": led_level}},
+        )
+        assert number._attr_native_value == shown
+
+    @pytest.mark.asyncio
+    async def test_light_level_number_brightness_fallback(
+        self, mock_coordinator
+    ) -> None:
+        """Test the fallback calls lights.set_brightness with the converted level."""
+        mock_coordinator.async_set_light_brightness = MagicMock()
+        number = UnifiProtectLightLevelNumber(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+        number.async_write_ha_state = MagicMock()
+
+        await number.async_set_native_value(100.0)
+
+        mock_coordinator.protect_client.lights.set_brightness.assert_awaited_once_with(
+            "light1",
+            6,
+        )
 
 
 class TestUnifiProtectChimeVolumeNumber:

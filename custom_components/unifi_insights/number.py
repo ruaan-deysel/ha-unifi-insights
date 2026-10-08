@@ -25,6 +25,7 @@ from .const import (
     DEVICE_TYPE_LIGHT,
 )
 from .entity import UnifiProtectEntity, async_call_coordinator_action
+from .led_level import led_level_to_percent, percent_to_led_level
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -246,36 +247,42 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
         """Update entity from data."""
         light_data = self.coordinator.data["protect"]["lights"].get(self._device_id, {})
 
-        # Set value
-        self._attr_native_value = light_data.get("lightDeviceSettings", {}).get(
-            "ledLevel", 100
-        )
+        # The slider is a 0-100 percentage; Protect stores a 1-6 ledLevel
+        led_level = light_data.get("lightDeviceSettings", {}).get("ledLevel")
+        self._attr_native_value = led_level_to_percent(led_level)
 
         # Set attributes
         self._attr_extra_state_attributes = {
             ATTR_LIGHT_ID: self._device_id,
             ATTR_LIGHT_NAME: light_data.get("name"),
-            ATTR_LIGHT_LEVEL: self._attr_native_value,
+            ATTR_LIGHT_LEVEL: led_level,
         }
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the light brightness level."""
-        _LOGGER.debug("Setting light level to %s for light %s", value, self._device_id)
+        led_level = percent_to_led_level(value)
+        _LOGGER.debug(
+            "Setting light level to %s%% (led_level %s) for light %s",
+            value,
+            led_level,
+            self._device_id,
+        )
 
         await async_call_coordinator_action(
             self.coordinator,
             "async_set_light_brightness",
             f"Unable to set brightness for light {self._device_id}",
             self._device_id,
-            int(value),
+            led_level,
             fallback_factory=lambda: (
-                self.coordinator.protect_client.set_light_brightness(  # type: ignore[union-attr]
-                    light_id=self._device_id,
-                    level=int(value),
+                self.coordinator.protect_client.lights.set_brightness(  # type: ignore[union-attr]
+                    self._device_id,
+                    led_level,
                 )
             ),
         )
-        self._attr_native_value = value
+        # Show the percentage Protect will report for the level it was given
+        self._attr_native_value = led_level_to_percent(led_level)
         self.async_write_ha_state()
 
 

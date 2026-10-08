@@ -14,6 +14,9 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights import services
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.protect import UniFiProtectClient
+from custom_components.unifi_insights.coordinators import UnifiFacadeCoordinator
 from custom_components.unifi_insights.services import (
     SERVICE_AUTHORIZE_GUEST,
     SERVICE_PLAY_CHIME_RINGTONE,
@@ -634,12 +637,60 @@ class TestLightServices:
             await hass.services.async_call(
                 DOMAIN,
                 "set_light_level",
-                {"light_id": "light1", "level": 75},
+                {"light_id": "light1", "level": 60},
                 blocking=True,
             )
 
-        mock_coordinator.async_set_light_brightness.assert_called_once_with(
-            "light1", 75
+        # 60% maps to LED level 4 (the Protect API takes 1-6)
+        mock_coordinator.async_set_light_brightness.assert_called_once_with("light1", 4)
+
+        await async_unload_services(hass)
+
+    @pytest.mark.parametrize(
+        ("level", "led_level"),
+        [(0, 1), (50, 3), (100, 6)],
+    )
+    async def test_set_light_level_sends_spec_patch_body(
+        self, hass: HomeAssistant, level: int, led_level: int
+    ):
+        """Test set_light_level reaches PATCH /lights/{id} as a 1-6 ledLevel."""
+        client = UniFiProtectClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+        )
+        client._patch = AsyncMock(return_value={"id": "light1", "mac": "00:11:22"})
+        mock_coordinator = MagicMock()
+        mock_coordinator.protect_client = client
+        # Real coordinator methods, so the whole path down to the client runs
+        mock_coordinator._require_protect_client = lambda: client
+        mock_coordinator._async_execute_api_action = (
+            UnifiFacadeCoordinator._async_execute_api_action.__get__(mock_coordinator)
+        )
+        mock_coordinator.async_set_light_brightness = (
+            UnifiFacadeCoordinator.async_set_light_brightness.__get__(mock_coordinator)
+        )
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "set_light_level",
+                {"light_id": "light1", "level": level},
+                blocking=True,
+            )
+
+        client._patch.assert_awaited_once_with(
+            client.build_api_path("/lights/light1"),
+            json_data={"lightDeviceSettings": {"ledLevel": led_level}},
         )
 
         await async_unload_services(hass)
@@ -2569,7 +2620,8 @@ class TestConsoleOwnershipRouting:
                 {"light_id": "light1", "level": 60},
                 blocking=True,
             )
-            coord1.async_set_light_brightness.assert_called_once_with("light1", 60)
+            # 60% maps to LED level 4 (Protect takes 1-6)
+            coord1.async_set_light_brightness.assert_called_once_with("light1", 4)
 
             # Chime services on console 2
             await hass.services.async_call(

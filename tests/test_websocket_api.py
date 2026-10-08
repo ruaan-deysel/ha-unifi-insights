@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock, patch
 
+import pytest
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import (
@@ -24,7 +25,14 @@ from custom_components.unifi_insights.const import (
 from custom_components.unifi_insights.helpers import async_get_device_entry
 from custom_components.unifi_insights.topology import build_site_topology
 from custom_components.unifi_insights.websocket_api import (
+    _UNLOAD_WATCHERS,
     ERR_ENTRY_NOT_LOADED,
+    _generic_site_payload,
+    _generic_site_unavailable,
+    _protect_change_signal,
+    _RequestError,
+    ws_protect_subscribe,
+    ws_site_health_subscribe,
     ws_topology_sources,
     ws_topology_subscribe,
 )
@@ -909,7 +917,7 @@ async def test_protect_sources_and_get_and_subscribe(
 async def test_dashboard_site_subscriptions_and_errors(
     hass: HomeAssistant, init_integration: MockConfigEntry, hass_ws_client, caplog
 ) -> None:
-    """Cover get/subscribe error codes, updates, and unload for site dashboard streams."""
+    """Cover get/subscribe error codes, updates, and unload for site streams."""
     data = _seed(init_integration)
     facade = init_integration.runtime_data.coordinator
     data["internet_activity"] = {
@@ -998,3 +1006,219 @@ async def test_dashboard_site_subscriptions_and_errors(
 
     await hass.config_entries.async_unload(init_integration.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_protect_payload_device_mapping(
+    hass: HomeAssistant, init_integration: MockConfigEntry, hass_ws_client
+) -> None:
+    """Test Protect payload maps cameras and chimes to HA device registry IDs."""
+    data = _seed(init_integration)
+    dev_reg = dr.async_get(hass)
+    cam_device = dev_reg.async_get_or_create(
+        config_entry_id=init_integration.entry_id,
+        identifiers={(DOMAIN, "protect_camera_cam-1")},
+        name="Front Camera",
+    )
+    chime_device = dev_reg.async_get_or_create(
+        config_entry_id=init_integration.entry_id,
+        identifiers={(DOMAIN, "protect_chime_chime-1")},
+        name="Hall Chime",
+    )
+
+    data["protect"] = {
+        "cameras": {"cam-1": {"name": "Front Camera", "state": "CONNECTED"}},
+        "chimes": {"chime-1": {"name": "Hall Chime", "state": "CONNECTED"}},
+        "nvrs": {},
+    }
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {
+            "id": 310,
+            "type": "unifi_insights/protect/get",
+            "entry_id": init_integration.entry_id,
+        }
+    )
+    msg = await client.receive_json()
+    assert msg["success"]
+    devices = msg["result"]["devices"]
+    cam_item = next(d for d in devices if d["id"] == "cam-1")
+    assert cam_item["ha_device_id"] == cam_device.id
+    chime_item = next(d for d in devices if d["id"] == "chime-1")
+    assert chime_item["ha_device_id"] == chime_device.id
+
+
+def test_protect_change_signal_non_dict() -> None:
+    """Test _protect_change_signal returns 0 for non-dict inputs."""
+    assert _protect_change_signal(None) == 0
+    assert _protect_change_signal("not_a_dict") == 0
+
+
+def test_generic_site_payload_unsupported_and_site_disabled(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test _generic_site_payload rejects disabled site and unsupported payload type."""
+    _seed(init_integration)
+    with pytest.raises(_RequestError) as exc_info:
+        _generic_site_payload(
+            hass, init_integration, "disabled_site", payload_type="site_health"
+        )
+    assert exc_info.value.code == "site_not_selected"
+
+    with pytest.raises(_RequestError) as exc_info:
+        _generic_site_payload(
+            hass, init_integration, SITE, payload_type="unsupported_payload"
+        )
+    assert exc_info.value.code == "invalid_format"
+
+
+def test_generic_site_unavailable_branches(
+    init_integration: MockConfigEntry,
+) -> None:
+    """Test _generic_site_unavailable builds snapshots for performance and fallback."""
+    perf = _generic_site_unavailable(init_integration, SITE, "performance", "code_perf")
+    assert perf["status"] == "unavailable"
+    assert perf["issues"][0]["code"] == "code_perf"
+
+    tl = _generic_site_unavailable(init_integration, SITE, "timeline", "code_tl")
+    assert tl["status"] == "unavailable"
+    assert tl["issues"][0]["code"] == "code_tl"
+
+    unknown = _generic_site_unavailable(
+        init_integration, SITE, "unknown_type", "code_unknown"
+    )
+    assert unknown["status"] == "unavailable"
+    assert unknown["issues"][0]["code"] == "code_unknown"
+
+
+async def test_protect_subscription_forwarder_branches(
+    hass: HomeAssistant, init_integration: MockConfigEntry, hass_ws_client, caplog
+) -> None:
+    """Test Protect subscription forwarder branches for rebuild and deduplication."""
+    data = _seed(init_integration)
+    facade = init_integration.runtime_data.coordinator
+    data["protect"] = {
+        "cameras": {},
+        "chimes": {},
+        "nvrs": {"nvr-1": {"storage": {"healthy": True, "used": 40.0}}},
+    }
+    facade.async_update_listeners()
+    await hass.async_block_till_done()
+
+    client = await hass_ws_client(hass)
+
+    await client.send_json(
+        {
+            "id": 320,
+            "type": "unifi_insights/protect/subscribe",
+            "entry_id": init_integration.entry_id,
+        }
+    )
+    assert (await client.receive_json())["success"]
+    initial = await client.receive_json()
+    assert initial["type"] == "event"
+
+    # 1. Skip when inputs unchanged (_same_inputs)
+    facade.async_update_listeners()
+    await _assert_no_event(client, 321)
+
+    # 2. Rebuild exception in _async_forward
+    data["protect"]["nvrs"]["nvr-1"]["storage"]["used"] = 45.0
+    with (
+        caplog.at_level(logging.ERROR),
+        patch(
+            "custom_components.unifi_insights.websocket_api._protect_payload",
+            side_effect=RuntimeError("protect rebuild boom"),
+        ),
+    ):
+        facade.async_update_listeners()
+    assert "Failed to rebuild protect snapshot" in caplog.text
+    await _assert_no_event(client, 322)
+
+    # 3. Revision unchanged in _async_forward
+    data["protect"]["nvrs"]["nvr-1"]["storage"]["used"] = 50.0
+    with patch(
+        "custom_components.unifi_insights.websocket_api._protect_payload",
+        return_value={"revision": initial["event"].get("revision", "")},
+    ):
+        facade.async_update_listeners()
+    await _assert_no_event(client, 323)
+
+
+async def test_protect_and_site_subscription_cleanup_idempotent(
+    hass: HomeAssistant, init_integration: MockConfigEntry
+) -> None:
+    """Test idempotent unsubscribe and unload callbacks for Protect/site payloads."""
+    _seed(init_integration)
+    connection = Mock()
+    connection.subscriptions = {}
+
+    # Protect subscription cleanup
+    ws_protect_subscribe(
+        hass,
+        connection,
+        {"id": 401, "entry_id": init_integration.entry_id},
+    )
+    protect_watchers = hass.data[_UNLOAD_WATCHERS]
+    protect_cbs = list(protect_watchers[init_integration.entry_id])
+    protect_unsub = connection.subscriptions[401]
+    protect_unsub()
+    protect_unsub()
+    for cb in protect_cbs:
+        cb()
+        cb()
+
+    # Site health subscription cleanup
+    connection.subscriptions = {}
+    ws_site_health_subscribe(
+        hass,
+        connection,
+        {"id": 402, "entry_id": init_integration.entry_id, "site_id": SITE},
+    )
+    site_watchers = hass.data[_UNLOAD_WATCHERS]
+    site_cbs = list(site_watchers[init_integration.entry_id])
+    site_unsub = connection.subscriptions[402]
+    site_unsub()
+    site_unsub()
+    for cb in site_cbs:
+        cb()
+        cb()
+
+
+async def test_site_subscription_forwarder_branches(
+    hass: HomeAssistant, init_integration: MockConfigEntry, hass_ws_client
+) -> None:
+    """Test site subscription forwarder skips unchanged inputs and handles error."""
+    _seed(init_integration)
+    facade = init_integration.runtime_data.coordinator
+    facade.async_update_listeners()
+    await hass.async_block_till_done()
+
+    client = await hass_ws_client(hass)
+
+    await client.send_json(
+        {
+            "id": 410,
+            "type": "unifi_insights/site_health/subscribe",
+            "entry_id": init_integration.entry_id,
+            "site_id": SITE,
+        }
+    )
+    assert (await client.receive_json())["success"]
+    initial = await client.receive_json()
+    assert initial["type"] == "event"
+
+    # Inputs unchanged: forwarder exits early on _same_inputs
+    facade.async_update_listeners()
+    await _assert_no_event(client, 411)
+
+    # RequestError during forwarder rebuild
+    with patch(
+        "custom_components.unifi_insights.websocket_api._generic_site_payload",
+        side_effect=_RequestError("site_unavailable", "site gone"),
+    ):
+        init_integration.runtime_data.device_coordinator.last_update_success = False
+        facade.async_update_listeners()
+
+    err_evt = await client.receive_json()
+    assert err_evt["type"] == "event"
+    assert err_evt["event"]["status"] == "unavailable"

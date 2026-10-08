@@ -1310,9 +1310,17 @@ async def test_firewall_list_rules_params_and_fallback_branches() -> None:
     }
 
 
+@pytest.mark.xfail(
+    strict=True,
+    raises=ValidationError,
+    reason=(
+        "Bug: update_rule strips 'id' from the payload before the PUT, then "
+        "builds the fallback model from that payload when the PUT returns no "
+        "body, so validation fails on the missing required id."
+    ),
+)
 async def test_firewall_update_rule_empty_put_response_fallback() -> None:
-    """firewall.update_rule fallback executes line 372 (raises ValidationError
-    as 'id' was stripped)."""
+    """An empty PUT response falls back to the sent rule, keeping its id."""
     current_rule = {
         "id": "rule-99",
         "name": "Drop Rule",
@@ -1327,10 +1335,9 @@ async def test_firewall_update_rule_empty_put_response_fallback() -> None:
     )
     client = _client(session)
 
-    # Line 372 executes; ValidationError is raised because
-    # current_payload has no 'id'.
-    with pytest.raises(ValidationError):
-        await client.firewall.update_rule("default", "rule-99", enabled=False)
+    rule = await client.firewall.update_rule("default", "rule-99", enabled=False)
+    assert rule.id == "rule-99"
+    assert rule.enabled is False
 
 
 async def test_routes_update_route_branches_and_fallback() -> None:
@@ -1554,9 +1561,17 @@ async def test_wifi_get_all_params_and_non_list_data() -> None:
     assert res_non_list == []
 
 
+@pytest.mark.xfail(
+    strict=True,
+    raises=ValidationError,
+    reason=(
+        "Bug: wifi.update strips 'id' from the payload before the PUT, then "
+        "builds the fallback model from that payload when the PUT returns no "
+        "body, so validation fails on the missing required id."
+    ),
+)
 async def test_wifi_update_empty_put_response_fallback() -> None:
-    """wifi.update fallback executes line 222 (raises ValidationError as
-    'id' was stripped)."""
+    """An empty PUT response falls back to the sent network, keeping its id."""
     current_wifi = {
         "id": "wifi-1",
         "name": "Guest WiFi",
@@ -1571,7 +1586,6 @@ async def test_wifi_update_empty_put_response_fallback() -> None:
     )
     client = _client(session)
 
-    # Line 222 executes; ValidationError is raised because
-    # current_payload has no 'id'.
-    with pytest.raises(ValidationError):
-        await client.wifi.update("default", "wifi-1", enabled=False)
+    network = await client.wifi.update("default", "wifi-1", enabled=False)
+    assert network.id == "wifi-1"
+    assert network.enabled is False

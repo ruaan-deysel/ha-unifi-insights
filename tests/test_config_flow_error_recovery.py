@@ -211,7 +211,7 @@ async def test_local_flow_unexpected_exception_recovery(hass: HomeAssistant) -> 
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
             side_effect=[RuntimeError("Unexpected boom"), valid_cm],
         ),
-        patch("custom_components.unifi_insights.config_flow.LocalAuth"),
+        patch("custom_components.unifi_insights.config_flow.LocalAuth") as mock_auth,
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -247,6 +247,9 @@ async def test_local_flow_unexpected_exception_recovery(hass: HomeAssistant) -> 
         )
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["title"] == "UniFi Insights (Local)"
+        mock_auth.assert_called_with(api_key="test_key", verify_ssl=False)
+        assert result["data"][CONF_HOST] == "https://192.168.1.1"
+        assert result["data"][CONF_API_KEY] == "test_key"
 
 
 async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None:
@@ -266,7 +269,9 @@ async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None
             "custom_components.unifi_insights.config_flow.UniFiNetworkClient",
             side_effect=[discovery_err_cm, discovery_ok_cm, validation_cm],
         ),
-        patch("custom_components.unifi_insights.config_flow.ApiKeyAuth"),
+        patch(
+            "custom_components.unifi_insights.config_flow.ApiKeyAuth"
+        ) as mock_api_key_auth,
     ):
         result = await hass.config_entries.flow.async_init(
             DOMAIN, context={"source": config_entries.SOURCE_USER}
@@ -290,7 +295,7 @@ async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None
         # Retry with valid discovery advances to select_console
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            user_input={CONF_API_KEY: "good_key"},
+            user_input={CONF_API_KEY: " good_key "},
         )
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "select_console"
@@ -301,6 +306,10 @@ async def test_remote_flow_not_found_error_recovery(hass: HomeAssistant) -> None
             user_input={CONF_CONSOLE_ID: "console123"},
         )
         assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_API_KEY] == "good_key"
+        assert [
+            call.kwargs["api_key"] for call in mock_api_key_auth.call_args_list
+        ] == ["bad_key", "good_key", "good_key"]
 
 
 @pytest.mark.parametrize(

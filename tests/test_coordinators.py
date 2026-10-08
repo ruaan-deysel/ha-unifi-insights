@@ -6458,10 +6458,10 @@ class TestUnifiFacadeCoordinator:
         self, facade_coordinator: UnifiFacadeCoordinator
     ):
         """Test async_set_chime_repeat delegates correctly."""
-        facade_coordinator.protect_client.chimes.update = AsyncMock()
+        facade_coordinator.protect_client.chimes.set_repeat_times = AsyncMock()
         await facade_coordinator.async_set_chime_repeat("chime1", 3)
-        facade_coordinator.protect_client.chimes.update.assert_called_once_with(
-            "chime1", repeatTimes=3
+        facade_coordinator.protect_client.chimes.set_repeat_times.assert_called_once_with(
+            "chime1", 3
         )
 
     @pytest.mark.asyncio

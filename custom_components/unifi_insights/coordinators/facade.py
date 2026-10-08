@@ -895,9 +895,9 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         protect_client = self._require_protect_client()
         await self._async_execute_api_action(
             f"Unable to set repeat count for chime {chime_id}",
-            protect_client.chimes.update,
+            protect_client.chimes.set_repeat_times,
             chime_id,
-            repeatTimes=repeat_times,
+            repeat_times,
         )
 
     async def async_set_chime_paired_cameras(

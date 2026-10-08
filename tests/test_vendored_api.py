@@ -1944,6 +1944,56 @@ async def test_chime_set_volume_rejects_out_of_range(volume: int) -> None:
     client._patch.assert_not_awaited()
 
 
+async def test_chime_set_repeat_times_patches_ring_settings_only() -> None:
+    """The repeat count goes in each ringSettings entry, not at the top level."""
+    client = _protect_client()
+    ring = {
+        "cameraId": "doorbell-1",
+        "repeatTimes": 1,
+        "ringtoneId": "tone-a",
+        "volume": 40,
+    }
+    chime = {"id": "chime-1", "mac": "AA:BB:CC:DD:EE:FF", "ringSettings": [ring]}
+    client._get = AsyncMock(return_value=chime)
+    client._patch = AsyncMock(return_value=chime)
+
+    await client.chimes.set_repeat_times("chime-1", 4)
+
+    client._patch.assert_awaited_once_with(
+        client.build_api_path("/chimes/chime-1"),
+        json_data={"ringSettings": [{**ring, "repeatTimes": 4}]},
+    )
+
+
+async def test_chime_set_repeat_times_needs_volume_in_each_entry() -> None:
+    """Changing the repeat count keeps volume, so an entry without one fails."""
+    client = _protect_client()
+    ring = {"cameraId": "doorbell-1", "repeatTimes": 1, "ringtoneId": "tone-a"}
+    client._get = AsyncMock(
+        return_value={"id": "chime-1", "mac": "AA:BB", "ringSettings": [ring]}
+    )
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="incomplete ring settings"):
+        await client.chimes.set_repeat_times("chime-1", 4)
+
+    client._patch.assert_not_awaited()
+
+
+@pytest.mark.parametrize("repeat_times", [0, 11])
+async def test_chime_set_repeat_times_rejects_out_of_range(repeat_times: int) -> None:
+    """The spec range for repeatTimes is 1-10; outside it nothing is sent."""
+    client = _protect_client()
+    client._get = AsyncMock()
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="between 1 and 10"):
+        await client.chimes.set_repeat_times("chime-1", repeat_times)
+
+    client._get.assert_not_awaited()
+    client._patch.assert_not_awaited()
+
+
 @pytest.mark.parametrize("volume", [1, 100])
 async def test_camera_set_microphone_volume_sends_mic_volume(volume: int) -> None:
     """The spec range for the camera PATCH micVolume is 1-100."""

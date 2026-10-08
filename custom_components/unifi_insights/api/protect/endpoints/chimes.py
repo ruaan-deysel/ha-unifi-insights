@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Fields kept from each ringSettings entry when only the volume changes. The
-# v7.3.70 chime PATCH requires these plus volume and rejects any other key.
-_RING_SETTINGS_KEPT = ("cameraId", "repeatTimes", "ringtoneId")
+# Fields of one ringSettings entry. The v7.3.70 chime PATCH requires all four
+# and rejects any other key.
+_RING_SETTINGS_FIELDS = ("cameraId", "repeatTimes", "ringtoneId", "volume")
 
 
 class ChimesEndpoint:
@@ -124,6 +124,42 @@ class ChimesEndpoint:
                 return Chime.model_validate(result)
         raise ValueError("Failed to update chime")
 
+    async def _update_ring_settings(
+        self,
+        chime_id: str,
+        site_id: str | None,
+        **changes: Any,
+    ) -> Chime:
+        """
+        Change fields in every ringSettings entry of a chime.
+
+        The chime PATCH body has no top-level volume, ringtone or repeat
+        count: they are set per paired doorbell in ``ringSettings``. This
+        reads the chime's current ring settings and sends them back with
+        ``changes`` applied to each entry.
+
+        Raises:
+            ValueError: If the chime has no paired doorbell, or an entry lacks
+                a field that isn't being changed.
+
+        """
+        chime = await self.get(chime_id, site_id)
+        entries = (chime.model_extra or {}).get("ringSettings")
+        if not entries:
+            raise ValueError(
+                f"Chime {chime_id} has no paired doorbell to apply ring settings to"
+            )
+        kept = [key for key in _RING_SETTINGS_FIELDS if key not in changes]
+        if not isinstance(entries, list) or not all(
+            isinstance(entry, dict) and all(key in entry for key in kept)
+            for entry in entries
+        ):
+            raise ValueError(f"Chime {chime_id} has incomplete ring settings")
+        ring_settings = [
+            {key: entry[key] for key in kept} | changes for entry in entries
+        ]
+        return await self.update(chime_id, site_id, ringSettings=ring_settings)
+
     async def set_volume(
         self,
         chime_id: str,
@@ -131,11 +167,7 @@ class ChimesEndpoint:
         site_id: str | None = None,
     ) -> Chime:
         """
-        Set chime volume.
-
-        The chime PATCH body has no top-level volume: it is set per paired
-        doorbell in ``ringSettings``. This reads the chime's current ring
-        settings and sends them back with ``volume`` changed in each entry.
+        Set chime volume for every paired doorbell.
 
         Args:
             chime_id: The chime ID.
@@ -152,22 +184,35 @@ class ChimesEndpoint:
         """
         if not 0 <= volume <= 100:
             raise ValueError("Volume must be between 0 and 100")
-        chime = await self.get(chime_id, site_id)
-        entries = (chime.model_extra or {}).get("ringSettings")
-        if not entries:
-            raise ValueError(
-                f"Chime {chime_id} has no paired doorbell to set the volume for"
-            )
-        if not isinstance(entries, list) or not all(
-            isinstance(entry, dict) and all(key in entry for key in _RING_SETTINGS_KEPT)
-            for entry in entries
-        ):
-            raise ValueError(f"Chime {chime_id} has incomplete ring settings")
-        ring_settings = [
-            {key: entry[key] for key in _RING_SETTINGS_KEPT} | {"volume": volume}
-            for entry in entries
-        ]
-        return await self.update(chime_id, site_id, ringSettings=ring_settings)
+        return await self._update_ring_settings(chime_id, site_id, volume=volume)
+
+    async def set_repeat_times(
+        self,
+        chime_id: str,
+        repeat_times: int,
+        site_id: str | None = None,
+    ) -> Chime:
+        """
+        Set how many times the ringtone repeats, for every paired doorbell.
+
+        Args:
+            chime_id: The chime ID.
+            repeat_times: Repeat count (1-10).
+            site_id: The site ID (required for REMOTE connections, ignored for LOCAL).
+
+        Returns:
+            The updated chime.
+
+        Raises:
+            ValueError: If the count is out of range, the chime has no paired
+                doorbell to set it for, or an entry lacks a required field.
+
+        """
+        if not 1 <= repeat_times <= 10:
+            raise ValueError("Repeat times must be between 1 and 10")
+        return await self._update_ring_settings(
+            chime_id, site_id, repeatTimes=repeat_times
+        )
 
     async def play(self, chime_id: str, site_id: str | None = None) -> bool:
         """

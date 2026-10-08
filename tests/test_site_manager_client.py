@@ -417,3 +417,115 @@ async def test_get_sd_wan_config_status_pins_verb_path_and_unwraps_data() -> Non
     with pytest.raises(UniFiResponseError) as error:
         await client.get_sd_wan_config_status("cfg-456")
     assert "malformed data" in error.value.args[0]
+
+
+async def test_validate_connection_and_list_sites() -> None:
+    """validate_connection checks credentials and list_sites paginates /v1/sites."""
+    session = _Session(
+        [
+            {"data": [{"id": "host-1", "type": "console"}]},
+            {"data": [{"id": "site-1", "name": "Main Site"}]},
+        ]
+    )
+    client = _client(session)
+
+    assert await client.validate_connection() is True
+    assert session.requests[0]["method"] == "GET"
+    assert session.requests[0]["url"] == "https://api.ui.com/v1/hosts"
+
+    sites = await client.list_sites()
+    assert sites == [{"id": "site-1", "name": "Main Site"}]
+    assert session.requests[1]["method"] == "GET"
+    assert session.requests[1]["url"] == "https://api.ui.com/v1/sites"
+
+
+async def test_list_devices_anonymous_groups() -> None:
+    """Device groups without a hostId are collected into anonymous_groups."""
+    session = _Session(
+        [
+            {
+                "data": [
+                    {
+                        "hostId": "",
+                        "devices": [{"id": "anon-dev-1", "name": "Standalone"}],
+                    },
+                    {
+                        "hostId": None,
+                        "devices": [{"id": "anon-dev-2", "name": "Unmanaged"}],
+                    },
+                ]
+            }
+        ]
+    )
+    client = _client(session)
+
+    devices = await client.list_devices()
+    assert len(devices) == 2
+    assert devices[0]["devices"][0]["id"] == "anon-dev-1"
+    assert devices[1]["devices"][0]["id"] == "anon-dev-2"
+
+
+async def test_list_paginated_item_and_page_limits() -> None:
+    """_list_paginated enforces item limit, empty page check, and page limit."""
+    # 1. Exceeded item limit
+    session_items = _Session(
+        [
+            {"data": [{"id": f"item-{i}"} for i in range(5000)], "nextToken": "tok-1"},
+            {"data": [{"id": f"item-{i}"} for i in range(5001)], "nextToken": "tok-2"},
+        ]
+    )
+    client_items = _client(session_items)
+    with pytest.raises(UniFiResponseError) as error:
+        await client_items.list_sites()
+    assert "exceeded the item limit" in error.value.args[0]
+
+    # 2. Empty page with nextToken
+    session_empty = _Session(
+        [
+            {"data": [], "nextToken": "tok-empty"},
+        ]
+    )
+    client_empty = _client(session_empty)
+    with pytest.raises(UniFiResponseError) as error:
+        await client_empty.list_sites()
+    assert "returned an empty page with nextToken" in error.value.args[0]
+
+    # 3. Exceeded page limit (100 pages)
+    session_pages = _Session(
+        [{"data": [{"id": f"site-{i}"}], "nextToken": f"tok-{i}"} for i in range(105)]
+    )
+    client_pages = _client(session_pages)
+    with pytest.raises(UniFiResponseError) as error:
+        await client_pages.list_sites()
+    assert "exceeded the page limit" in error.value.args[0]
+
+
+async def test_iso_timestamp_requires_timezone_offset() -> None:
+    """get_isp_metrics rejects timestamps without a timezone offset."""
+    session = _Session([])
+    client = _client(session)
+    naive_dt = datetime.now(tz=UTC).replace(tzinfo=None)
+
+    with pytest.raises(ValueError, match="Timestamps must include a UTC offset"):
+        await client.get_isp_metrics(begin_timestamp=naive_dt)
+
+
+async def test_envelope_and_next_token_error_handling() -> None:
+    """Response envelope and nextToken validations reject invalid payloads."""
+    client = _client(_Session([]))
+
+    with pytest.raises(UniFiResponseError) as error:
+        client._extract_data(["not-a-dict"], "/v1/test")
+    assert "malformed response envelope" in error.value.args[0]
+
+    with pytest.raises(UniFiResponseError) as error:
+        client._extract_next_token(["not-a-dict"], "/v1/test")
+    assert "malformed response envelope" in error.value.args[0]
+
+    with pytest.raises(UniFiResponseError) as error:
+        client._extract_next_token({"nextToken": 12345}, "/v1/test")
+    assert "invalid nextToken" in error.value.args[0]
+
+    with pytest.raises(UniFiResponseError) as error:
+        client._extract_next_token({"nextToken": ""}, "/v1/test")
+    assert "invalid nextToken" in error.value.args[0]

@@ -27,6 +27,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from custom_components.unifi_insights.api import UniFiGlobalAlarmManagerError
 from custom_components.unifi_insights.const import CONF_CONSOLE_ID, DOMAIN
 from custom_components.unifi_insights.data_transforms import (
     correlate_innerspace_devices,
@@ -236,6 +237,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "fobs": {},
                 "link_stations": {},
                 "alarm_hubs": {},
+                "sirens": {},
                 "doorlocks": {},
                 "viewports": {},
                 "liveviews": {},
@@ -898,6 +900,31 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             repeatTimes=repeat_times,
         )
 
+    async def async_set_chime_paired_cameras(
+        self,
+        chime_id: str,
+        camera_ids: list[str],
+    ) -> None:
+        """
+        Replace the doorbell cameras paired to a chime.
+
+        An empty list unpairs every doorbell. The request body is exactly
+        {"cameraIds": [...]}: the spec's chime PATCH sets
+        additionalProperties to false, so nothing else may ride along. The
+        refresh afterwards keeps the cached chimes current. A refresh that
+        fails does not fail the action: the coordinator records the failure
+        itself instead of raising it, and the pairing has been made.
+        """
+        protect_client = self._require_protect_client()
+        await self._async_execute_api_action(
+            f"Unable to set the paired doorbells of chime {chime_id}",
+            protect_client.chimes.update,
+            chime_id,
+            cameraIds=list(camera_ids),
+        )
+        if self._protect_coordinator is not None:
+            await self._protect_coordinator.async_request_refresh()
+
     async def async_generate_voucher(
         self,
         site_id: str,
@@ -946,6 +973,51 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             alarm_id,
         )
 
+    async def async_arm_alarm(self) -> None:
+        """Arm the console's alarm with its currently selected arm profile."""
+        await self._async_send_arm_command(enable=True)
+
+    async def async_disarm_alarm(self) -> None:
+        """Disarm the console's alarm."""
+        await self._async_send_arm_command(enable=False)
+
+    async def _async_send_arm_command(self, *, enable: bool) -> None:
+        """
+        Send an arm or disarm request, then ask Protect for fresh state.
+
+        While the UniFi global alarm manager owns the alarm, Protect refuses
+        both commands with a 400. That is reported as a translated error
+        rather than the generic "Unable to ..." message. There is no
+        optimistic state: the NVR's WebSocket frame normally arrives first,
+        and the debounced refresh is the fallback.
+        """
+        protect_client = self._require_protect_client()
+        command = (
+            protect_client.arm_profiles.enable
+            if enable
+            else protect_client.arm_profiles.disable
+        )
+
+        async def _send() -> bool:
+            try:
+                return await command()
+            except UniFiGlobalAlarmManagerError as err:
+                # The refusal is also the answer to whether the manager is on,
+                # e.g. when it was switched on since it was last asked.
+                if self._protect_coordinator is not None:
+                    self._protect_coordinator.mark_global_alarm_manager_enabled()
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="global_alarm_manager",
+                ) from err
+
+        await self._async_execute_api_action(
+            f"Unable to {'arm' if enable else 'disarm'} the UniFi Protect alarm",
+            _send,
+        )
+        if self._protect_coordinator is not None:
+            await self._protect_coordinator.async_request_refresh()
+
     async def async_create_liveview(
         self,
         *,
@@ -962,3 +1034,41 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             layout=layout,
             isDefault=is_default,
         )
+
+    async def async_play_siren(
+        self, siren_id: str, *, duration: int | None = None
+    ) -> None:
+        """Sound a siren, optionally for 5, 10, 20 or 30 seconds."""
+        protect_client = self._require_protect_client()
+        await self._async_execute_api_action(
+            f"Unable to sound siren {siren_id}",
+            protect_client.sirens.play,
+            siren_id,
+            duration=duration,
+        )
+
+    async def async_set_siren_volume(self, siren_id: str, volume: int) -> None:
+        """Set a siren's volume (1-100)."""
+        protect_client = self._require_protect_client()
+        await self._async_execute_api_action(
+            f"Unable to set volume for siren {siren_id}",
+            protect_client.sirens.set_volume,
+            siren_id,
+            volume,
+        )
+
+    async def async_stop_siren(self, siren_id: str) -> None:
+        """
+        Stop a siren and show it off right away.
+
+        Protect sends no WebSocket frame after a manual stop, so the Protect
+        coordinator's cache is updated here instead of waiting for the poll.
+        """
+        protect_client = self._require_protect_client()
+        await self._async_execute_api_action(
+            f"Unable to stop siren {siren_id}",
+            protect_client.sirens.stop,
+            siren_id,
+        )
+        if self._protect_coordinator is not None:
+            self._protect_coordinator.mark_siren_stopped(siren_id)

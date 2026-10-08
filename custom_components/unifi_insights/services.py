@@ -20,6 +20,10 @@ from homeassistant.helpers import (
 from homeassistant.helpers import (
     entity_registry as er,
 )
+from homeassistant.helpers.target import (
+    TargetSelection,
+    async_extract_referenced_entity_ids,
+)
 
 from .api import UniFiAuthenticationError, UniFiError
 from .button import get_device_port, port_can_be_power_cycled
@@ -55,6 +59,7 @@ from .const import (
     SERVICE_POWER_CYCLE_PORT,
     SERVICE_PTZ_MOVE,
     SERVICE_PTZ_PATROL,
+    SERVICE_SET_CHIME_PAIRED_DOORBELLS,
     SERVICE_SET_CHIME_REPEAT_TIMES,
     SERVICE_SET_CHIME_RINGTONE,
     SERVICE_SET_CHIME_VOLUME,
@@ -72,6 +77,7 @@ from .const import (
     VIDEO_MODE_SPORT,
 )
 from .coordinators.carrier_fabric import InvalidSubscriberIdError
+from .helpers import is_doorbell_camera_model
 from .led_level import percent_to_led_level
 
 if TYPE_CHECKING:
@@ -1001,6 +1007,130 @@ def _get_coordinator_for_protect_resource(
     return target_entry.runtime_data.coordinator, native_resource_id
 
 
+# The doorbell ring binary sensor (binary_sensor.py, key "camera_doorbell_ring")
+# is this integration's only doorbell marker: the public camera schema has no
+# doorbell flag. Its unique_id is f"{DOMAIN}_camera_{camera_id}_camera_doorbell_ring".
+_DOORBELL_RING_UNIQUE_ID_PREFIX: Final = f"{DOMAIN}_camera_"
+_DOORBELL_RING_UNIQUE_ID_SUFFIX: Final = "_camera_doorbell_ring"
+
+
+def _doorbell_camera_id(entry: er.RegistryEntry) -> str | None:
+    """Return the camera behind this integration's doorbell ring sensor, else None."""
+    unique_id = entry.unique_id
+    if (
+        entry.platform != DOMAIN
+        or entry.domain != "binary_sensor"
+        or not unique_id.startswith(_DOORBELL_RING_UNIQUE_ID_PREFIX)
+        or not unique_id.endswith(_DOORBELL_RING_UNIQUE_ID_SUFFIX)
+    ):
+        return None
+    camera_id = unique_id[
+        len(_DOORBELL_RING_UNIQUE_ID_PREFIX) : -len(_DOORBELL_RING_UNIQUE_ID_SUFFIX)
+    ]
+    return camera_id or None
+
+
+def _entry_id_for_coordinator(hass: HomeAssistant, coordinator: Any) -> str | None:
+    """Return the config entry whose runtime coordinator is ``coordinator``."""
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        runtime_data = getattr(entry, "runtime_data", None)
+        if getattr(runtime_data, "coordinator", None) is coordinator:
+            return entry.entry_id
+    return None
+
+
+def _raise_chime_doorbell_error(key: str, target: str | None = None) -> NoReturn:
+    """Raise a translated validation error for the chime pairing action."""
+    raise ServiceValidationError(
+        translation_domain=DOMAIN,
+        translation_key=key,
+        translation_placeholders={"target": target} if target else None,
+    )
+
+
+def _resolve_chime_doorbell_camera_ids(
+    hass: HomeAssistant,
+    doorbells: dict[str, Any] | None,
+    *,
+    chime_entry_id: str | None,
+    coordinator: Any,
+) -> list[str]:
+    """
+    Turn a ``doorbells`` target selection into the camera ids to pair.
+
+    Home Assistant's own UniFi Protect integration quietly ignores anything
+    that is not a doorbell. This does so only for entities that came in
+    through a device, area, floor or label, because a doorbell device has many
+    entities besides the ring sensor. An entity the user named directly must be
+    a doorbell ring sensor, and a selection that holds no doorbell at all is
+    refused instead of unpairing every doorbell. An absent or empty selection
+    still unpairs them all, as in core.
+
+    Every doorbell must belong to the chime's console, and its camera must
+    still be known to that console. The ring sensor alone is not proof of a
+    doorbell: it is also created for a camera whose name merely looks like one
+    (for example "Front Door"), so the camera's cached record must say by its
+    type that it is a doorbell. Any other camera is handled like any other
+    entity that is not a doorbell.
+    """
+    selection = TargetSelection(doorbells or {})
+    if not selection.has_any_target:
+        return []
+
+    selected = async_extract_referenced_entity_ids(hass, selection)
+    missing = sorted(
+        selected.missing_devices
+        | selected.missing_areas
+        | selected.missing_floors
+        | selected.missing_labels
+    )
+    if missing:
+        _raise_chime_doorbell_error("chime_doorbell_not_found", missing[0])
+
+    # Routing keeps a console that has not loaded its Protect data yet as a
+    # candidate, so the cached cameras may not be there.
+    data = coordinator.data
+    protect_data = data.get("protect") if isinstance(data, dict) else None
+    known_cameras = (
+        protect_data.get("cameras") if isinstance(protect_data, dict) else None
+    )
+    if not isinstance(known_cameras, dict):
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="chime_cameras_unavailable",
+        )
+
+    entity_registry = er.async_get(hass)
+    camera_ids: set[str] = set()
+    for entity_id in sorted(selected.referenced | selected.indirectly_referenced):
+        entry = entity_registry.async_get(entity_id)
+        camera_id = None if entry is None else _doorbell_camera_id(entry)
+        if entry is None or camera_id is None:
+            if entity_id in selected.referenced:
+                _raise_chime_doorbell_error(
+                    "chime_doorbell_not_found"
+                    if entry is None
+                    else "chime_doorbell_not_doorbell",
+                    entity_id,
+                )
+            continue
+        if entry.config_entry_id != chime_entry_id:
+            _raise_chime_doorbell_error("chime_doorbell_other_console", entity_id)
+        camera = known_cameras.get(camera_id)
+        if camera is None:
+            # An entity left behind by a camera the console no longer has.
+            _raise_chime_doorbell_error("chime_doorbell_not_found", entity_id)
+        if not is_doorbell_camera_model(camera):
+            if entity_id in selected.referenced:
+                _raise_chime_doorbell_error("chime_doorbell_not_doorbell", entity_id)
+            continue
+        camera_ids.add(camera_id)
+
+    if not camera_ids:
+        _raise_chime_doorbell_error("chime_doorbells_none_selected")
+    return sorted(camera_ids)
+
+
 SERVICE_REFRESH_DATA = "refresh_data"
 SERVICE_RESTART_DEVICE = "restart_device"
 
@@ -1214,6 +1344,25 @@ SET_CHIME_REPEAT_TIMES_SCHEMA = vol.Schema(
             vol.Coerce(int), vol.Range(min=1, max=10)
         ),
         vol.Optional("camera_id"): TARGET_SELECTOR_SCHEMA,
+    }
+)
+
+# Schema for set_chime_paired_doorbells service. ``doorbells`` is a target
+# selection (entity, device, area, floor, label), like Home Assistant's own
+# UniFi Protect action; an empty or missing one unpairs every doorbell.
+DOORBELLS_SELECTION_SCHEMA = vol.Schema(
+    {
+        vol.Optional(key): TARGET_SELECTOR_SCHEMA
+        for key in ("entity_id", "device_id", "area_id", "floor_id", "label_id")
+    }
+)
+SET_CHIME_PAIRED_DOORBELLS_SCHEMA = vol.Schema(
+    {
+        vol.Optional("chime_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("device_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("entity_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("target"): TARGET_DICT_SCHEMA,
+        vol.Optional("doorbells"): vol.Any(None, DOORBELLS_SELECTION_SCHEMA),
     }
 )
 
@@ -2063,6 +2212,27 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         _LOGGER.info("Setting chime %s repeat times to %d", chime_id, repeat_times)
         await coordinator.async_set_chime_repeat(chime_id, repeat_times)
 
+    async def async_handle_set_chime_paired_doorbells(call: ServiceCall) -> None:
+        """Handle the set_chime_paired_doorbells service call."""
+        raw_chime_id = _extract_target_id(call, "chime_id")
+        if not raw_chime_id:
+            msg = "Chime ID or target is required"
+            raise ServiceValidationError(msg)
+
+        coordinator, chime_id = _get_coordinator_for_protect_resource(
+            hass,
+            resource_type="chime",
+            resource_id=raw_chime_id,
+        )
+        camera_ids = _resolve_chime_doorbell_camera_ids(
+            hass,
+            call.data.get("doorbells"),
+            chime_entry_id=_entry_id_for_coordinator(hass, coordinator),
+            coordinator=coordinator,
+        )
+        _LOGGER.info("Pairing chime %s with doorbell cameras %s", chime_id, camera_ids)
+        await coordinator.async_set_chime_paired_cameras(chime_id, camera_ids)
+
     async def async_handle_authorize_guest(call: ServiceCall) -> None:
         """Handle the authorize_guest service call."""
         site_id = call.data["site_id"]
@@ -2216,6 +2386,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         schema=SET_CHIME_REPEAT_TIMES_SCHEMA,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_CHIME_PAIRED_DOORBELLS,
+        async_handle_set_chime_paired_doorbells,
+        schema=SET_CHIME_PAIRED_DOORBELLS_SCHEMA,
+    )
+
     # Register UniFi Network services
     hass.services.async_register(
         DOMAIN,
@@ -2334,6 +2511,9 @@ async def async_unload_services(hass: HomeAssistant) -> None:
 
     if hass.services.has_service(DOMAIN, SERVICE_SET_CHIME_REPEAT_TIMES):
         hass.services.async_remove(DOMAIN, SERVICE_SET_CHIME_REPEAT_TIMES)
+
+    if hass.services.has_service(DOMAIN, SERVICE_SET_CHIME_PAIRED_DOORBELLS):
+        hass.services.async_remove(DOMAIN, SERVICE_SET_CHIME_PAIRED_DOORBELLS)
 
     # Unload UniFi Network services
     if hass.services.has_service(DOMAIN, SERVICE_AUTHORIZE_GUEST):

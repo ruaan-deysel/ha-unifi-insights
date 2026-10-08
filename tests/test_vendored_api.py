@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,6 +32,8 @@ from custom_components.unifi_insights.api.const import (
 )
 from custom_components.unifi_insights.api.exceptions import (
     UniFiConnectionError,
+    UniFiGlobalAlarmManagerError,
+    UniFiNotFoundError,
     UniFiRateLimitError,
     UniFiResponseError,
     UniFiValidationError,
@@ -54,9 +57,11 @@ from custom_components.unifi_insights.api.protect import (
     UlpUserStatus,
     UniFiProtectClient,
 )
+from custom_components.unifi_insights.api.protect.models import Siren
 from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
     SAMPLE_KEYPAD_FOB,
+    SAMPLE_SIREN,
     SAMPLE_SITE_REPORT_RESPONSE,
     SAMPLE_THREAD_LINK_STATION,
 )
@@ -1315,6 +1320,241 @@ async def test_arm_profiles_get_all_and_enable() -> None:
     )
 
 
+_GLOBAL_ALARM_MANAGER_BODY = (
+    '{"name":"BAD_REQUEST","error":"This operation is not available when '
+    'global alarm manager is enabled"}'
+)
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+async def test_arm_profiles_enable_and_disable_send_no_body(action: str) -> None:
+    """The spec's enable and disable requests carry no body (204 response)."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert await getattr(client.arm_profiles, action)() is True
+
+    client._post.assert_awaited_once_with(
+        client.build_api_path(f"/arm-profiles/{action}"), json_data=None
+    )
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+async def test_arm_profiles_global_alarm_manager_400_raises_specific_error(
+    action: str,
+) -> None:
+    """Protect's "global alarm manager is enabled" 400 gets its own type.
+
+    It stays a UniFiResponseError, so existing handlers keep working, and it
+    keeps the status and the body.
+    """
+    client = _protect_client()
+    original = UniFiResponseError(
+        "API error (status 400)", 400, response_body=_GLOBAL_ALARM_MANAGER_BODY
+    )
+    client._post = AsyncMock(side_effect=original)
+
+    with pytest.raises(UniFiGlobalAlarmManagerError) as err:
+        await getattr(client.arm_profiles, action)()
+
+    assert isinstance(err.value, UniFiResponseError)
+    assert err.value.status_code == 400
+    assert err.value.response_body == _GLOBAL_ALARM_MANAGER_BODY
+    assert err.value.__cause__ is original
+
+
+@pytest.mark.parametrize("action", ["enable", "disable"])
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (400, '{"name":"BAD_REQUEST","error":"something else is wrong"}'),
+        (400, None),
+        (500, _GLOBAL_ALARM_MANAGER_BODY),
+    ],
+    ids=["other-400", "400-without-body", "500-with-the-marker"],
+)
+async def test_arm_profiles_other_errors_are_reraised_unchanged(
+    action: str, status: int, body: str | None
+) -> None:
+    """Only the 400 naming the global alarm manager is translated."""
+    client = _protect_client()
+    original = UniFiResponseError("boom", status, response_body=body)
+    client._post = AsyncMock(side_effect=original)
+
+    with pytest.raises(UniFiResponseError) as err:
+        await getattr(client.arm_profiles, action)()
+
+    assert err.value is original
+
+
+async def test_arm_profiles_get_all_gam_400_raises_specific_error() -> None:
+    """Listing the arm profiles is refused the same way while the manager is on.
+
+    That makes the read-only listing a way to tell that it is enabled.
+    """
+    client = _protect_client()
+    original = UniFiResponseError(
+        "API error (status 400)", 400, response_body=_GLOBAL_ALARM_MANAGER_BODY
+    )
+    client._get = AsyncMock(side_effect=original)
+
+    with pytest.raises(UniFiGlobalAlarmManagerError) as err:
+        await client.arm_profiles.get_all()
+
+    assert isinstance(err.value, UniFiResponseError)
+    assert err.value.status_code == 400
+    assert err.value.response_body == _GLOBAL_ALARM_MANAGER_BODY
+    assert err.value.__cause__ is original
+    client._get.assert_awaited_once_with(client.build_api_path("/arm-profiles"))
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_type"),
+    [
+        (
+            UniFiResponseError(
+                "x", 400, response_body='{"error":"something else is wrong"}'
+            ),
+            UniFiResponseError,
+        ),
+        (UniFiResponseError("x", 400), UniFiResponseError),
+        (
+            UniFiResponseError("x", 500, response_body=_GLOBAL_ALARM_MANAGER_BODY),
+            UniFiResponseError,
+        ),
+        (UniFiNotFoundError("Not Found", 404), UniFiNotFoundError),
+    ],
+    ids=["other-400", "400-without-body", "500-with-the-marker", "404"],
+)
+async def test_arm_profiles_get_all_other_errors_are_reraised_unchanged(
+    error: UniFiResponseError, expected_type: type[UniFiResponseError]
+) -> None:
+    """Only the 400 naming the global alarm manager is translated."""
+    client = _protect_client()
+    client._get = AsyncMock(side_effect=error)
+
+    with pytest.raises(expected_type) as err:
+        await client.arm_profiles.get_all()
+
+    assert err.value is error
+    assert type(err.value) is expected_type
+
+
+_ARM_PROFILE_CALLS = {
+    "get_all": ("_get", lambda endpoint: endpoint.get_all()),
+    "enable": ("_post", lambda endpoint: endpoint.enable()),
+    "disable": ("_post", lambda endpoint: endpoint.disable()),
+}
+
+
+@pytest.mark.parametrize("call", list(_ARM_PROFILE_CALLS))
+@pytest.mark.parametrize(
+    "body",
+    [
+        _GLOBAL_ALARM_MANAGER_BODY,
+        # The message nested deeper, as a REMOTE (cloud connector) answer may carry it.
+        (
+            '{"error":{"code":"BAD_REQUEST","details":[{"message":"Not available '
+            'when Global Alarm Manager is enabled"}]}}'
+        ),
+        (
+            '{"code":"HTTP_400","message":"Bad Request","error":{"statusCode":400,'
+            '"message":"This operation is not available when global alarm manager '
+            'is enabled"}}'
+        ),
+        # A JSON document carried as a string inside another one.
+        '{"message":"{\\"error\\":\\"global alarm manager is enabled\\"}"}',
+        '"{\\"error\\":\\"global alarm manager is enabled\\"}"',
+        # The same words written another way.
+        '{"error":"GLOBAL_ALARM_MANAGER_ENABLED"}',
+        '{"error":"global-alarm-manager is enabled"}',
+        '{"error":"global  alarm\\nmanager is enabled"}',
+        '{"error":"global\\u0020alarm\\u0020manager is enabled"}',
+        # Not JSON at all.
+        "<html><body>Global Alarm Manager is enabled</body></html>",
+    ],
+    ids=[
+        "live",
+        "nested-details",
+        "connector-style-envelope",
+        "json-in-a-string-value",
+        "json-string-document",
+        "upper-snake-case",
+        "kebab-case",
+        "extra-whitespace",
+        "unicode-escaped-spaces",
+        "html",
+    ],
+)
+async def test_arm_profiles_global_alarm_manager_is_found_anywhere_in_the_body(
+    call: str, body: str
+) -> None:
+    """The whole response text is searched, whatever its shape or wording.
+
+    A REMOTE entry goes through the cloud connector, and the client hands its
+    response text through unchanged, so the message can be nested or reworded.
+    """
+    method, invoke = _ARM_PROFILE_CALLS[call]
+    client = _protect_client()
+    setattr(
+        client,
+        method,
+        AsyncMock(side_effect=UniFiResponseError("x", 400, response_body=body)),
+    )
+
+    with pytest.raises(UniFiGlobalAlarmManagerError):
+        await invoke(client.arm_profiles)
+
+
+@pytest.mark.parametrize("call", list(_ARM_PROFILE_CALLS))
+@pytest.mark.parametrize(
+    "body",
+    [
+        '{"error":{"message":"The armed profile cannot be changed"}}',
+        '{"error":"global alarm"}',
+        '{"error":"alarm manager"}',
+        "[1, 2, 3]",
+        "null",
+        "not json",
+        "",
+    ],
+    ids=[
+        "other-message",
+        "half-the-phrase",
+        "other-half",
+        "json-array",
+        "json-null",
+        "not-json",
+        "empty",
+    ],
+)
+async def test_arm_profiles_other_400_bodies_are_not_the_global_alarm_manager(
+    call: str, body: str
+) -> None:
+    """A 400 that does not name the global alarm manager stays a plain error."""
+    method, invoke = _ARM_PROFILE_CALLS[call]
+    client = _protect_client()
+    original = UniFiResponseError("x", 400, response_body=body)
+    setattr(client, method, AsyncMock(side_effect=original))
+
+    with pytest.raises(UniFiResponseError) as err:
+        await invoke(client.arm_profiles)
+
+    assert err.value is original
+
+
+async def test_arm_profiles_404_is_reraised_unchanged() -> None:
+    """A missing endpoint stays a UniFiNotFoundError."""
+    client = _protect_client()
+    original = UniFiNotFoundError("Not Found", 404)
+    client._post = AsyncMock(side_effect=original)
+
+    with pytest.raises(UniFiNotFoundError) as err:
+        await client.arm_profiles.enable()
+
+    assert err.value is original
+
+
 async def test_relays_activate_output_posts_expected_path() -> None:
     """Relay activate_output should POST to the outputs activate path."""
     client = _protect_client()
@@ -1335,12 +1575,95 @@ async def test_sirens_play_and_speakers_test_sound() -> None:
     client._post = AsyncMock(return_value=None)
 
     assert await client.sirens.play("siren-1") is True
-    client._post.assert_awaited_with(client.build_api_path("/sirens/siren-1/play"))
+    client._post.assert_awaited_with(
+        client.build_api_path("/sirens/siren-1/play"), json_data=None
+    )
 
     assert await client.speakers.test_sound("spk-1") is True
     client._post.assert_awaited_with(
         client.build_api_path("/speakers/spk-1/test-sound")
     )
+
+
+async def test_sirens_play_sends_duration_body_in_seconds() -> None:
+    """The spec play body is {"duration": <seconds>}, not milliseconds."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert await client.sirens.play("siren-1", duration=10) is True
+
+    client._post.assert_awaited_once_with(
+        client.build_api_path("/sirens/siren-1/play"), json_data={"duration": 10}
+    )
+
+
+async def test_sirens_play_rejects_unsupported_duration() -> None:
+    """A duration the spec does not list is refused before any request."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value=None)
+
+    with pytest.raises(ValueError, match="duration must be one of"):
+        await client.sirens.play("siren-1", duration=7)
+
+    client._post.assert_not_awaited()
+
+
+async def test_sirens_play_duration_is_seconds_not_milliseconds() -> None:
+    """The play request takes seconds (spec sirenDurationSeconds), not status ms."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value=None)
+
+    with pytest.raises(ValueError, match="duration must be one of"):
+        await client.sirens.play("siren-1", duration=5000)
+
+    client._post.assert_not_awaited()
+
+
+async def test_sirens_set_volume_patches_volume() -> None:
+    """set_volume PATCHes only {"volume": n} and returns the parsed siren."""
+    client = _protect_client()
+    client._patch = AsyncMock(return_value=copy.deepcopy(SAMPLE_SIREN))
+
+    siren = await client.sirens.set_volume("siren-1", 50)
+
+    client._patch.assert_awaited_once_with(
+        client.build_api_path("/sirens/siren-1"), json_data={"volume": 50}
+    )
+    assert siren.volume == 50
+
+
+@pytest.mark.parametrize("volume", [0, 101])
+async def test_sirens_set_volume_rejects_out_of_range(volume: int) -> None:
+    """The spec range is 1..100; 0 and 101 never reach the API."""
+    client = _protect_client()
+    client._patch = AsyncMock()
+
+    with pytest.raises(ValueError, match="between 1 and 100"):
+        await client.sirens.set_volume("siren-1", volume)
+
+    client._patch.assert_not_awaited()
+
+
+async def test_sirens_stop_sends_no_body() -> None:
+    """The spec's stop request has no body, so nothing may be sent with it."""
+    client = _protect_client()
+    client._post = AsyncMock(return_value=None)
+
+    assert await client.sirens.stop("siren-1") is True
+
+    client._post.assert_awaited_once_with(client.build_api_path("/sirens/siren-1/stop"))
+
+
+def test_siren_model_parses_live_capture() -> None:
+    """The live UP-Siren-PoE capture parses with its nested status intact."""
+    siren = Siren.model_validate(SAMPLE_SIREN)
+
+    assert isinstance(siren.siren_status, dict)
+    assert siren.siren_status["isActive"] is False
+    assert siren.volume == 50
+    dumped = siren.model_dump(by_alias=True)
+    assert dumped["sirenStatus"] == SAMPLE_SIREN["sirenStatus"]
+    assert dumped["connectionType"] == "ucp4"
 
 
 async def test_bridges_get_all_uses_base_endpoint() -> None:

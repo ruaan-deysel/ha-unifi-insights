@@ -138,6 +138,9 @@ DEVICE_TYPE_VIEWPORT: Final = "viewport"
 DEVICE_TYPE_FOB: Final = "fob"
 DEVICE_TYPE_LINK_STATION: Final = "link_station"
 DEVICE_TYPE_ALARM_HUB: Final = "alarm_hub"
+# Sirens are keyed "sirens" in the coordinator data. "siren" is also the
+# WebSocket modelKey (spec sirenModelKey), so one constant serves both.
+DEVICE_TYPE_SIREN: Final = "siren"
 
 # Protect WebSocket modelKey values that differ from the device types above.
 # Link stations and alarm hubs share one modelKey; there is no "alarmHub" key.
@@ -335,6 +338,12 @@ ATTR_LAST_TAMPER_AT: Final = "last_tamper_at"
 ATTR_ARM_PROFILE_ID: Final = "arm_profile_id"
 ATTR_NIGHT_PROFILE_ID: Final = "night_profile_id"
 
+# NVR alarm control panel attributes (armMode)
+ATTR_ARMED_AT: Final = "armed_at"
+ATTR_WILL_BE_ARMED_AT: Final = "will_be_armed_at"
+ATTR_BREACH_DETECTED_AT: Final = "breach_detected_at"
+ATTR_BREACH_EVENT_COUNT: Final = "breach_event_count"
+
 # NVR attributes
 ATTR_NVR_ID: Final = "nvr_id"
 ATTR_NVR_NAME: Final = "nvr_name"
@@ -369,6 +378,7 @@ SERVICE_SET_CHIME_VOLUME: Final = "set_chime_volume"
 SERVICE_PLAY_CHIME_RINGTONE: Final = "play_chime_ringtone"
 SERVICE_SET_CHIME_RINGTONE: Final = "set_chime_ringtone"
 SERVICE_SET_CHIME_REPEAT_TIMES: Final = "set_chime_repeat_times"
+SERVICE_SET_CHIME_PAIRED_DOORBELLS: Final = "set_chime_paired_doorbells"
 
 # Chime API endpoints
 API_PATH_CHIME_PLAY: Final = "/proxy/protect/integration/v1/chimes/{id}/play"

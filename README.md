@@ -36,14 +36,14 @@ UniFi Insights is a custom integration that you install from HACS. It connects w
 
 ## Supported UniFi products
 
-| Product                                                 | Connection           | Highlights                                                                                                                 |
-| ------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| [UniFi Network](#unifi-network)                         | Local or Remote      | Device, port, power, WAN and client monitoring; Wi-Fi, firewall, route, VPN and client controls; guest access and vouchers |
-| [UniFi Protect](#unifi-protect)                         | Local or Remote      | Cameras, smart detection and doorbell events, lights, chimes, PTZ, sensors, NVR storage, alarm hub status                  |
-| [UniFi InnerSpace](#unifi-innerspace)                   | Local or Remote      | Floor-plan placement of your UniFi devices                                                                                 |
-| [UniFi Mobility](#unifi-mobility)                       | Remote               | Mobile router status, cellular data use and GPS location                                                                   |
-| [UniFi Site Manager](#unifi-site-manager)               | Remote               | Account-wide host, site, ISP and SD-WAN data in diagnostics                                                                |
-| [UniFi Carrier Fabric (ISP)](#unifi-carrier-fabric-isp) | Carrier Fabric (ISP) | Subscriber and service plan counts, with optional suspend and resume                                                       |
+| Product                                                 | Connection           | Highlights                                                                                                                       |
+| ------------------------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [UniFi Network](#unifi-network)                         | Local or Remote      | Device, port, power, WAN and client monitoring; Wi-Fi, firewall, route, VPN and client controls; guest access and vouchers       |
+| [UniFi Protect](#unifi-protect)                         | Local or Remote      | Cameras, smart detection and doorbell events, lights, chimes, sirens, PTZ, sensors, NVR storage, Alarm Manager, alarm hub status |
+| [UniFi InnerSpace](#unifi-innerspace)                   | Local or Remote      | Floor-plan placement of your UniFi devices                                                                                       |
+| [UniFi Mobility](#unifi-mobility)                       | Remote               | Mobile router status, cellular data use and GPS location                                                                         |
+| [UniFi Site Manager](#unifi-site-manager)               | Remote               | Account-wide host, site, ISP and SD-WAN data in diagnostics                                                                      |
+| [UniFi Carrier Fabric (ISP)](#unifi-carrier-fabric-isp) | Carrier Fabric (ISP) | Subscriber and service plan counts, with optional suspend and resume                                                             |
 
 The integration only creates entities for the applications your console runs. A console with only Network, only Protect or only InnerSpace works.
 
@@ -203,58 +203,65 @@ data:
 - **Cameras:** live view, snapshots and RTSPS streams, with switches and selects for the microphone, privacy mode, status light, HDR and video mode.
 - **Detection:** motion, person, vehicle, animal and package binary sensors, and smart detection and doorbell event entities.
 - **Lights:** floodlight on/off and brightness, and a light mode action.
-- **Chimes:** play button, volume, repeat count and ringtone.
+- **Chimes:** play button, volume, repeat count and ringtone, and which doorbells ring the chime.
+- **Sirens:** sound a siren for 5, 10, 20 or 30 seconds, and set its volume.
 - **PTZ:** move to a preset, and start or stop a patrol.
 - **Sensors:** temperature, humidity, light level, battery, motion, door/window, tamper and leak.
 - **NVR:** storage used, total and available, when the console reports it.
+- **Alarm Manager:** an alarm control panel to arm (away) and disarm the Protect alarm, when the NVR reports an arm mode.
 - **Security devices:** alarm hub tamper detection, plus Thread network status for Thread gateways and read-only keypad fob settings (both need Protect 7.3.70 or newer). These devices are read-only: the Protect API only allows integrations to rename them.
 - **Live views:** create live views and choose the live view on a viewer.
 
 ### Protect entities
 
-| Entity                                                                                          | Type                  | Notes                                                            |
-| ----------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------- |
-| Camera                                                                                          | Camera                | Live view, snapshots, RTSPS stream                               |
-| Motion Detection, Person Detection, Vehicle Detection, Animal Detection, Package Detection      | Binary sensor         | Cameras                                                          |
-| Ring                                                                                            | Binary sensor         | Doorbells                                                        |
-| Doorbell, Smart Detection, Door/Window                                                          | Event                 | Doorbell rings, smart detections, and sensor open/close events   |
-| Microphone, Privacy Mode, Status Light, High FPS Mode                                           | Switch                | Camera settings                                                  |
-| HDR Mode, Video Mode, PTZ Preset                                                                | Select                | Camera settings                                                  |
-| Microphone Volume                                                                               | Number                | Camera microphone volume                                         |
-| Start PTZ Patrol, Stop PTZ Patrol                                                               | Button                | PTZ cameras                                                      |
-| Floodlight                                                                                      | Light                 | On/off and brightness                                            |
-| Brightness Level                                                                                | Number                | Floodlight brightness level                                      |
-| Play                                                                                            | Button                | Play the chime                                                   |
-| Chime Volume, Repeat Times                                                                      | Number                | Chime settings                                                   |
-| Ringtone                                                                                        | Select                | Chime ringtone                                                   |
-| Liveview                                                                                        | Select                | Live view shown on a viewer                                      |
-| Temperature, Humidity, Light, Battery                                                           | Sensor                | Protect sensors (°C, %, lux, %)                                  |
-| Motion Detection, Door/Window Status, Tamper Detection, Leak Detection, External Leak Detection | Binary sensor         | Protect sensors                                                  |
-| Storage Used, Storage Total, Storage Available, Storage Used Percentage                         | Sensor                | NVR storage (GB, %), when the console reports it                 |
-| Tamper Detection                                                                                | Binary sensor         | Alarm hubs, with the time and user name of the last tamper event |
-| Thread Network                                                                                  | Binary sensor         | On when a gateway's Thread network reports a problem             |
-| Thread Role, Thread Joined Devices                                                              | Sensor                | Thread gateways, diagnostic                                      |
-| Keypad Beep, Keypad Beep Volume, Arm Control                                                    | Binary sensor, sensor | Keypad fobs, diagnostic, disabled by default                     |
+| Entity                                                                                          | Type                  | Notes                                                                           |
+| ----------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| Camera                                                                                          | Camera                | Live view, snapshots, RTSPS stream                                              |
+| Motion Detection, Person Detection, Vehicle Detection, Animal Detection, Package Detection      | Binary sensor         | Cameras                                                                         |
+| Ring                                                                                            | Binary sensor         | Doorbells                                                                       |
+| Doorbell, Smart Detection, Door/Window                                                          | Event                 | Doorbell rings, smart detections, and sensor open/close events                  |
+| Microphone, Privacy Mode, Status Light, High FPS Mode                                           | Switch                | Camera settings                                                                 |
+| HDR Mode, Video Mode, PTZ Preset                                                                | Select                | Camera settings                                                                 |
+| Microphone Volume                                                                               | Number                | Camera microphone volume                                                        |
+| Start PTZ Patrol, Stop PTZ Patrol                                                               | Button                | PTZ cameras                                                                     |
+| Floodlight                                                                                      | Light                 | On/off and brightness                                                           |
+| Brightness Level                                                                                | Number                | Floodlight brightness level                                                     |
+| Play                                                                                            | Button                | Play the chime                                                                  |
+| Chime Volume, Repeat Times                                                                      | Number                | Chime settings                                                                  |
+| Ringtone                                                                                        | Select                | Chime ringtone                                                                  |
+| Liveview                                                                                        | Select                | Live view shown on a viewer                                                     |
+| Temperature, Humidity, Light, Battery                                                           | Sensor                | Protect sensors (°C, %, lux, %)                                                 |
+| Motion Detection, Door/Window Status, Tamper Detection, Leak Detection, External Leak Detection | Binary sensor         | Protect sensors                                                                 |
+| Storage Used, Storage Total, Storage Available, Storage Used Percentage                         | Sensor                | NVR storage (GB, %), when the console reports it                                |
+| Tamper Detection                                                                                | Binary sensor         | Alarm hubs, with the time and user name of the last tamper event                |
+| Thread Network                                                                                  | Binary sensor         | On when a gateway's Thread network reports a problem                            |
+| Thread Role, Thread Joined Devices                                                              | Sensor                | Thread gateways, diagnostic                                                     |
+| Keypad Beep, Keypad Beep Volume, Arm Control                                                    | Binary sensor, sensor | Keypad fobs, diagnostic, disabled by default                                    |
+| Siren (named after the device)                                                                  | Siren                 | Protect sirens: sound for 5, 10, 20 or 30 seconds, with volume                  |
+| Alarm                                                                                           | Alarm control panel   | NVRs that report an arm mode: arm away and disarm with the selected arm profile |
+
+> **Alarm panel and the UniFi global alarm manager:** Protect's own arm state (`armMode`) does not follow the UniFi global alarm manager. While the global alarm manager is enabled, the panel is not created, or becomes unavailable, instead of showing a state that may be wrong. Whether it is enabled is checked with a read-only request when the NVR reports an arm mode. The check is repeated about every 10 minutes, so switching the global alarm manager on or off in the UniFi app takes up to that long to show, and reloading the integration entry checks immediately. If Protect gives no answer, the check is retried every 5 minutes, and Home Assistant logs a warning after three tries in a row. If Protect refuses an arm or disarm because the global alarm manager is on, Home Assistant says so.
 
 ### Protect actions
 
-| Action                                  | Description                                                              |
-| --------------------------------------- | ------------------------------------------------------------------------ |
-| `unifi_insights.set_recording_mode`     | Set a camera's recording mode                                            |
-| `unifi_insights.set_hdr_mode`           | Set a camera's HDR mode (`auto`, `on`, `off`)                            |
-| `unifi_insights.set_video_mode`         | Set a camera's video mode (`default`, `highFps`, `sport`, `slowShutter`) |
-| `unifi_insights.set_mic_volume`         | Set a camera's microphone volume (0–100)                                 |
-| `unifi_insights.ptz_move`               | Move a PTZ camera to a preset (0–15)                                     |
-| `unifi_insights.ptz_patrol`             | Start or stop a PTZ patrol                                               |
-| `unifi_insights.set_light_mode`         | Set a light's mode (`always`, `motion`, `off`)                           |
-| `unifi_insights.set_light_level`        | Set a light's brightness (0–100)                                         |
-| `unifi_insights.play_chime_ringtone`    | Play a ringtone on a chime                                               |
-| `unifi_insights.set_chime_volume`       | Set a chime's volume (0–100)                                             |
-| `unifi_insights.set_chime_ringtone`     | Set a chime's ringtone                                                   |
-| `unifi_insights.set_chime_repeat_times` | Set how many times a chime repeats (1–10)                                |
-| `unifi_insights.trigger_alarm`          | Trigger an Alarm Manager webhook alarm                                   |
-| `unifi_insights.create_liveview`        | Create a live view                                                       |
-| `unifi_insights.set_liveview`           | Set the live view shown on a viewer                                      |
+| Action                                      | Description                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `unifi_insights.set_recording_mode`         | Set a camera's recording mode                                            |
+| `unifi_insights.set_hdr_mode`               | Set a camera's HDR mode (`auto`, `on`, `off`)                            |
+| `unifi_insights.set_video_mode`             | Set a camera's video mode (`default`, `highFps`, `sport`, `slowShutter`) |
+| `unifi_insights.set_mic_volume`             | Set a camera's microphone volume (0–100)                                 |
+| `unifi_insights.ptz_move`                   | Move a PTZ camera to a preset (0–15)                                     |
+| `unifi_insights.ptz_patrol`                 | Start or stop a PTZ patrol                                               |
+| `unifi_insights.set_light_mode`             | Set a light's mode (`always`, `motion`, `off`)                           |
+| `unifi_insights.set_light_level`            | Set a light's brightness (0–100)                                         |
+| `unifi_insights.play_chime_ringtone`        | Play a ringtone on a chime                                               |
+| `unifi_insights.set_chime_volume`           | Set a chime's volume (0–100)                                             |
+| `unifi_insights.set_chime_ringtone`         | Set a chime's ringtone                                                   |
+| `unifi_insights.set_chime_repeat_times`     | Set how many times a chime repeats (1–10)                                |
+| `unifi_insights.set_chime_paired_doorbells` | Choose which doorbells ring a chime (replaces its current pairing)       |
+| `unifi_insights.trigger_alarm`              | Trigger an Alarm Manager webhook alarm                                   |
+| `unifi_insights.create_liveview`            | Create a live view                                                       |
+| `unifi_insights.set_liveview`               | Set the live view shown on a viewer                                      |
 
 ```yaml
 # Move a PTZ camera to a preset position
@@ -287,6 +294,18 @@ action: unifi_insights.play_chime_ringtone
 data:
   chime_id: "chime-id"
   ringtone_id: "default" # default, mechanical, digital, christmas, traditional, custom1, custom2
+```
+
+```yaml
+# Choose which doorbells ring a chime (replaces its current pairing).
+# Pick doorbell ring sensors of the chime's console, or their devices or areas.
+# Leave doorbells empty to unpair every doorbell.
+action: unifi_insights.set_chime_paired_doorbells
+data:
+  chime_id: "chime-id"
+  doorbells:
+    entity_id:
+      - binary_sensor.front_doorbell_doorbell_ring
 ```
 
 ## UniFi InnerSpace

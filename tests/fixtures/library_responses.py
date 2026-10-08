@@ -152,11 +152,63 @@ SAMPLE_PROTECT_CHIME = {
     "ringtone": "DEFAULT",
 }
 
+# A doorbell camera and a chime shaped like the public Integration API returns
+# them (spec: chime keys id, modelKey, state, name, type, guid, mac, cameraIds,
+# ringSettings). The ids, MACs and guid are fakes.
+SAMPLE_DOORBELL_CAMERA = {
+    "id": "doorbell_cam_1",
+    "modelKey": "camera",
+    "mac": "AABBCC0000D1",
+    "name": "Front Doorbell",
+    "type": "UVC G4 Doorbell Pro",
+    "state": "CONNECTED",
+}
+
+SAMPLE_PUBLIC_CHIME = {
+    "id": "chime_1",
+    "modelKey": "chime",
+    "state": "CONNECTED",
+    "name": "Hallway Chime",
+    "type": "UP-Chime",
+    "guid": "00000000-0000-4000-8000-0000000000c1",
+    "mac": "AABBCC0000C1",
+    "cameraIds": [],
+    "ringSettings": [],
+}
+
 SAMPLE_NVR = {
     "id": "nvr_1",
     "name": "UniFi Protect",
     "model": "UNVR",
     "version": "3.0.22",
+}
+
+# Redacted capture of a real /nvrs object on Protect 7.3.70 (2026-10-06) with
+# the global alarm manager on. The id, MAC, guid, name and armProfileId are
+# fakes; every other value is as the console reported it.
+SAMPLE_NVR_WITH_ARM_MODE = {
+    "id": "nvr_1",
+    "modelKey": "nvr",
+    "name": "UniFi Protect",
+    "type": "UNVR-PRO",
+    "guid": "00000000-0000-4000-8000-0000000000aa",
+    "mac": "AABBCC0000AA",
+    "doorbellSettings": {
+        "defaultMessageText": "WELCOME",
+        "defaultMessageResetTimeoutMs": 60000,
+        "customMessages": [],
+        "customImages": [],
+    },
+    "armMode": {
+        "status": "disabled",
+        "armProfileId": "arm_profile_away",
+        "armedAt": 1755916908659,
+        "willBeArmedAt": None,
+        "breachDetectedAt": None,
+        "breachEventCount": 0,
+        "breachTriggerEventId": None,
+        "breachEventId": None,
+    },
 }
 
 # Redacted capture of a real /link-stations item on Protect 7.3.70
@@ -240,6 +292,27 @@ SAMPLE_KEYPAD_FOB = {
         "signalState": "good",
         "batteryStatus": {"percentage": 90, "isLow": False},
         "bridge": "link_station_1",
+    },
+}
+
+# Redacted capture of a live UP-Siren-PoE (Protect 7.3.70). The id, MAC and guid
+# are fakes; every other value is as the console reported it.
+SAMPLE_SIREN = {
+    "id": "siren_1",
+    "modelKey": "siren",
+    "state": "CONNECTED",
+    "name": "Garage Siren",
+    "type": "UP-Siren-PoE",
+    "guid": "00000000-0000-4000-8000-000000000005",
+    "mac": "AABBCC000005",
+    "volume": 50,
+    "ledSettings": {"isEnabled": True},
+    "sirenStatus": {"isActive": False, "activatedAt": None, "duration": None},
+    "connectionType": "ucp4",
+    "wirelessConnectionState": {
+        "signalState": {"signalQuality": None, "signalStrength": None},
+        "batteryStatus": {"percentage": None, "isLow": False},
+        "bridge": None,
     },
 }
 

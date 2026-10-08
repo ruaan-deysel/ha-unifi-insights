@@ -421,6 +421,39 @@ set_chime_repeat_times:
       selector:
         text:
 
+set_chime_paired_doorbells:
+  name: Set Chime Paired Doorbells
+  description: >-
+    Choose which doorbells ring a UniFi Protect chime. The selection replaces
+    the chime's current pairing. Leave Doorbells empty to unpair every
+    doorbell.
+  target:
+    entity:
+      integration: unifi_insights
+  fields:
+    chime_id:
+      name: Chime ID
+      description: >-
+        ID of the chime. Not needed when the chime is picked as the target.
+      required: false
+      example: "60e9c8c0e3e4b8001a123456"
+      selector:
+        text:
+    doorbells:
+      name: Doorbells
+      description: >-
+        Doorbell ring sensors of this integration, or the doorbell devices or
+        areas that hold them. Only doorbells on the chime's console are
+        accepted.
+      required: false
+      example: "binary_sensor.front_doorbell_doorbell_ring"
+      selector:
+        target:
+          entity:
+            integration: unifi_insights
+            domain: binary_sensor
+            device_class: occupancy
+
 # UniFi Network services
 authorize_guest:
   name: Authorize Guest

@@ -60,6 +60,9 @@ class NVR(BaseModel):
         default=False, alias="enableAutomaticBackups"
     )
     feature_flags: dict[str, Any] | None = Field(default=None, alias="featureFlags")
+    # Alarm Manager state (status, armProfileId, ...). Absent on firmware that
+    # predates the Alarm Manager API, which reads as None.
+    arm_mode: dict[str, Any] | None = Field(default=None, alias="armMode")
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 

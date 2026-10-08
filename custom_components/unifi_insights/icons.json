@@ -325,6 +325,7 @@
     "play_chime_ringtone": "mdi:bell-ring",
     "set_chime_ringtone": "mdi:music",
     "set_chime_repeat_times": "mdi:repeat",
+    "set_chime_paired_doorbells": "mdi:bell-ring",
     "authorize_guest": "mdi:account-check",
     "generate_voucher": "mdi:ticket",
     "delete_voucher": "mdi:ticket-outline",

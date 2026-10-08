@@ -168,6 +168,20 @@
         }
       }
     },
+    "set_chime_paired_doorbells": {
+      "name": "Set Chime Paired Doorbells",
+      "description": "Choose which doorbells ring a UniFi Protect chime. The selection replaces the chime's current pairing. Leave Doorbells empty to unpair every doorbell.",
+      "fields": {
+        "chime_id": {
+          "name": "Chime ID",
+          "description": "ID of the chime. Not needed when the chime is picked as the target."
+        },
+        "doorbells": {
+          "name": "Doorbells",
+          "description": "Doorbell ring sensors of this integration, or the doorbell devices or areas that hold them. Only doorbells on the chime's console are accepted."
+        }
+      }
+    },
     "carrier_suspend_subscriber": {
       "name": "Suspend Subscriber",
       "description": "Stop a subscriber's internet service. Requires the \"Enable service actions\" option to be enabled on the Carrier Fabric integration entry, and an ISP API key with the suspend:service scope.",
@@ -202,6 +216,11 @@
     }
   },
   "entity": {
+    "alarm_control_panel": {
+      "nvr_alarm": {
+        "name": "Alarm"
+      }
+    },
     "sensor": {
       "cpu_usage": {
         "name": "CPU Usage"
@@ -717,11 +736,29 @@
     "device_not_found": {
       "message": "Device {device_id} was not found in site {site_id}."
     },
+    "chime_doorbell_not_found": {
+      "message": "{target} was not found. Pick a doorbell ring sensor of this integration."
+    },
+    "chime_doorbell_not_doorbell": {
+      "message": "{target} is not a doorbell ring sensor of this integration."
+    },
+    "chime_doorbell_other_console": {
+      "message": "{target} belongs to a different UniFi Protect console than the chime."
+    },
+    "chime_doorbells_none_selected": {
+      "message": "Your doorbells selection does not contain a doorbell of this integration. To unpair every doorbell, leave Doorbells empty."
+    },
+    "chime_cameras_unavailable": {
+      "message": "The chime's UniFi Protect console has not loaded its cameras yet. Try again in a moment."
+    },
     "no_coordinator": {
       "message": "No UniFi Insights coordinator found. Please ensure the integration is properly configured."
     },
     "no_protect_coordinator": {
       "message": "No UniFi Protect coordinator found. Please ensure UniFi Protect is available."
+    },
+    "global_alarm_manager": {
+      "message": "UniFi Protect cannot arm or disarm this alarm because the global alarm manager is enabled. Use the global alarm manager in the UniFi app instead."
     },
     "api_error": {
       "message": "API error: {error}"
@@ -755,6 +792,9 @@
     },
     "carrier_action_failed": {
       "message": "Failed to {action} subscriber."
+    },
+    "siren_invalid_duration": {
+      "message": "The siren cannot sound for {duration} seconds. Use one of these durations: {valid} seconds."
     },
     "port_not_found": {
       "message": "Port {port_idx} was not found on device {device_id}."

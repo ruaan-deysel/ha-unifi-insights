@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- An alarm control panel for the UniFi Protect alarm (Alarm Manager), one for each NVR that reports an arm mode. It shows disarmed, arming, armed away or triggered, and can arm (away) and disarm using the selected arm profile. A status it does not recognise shows as unknown, never as disarmed. Protect's own arm state does not follow the UniFi global alarm manager, so the panel is not created, or becomes unavailable, while the global alarm manager is enabled, and Home Assistant says so if Protect refuses a command because it is. [#220](https://github.com/ruaan-deysel/ha-unifi-insights/issues/220)
 - A **Power cycle** button for each switch port with PoE enabled, and a `unifi_insights.power_cycle_port` action, to restart a hung PoE device (an access point or camera, for example) by cutting and restoring its power. The buttons are disabled by default. Uses the documented `POST …/devices/{deviceId}/interfaces/ports/{portIdx}/actions` endpoint. [#245](https://github.com/ruaan-deysel/ha-unifi-insights/issues/245)
 - Vendored Site Manager API client coverage for host lookup by ID, interval-based ISP metric querying, and SD-WAN configuration and status endpoints.
 - UniFi Mobility API client coverage for workspace admins, device clients, and device configuration (name, network, wireless).
 - UniFi Mobility support for remote entries. When the cloud API key has Mobility read access, each active Mobility workspace becomes a device with router counts, and each mobile router (UMR, UMR Industrial, UMR Ultra) becomes a device with connectivity, state, clients, WAN source, LTE signal, cellular data usage, VPN and subscription status, and a GPS location tracker, plus diagnostic memory, uptime, firmware, data limit, plan, WAN IP, and ISP sensors. A key without Mobility access is not an error: no re-authentication is requested and no entities are created. Only one remote entry per API key polls Mobility, and diagnostics include a counts-only Mobility summary. [#169](https://github.com/ruaan-deysel/ha-unifi-insights/issues/169)
+- `set_chime_paired_doorbells` action to choose which doorbells ring a chime, using this integration's doorbell ring sensors, like the action in Home Assistant's UniFi Protect integration. Leaving the doorbells empty unpairs them all. A selection that contains no doorbell, a sensor that is not a doorbell ring sensor, or a doorbell on another console is refused instead of changing the chime. A camera counts as a doorbell by its model, not by a doorbell-like name. [#223](https://github.com/ruaan-deysel/ha-unifi-insights/issues/223)
 - Support for UniFi Carrier Fabric (ISP) accounts ([#172](https://github.com/ruaan-deysel/ha-unifi-insights/issues/172)):
   - Dedicated configuration flow and integration entry type for Carrier Fabric.
   - Aggregated subscriber metric sensors (total, suspended, provisioned, installed, unassigned, pending assignment) and active service plans.
@@ -26,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Keypad Beep**, **Keypad Beep Volume** and **Arm Control** diagnostic entities for fobs with a PIN keypad (Protect 7.3.70 and newer). These are disabled by default.
   - Older Protect versions that lack these endpoints are checked once an hour instead of on every poll, and logged once.
   - Diagnostics redact the tamper user name and the Thread network name and IDs.
+- UniFi Protect sirens appear as siren entities. Turning one on sounds it for 5, 10, 20 or 30 seconds (Protect's default is 5) and can set its volume first. Turning it off stops it right away. Protect versions without sirens are checked once an hour and logged once. [#219](https://github.com/ruaan-deysel/ha-unifi-insights/issues/219)
 
 ### Changed
 

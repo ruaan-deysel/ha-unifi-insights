@@ -176,7 +176,7 @@ def _create_mock_protect_client() -> MagicMock:
     client.update_viewer = AsyncMock(return_value=True)
 
     # Protect 7.3.70 security device families (empty by default)
-    for family in ("fobs", "link_stations", "alarm_hubs"):
+    for family in ("fobs", "link_stations", "alarm_hubs", "sirens"):
         endpoint = MagicMock()
         endpoint.get_all = AsyncMock(return_value=[])
         endpoint.last_result_complete = True

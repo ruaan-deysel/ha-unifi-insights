@@ -9,7 +9,7 @@ import math
 import time
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, NamedTuple
 
 from homeassistant.const import EVENT_HOMEASSISTANT_STOP
 from homeassistant.core import callback
@@ -21,6 +21,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
+    UniFiGlobalAlarmManagerError,
     UniFiNotFoundError,
     UniFiResponseError,
     UniFiTimeoutError,
@@ -33,6 +34,7 @@ from custom_components.unifi_insights.const import (
     DEVICE_TYPE_LIGHT,
     DEVICE_TYPE_NVR,
     DEVICE_TYPE_SENSOR,
+    DEVICE_TYPE_SIREN,
     DEVICE_TYPE_VIEWER,
     DEVICE_TYPE_VIEWPORT,
     DOMAIN,
@@ -148,6 +150,22 @@ MAX_CONSECUTIVE_MISSING_POLLS: Final = 3
 # be picked up without a reload; doing it hourly rather than every poll keeps
 # an old console from spending a request per family every 30s.
 UNSUPPORTED_RESOURCE_RETRY: Final = timedelta(hours=1)
+
+# How often the UniFi global alarm manager is asked about again once Protect
+# has answered. It can be switched on or off in the UniFi app at any time, and
+# while it is on the alarm panel would show a wrong state, so a change should
+# not wait an hour to be noticed. The question is one read-only request, which
+# makes about ten minutes cheap. The first question is asked at setup, so
+# reloading the entry checks immediately.
+GLOBAL_ALARM_MANAGER_REPROBE: Final = timedelta(minutes=10)
+
+# After a probe that gave no answer (an error that is not the global alarm
+# manager's own refusal) Protect is asked again after this, instead of on every
+# poll and every reconcile tick, so a console that keeps failing the request is
+# not hit with it 20 times in 10 minutes. A warning is logged once that many
+# attempts in a row have given no answer.
+GLOBAL_ALARM_MANAGER_PROBE_BACKOFF: Final = timedelta(minutes=5)
+GLOBAL_ALARM_MANAGER_PROBE_WARN_AFTER: Final = 3
 
 # Envelope-only keys that must never leak from the raw top-level WebSocket
 # frame into a merged device/event dict - see `_pick_field` and the
@@ -274,9 +292,10 @@ def _deep_merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     replaces the old one, so a frame can still clear a nested object.
 
     Used for the WebSocket frames of the nested-object families (fobs, link
-    stations, alarm hubs): a partial frame such as
+    stations, alarm hubs, NVRs): a partial frame such as
     ``{"alarmHub": {"deviceTamperStatus": "tampered"}}`` would otherwise
-    wipe the hub's armed/battery state until the next poll.
+    wipe the hub's armed/battery state until the next poll, and an NVR frame
+    of ``{"armMode": {"status": "armed"}}`` its armProfileId.
     """
     merged = dict(old)
     for key, value in new.items():
@@ -286,6 +305,31 @@ def _deep_merge(old: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
         else:
             merged[key] = value
     return merged
+
+
+def _number(value: Any) -> float | None:
+    """Return ``value`` as a float if it is a real number (not a bool), else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return float(value)
+
+
+class _SirenStop(NamedTuple):
+    """What is remembered of a manual siren stop (see `mark_siren_stopped`)."""
+
+    # ``activatedAt`` of the run that was cached when it was stopped, on the
+    # console's clock. None when the cache did not hold one.
+    activated_at: float | None
+    # Millisecond epoch of the stop on Home Assistant's clock.
+    stopped_at_ms: float
+    # Monotonic time of the stop, which bounds how long the guard lives.
+    monotonic: float
+
+
+# A stopped siren is only guarded against a reading that was already in flight
+# when it was stopped. A request does not outlive a poll interval or two, so
+# the guard does not either.
+SIREN_STOP_GUARD_TTL: Final = 2 * SCAN_INTERVAL_PROTECT.total_seconds()
 
 
 def _event_metadata_text(value: Any) -> str | None:
@@ -408,6 +452,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "fobs": set(),
             "link_stations": set(),
             "alarm_hubs": set(),
+            "sirens": set(),
         }
         self._consecutive_empty_fetches: dict[str, int] = {
             "cameras": 0,
@@ -419,6 +464,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "fobs": 0,
             "link_stations": 0,
             "alarm_hubs": 0,
+            "sirens": 0,
         }
         # collection -> consecutive polls whose fetch raised a transient error.
         # Kept separate from `_consecutive_empty_fetches`: an empty response is
@@ -441,6 +487,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "fobs": {},
             "link_stations": {},
             "alarm_hubs": {},
+            "sirens": {},
         }
         # Families whose list endpoint has answered successfully at least
         # once. A 404 from one of these is a transient/removed-device signal
@@ -453,6 +500,11 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         # Families already reported once as unsupported (logged at INFO the
         # first time only, not on every hourly re-probe).
         self._unsupported_logged: set[str] = set()
+        # Monotonic time before which the global alarm manager is not asked
+        # about again (see `_probe_global_alarm_manager`).
+        self._global_alarm_manager_probe_after: float = 0.0
+        # Consecutive probes that gave no answer, for the one warning.
+        self._global_alarm_manager_probe_failures: int = 0
         # alarm hub id -> its latest alarmHubDeviceTamper event: "event_id",
         # "status", "received" (monotonic time the status arrived) and the
         # "_lastTamperUser"/"_lastTamperAt" keys written onto the hub dict.
@@ -460,6 +512,14 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         # dict; `_fetch_alarm_hubs` lays it back on top (see
         # `_with_tamper_record`) so the event outlives the next poll.
         self._alarm_hub_last_tamper: dict[str, dict[str, Any]] = {}
+        # siren id -> its last manual stop, for sirens whose cache still has
+        # to be checked against a reading that was already in flight when they
+        # were stopped. See `mark_siren_stopped`.
+        self._siren_stopped_at: dict[str, _SirenStop] = {}
+        # family -> count of WebSocket frames applied to it. A REST read of the
+        # family that was started before a frame landed is older than that
+        # frame and must not replace it (see `_fetch_device_family`).
+        self._ws_generation: dict[str, int] = {"sirens": 0, "nvrs": 0}
         self.data: dict[str, Any] = {
             "cameras": {},
             "lights": {},
@@ -471,11 +531,16 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "fobs": {},
             "link_stations": {},
             "alarm_hubs": {},
+            "sirens": {},
             "doorlocks": {},
             "viewports": {},
             "liveviews": {},
             "protect_info": {},
             "events": {},
+            # Whether the UniFi global alarm manager owns the alarm: True or
+            # False once Protect has answered, None until then. Kept apart
+            # from the NVR record, which every poll replaces.
+            "global_alarm_manager": None,
             "last_update": None,
         }
 
@@ -808,12 +873,143 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
 
     @callback
     def _handle_sensor_reconcile_interval(self, _now: datetime | None = None) -> None:
-        """Handle sensor reconciliation timer tick."""
+        """
+        Handle sensor reconciliation timer tick.
+
+        A tick is skipped while the previous one is still running. A reconcile
+        is several requests now (the NVR, the sensors and the sirens), and a
+        console that stops answering holds each one for the client's 30 second
+        timeout, so starting a new one every tick would pile up tasks that all
+        wait on the same console. The one tracked task is also the one that is
+        cancelled when the entry unloads.
+        """
+        previous = self._sensor_reconcile_task
+        if previous is not None and not previous.done():
+            _LOGGER.debug(
+                "Protect coordinator: the previous reconcile is still running; "
+                "skipping this tick"
+            )
+            return
         self._sensor_reconcile_task = self.config_entry.async_create_background_task(
             self.hass,
             self._reconcile_sensor_refresh(),
             name=f"{DOMAIN}_protect_sensor_reconciliation",
         )
+
+    def _nvr_has_arm_mode(self) -> bool:
+        """Return whether an NVR reports an arm mode (older firmware does not)."""
+        return any(
+            isinstance(nvr, dict) and isinstance(nvr.get("armMode"), dict)
+            for nvr in self.data["nvrs"].values()
+        )
+
+    async def _reconcile_nvr_arm_mode(self) -> None:
+        """
+        Re-read the NVR's arm mode on the reconcile timer, outside the main poll.
+
+        Protect changes it on its own: arming turns into armed when its
+        countdown ends, and a breach is raised by an alarm. WebSocket frames
+        from the whole console keep pushing the main poll back, so without
+        this the alarm control panel could read stale for as long as the
+        console is busy. The global alarm manager question is asked here too,
+        for the same reason. Nothing is fetched for an NVR that reports no
+        arm mode, and listeners are only notified when something changed.
+        """
+        if not self._nvr_has_arm_mode():
+            return
+        before = (self.data["nvrs"], self.data["global_alarm_manager"])
+        await self._fetch_nvr()
+        await self._probe_global_alarm_manager()
+        if (self.data["nvrs"], self.data["global_alarm_manager"]) != before:
+            self.async_update_listeners()
+
+    async def _probe_global_alarm_manager(self) -> None:
+        """
+        Find out whether the UniFi global alarm manager owns the alarm.
+
+        Protect's own arm state does not follow the global alarm manager, so
+        while it is enabled the alarm control panel would show a false
+        "disarmed". Protect refuses to list arm profiles then (a 400 naming
+        the global alarm manager), and lists them otherwise, which makes that
+        read-only request the way to tell. Only an NVR that reports an arm
+        mode is asked. It is asked again after `GLOBAL_ALARM_MANAGER_REPROBE`.
+        Any other failure answers nothing: the last known answer stands, and
+        Protect is asked again after `GLOBAL_ALARM_MANAGER_PROBE_BACKOFF`. Until
+        it answers there is no panel, which is why a run of failures is
+        reported (see `_global_alarm_manager_probe_failed`).
+        """
+        if not self.protect_client or not self._nvr_has_arm_mode():
+            return
+        if time.monotonic() < self._global_alarm_manager_probe_after:
+            return
+        try:
+            await self.protect_client.arm_profiles.get_all()
+        except UniFiGlobalAlarmManagerError:
+            enabled = True
+        except Exception as err:
+            self._global_alarm_manager_probe_failed(err)
+            return
+        else:
+            enabled = False
+        self._global_alarm_manager_probe_failures = 0
+        self._global_alarm_manager_probe_after = (
+            time.monotonic() + GLOBAL_ALARM_MANAGER_REPROBE.total_seconds()
+        )
+        self._set_global_alarm_manager(enabled=enabled)
+
+    @callback
+    def _global_alarm_manager_probe_failed(self, err: Exception) -> None:
+        """Back off after a probe that gave no answer, and warn once in a run."""
+        self._global_alarm_manager_probe_after = (
+            time.monotonic() + GLOBAL_ALARM_MANAGER_PROBE_BACKOFF.total_seconds()
+        )
+        self._global_alarm_manager_probe_failures += 1
+        if (
+            self._global_alarm_manager_probe_failures
+            != GLOBAL_ALARM_MANAGER_PROBE_WARN_AFTER
+        ):
+            _LOGGER.debug(
+                "Protect coordinator: Could not tell whether the global alarm "
+                "manager is enabled: %s",
+                err,
+            )
+            return
+        _LOGGER.warning(
+            "Could not tell whether the UniFi global alarm manager is enabled "
+            "after %d attempts (%s); %s",
+            self._global_alarm_manager_probe_failures,
+            err,
+            "the Protect alarm panel keeps its last known state until Protect answers"
+            if self.data["global_alarm_manager"] is False
+            else "the Protect alarm panel stays hidden until Protect answers",
+        )
+
+    @callback
+    def _set_global_alarm_manager(self, *, enabled: bool) -> None:
+        """Store the answer, logging each change of it once."""
+        previous = self.data["global_alarm_manager"]
+        self.data["global_alarm_manager"] = enabled
+        if enabled and previous is not True:
+            _LOGGER.info(
+                "UniFi global alarm manager is enabled; the Protect alarm panel "
+                "is hidden because Protect's local arm state does not follow it"
+            )
+        elif not enabled and previous is True:
+            _LOGGER.info(
+                "UniFi global alarm manager is no longer enabled; the Protect "
+                "alarm panel is available again"
+            )
+
+    @callback
+    def mark_global_alarm_manager_enabled(self) -> None:
+        """Record that Protect refused an arm or disarm because the manager is on."""
+        if self.data["global_alarm_manager"] is True:
+            return
+        self._global_alarm_manager_probe_after = (
+            time.monotonic() + GLOBAL_ALARM_MANAGER_REPROBE.total_seconds()
+        )
+        self._set_global_alarm_manager(enabled=True)
+        self.async_update_listeners()
 
     async def _reconcile_sensor_refresh(self) -> None:
         """
@@ -828,10 +1024,28 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         catch that exception, so without this wrapper it becomes an
         unhandled background-task traceback and reauth never fires.
         """
+        await self._reconcile_nvr_arm_mode()
         try:
             await self.async_refresh_sensors()
         except ConfigEntryAuthFailed:
             self.config_entry.async_start_reauth(self.hass)
+        await self._reconcile_sirens()
+
+    async def _reconcile_sirens(self) -> None:
+        """
+        Re-read the sirens on the reconcile timer, outside the main poll.
+
+        WebSocket frames from the whole console keep pushing the main poll
+        back, so a siren whose state changed without a frame of its own (a
+        run that ended, or one started from the UniFi app) would otherwise
+        stay stale for as long as the console is busy. Listeners are only
+        notified when something changed, so this adds no entity updates on a
+        quiet console.
+        """
+        before = self.data["sirens"]
+        await self._fetch_sirens()
+        if self.data["sirens"] != before:
+            self.async_update_listeners()
 
     async def _debounced_sensor_reconnect_refresh(self) -> None:
         """
@@ -1221,10 +1435,12 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 **device_data,
             }
         elif model_key == DEVICE_TYPE_NVR:
-            self.data["nvrs"][device_id] = {
-                **self.data["nvrs"].get(device_id, {}),
-                **device_data,
-            }
+            # Deep merge: armMode is nested and a frame may carry only its
+            # status, which must not drop the armProfileId beside it.
+            self._ws_generation["nvrs"] += 1
+            self.data["nvrs"][device_id] = _deep_merge(
+                self.data["nvrs"].get(device_id, {}), device_data
+            )
         elif model_key == DEVICE_TYPE_VIEWER:
             self.data["viewers"][device_id] = {
                 **self.data["viewers"].get(device_id, {}),
@@ -1261,6 +1477,14 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             self.data[collection][device_id] = _deep_merge(
                 self.data[collection].get(device_id, {}), device_data
             )
+        elif model_key == DEVICE_TYPE_SIREN:
+            # Deep merge: a partial frame carries only the changed part of the
+            # nested sirenStatus / wirelessConnectionState objects.
+            self._ws_generation["sirens"] += 1
+            self.data["sirens"][device_id] = _deep_merge(
+                self.data["sirens"].get(device_id, {}), device_data
+            )
+            self._apply_siren_stop_guards()
 
         # async_set_updated_data (rather than async_update_listeners) also
         # marks the last update as successful and resets the poll timer, so
@@ -1801,6 +2025,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
 
             # Fetch NVR
             await self._fetch_nvr()
+            await self._probe_global_alarm_manager()
 
             # Fetch chimes
             await self._fetch_chimes()
@@ -1815,6 +2040,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             await self._fetch_fobs()
             await self._fetch_link_stations()
             await self._fetch_alarm_hubs()
+            await self._fetch_sirens()
 
             self._available = True
             self.data["last_update"] = datetime.now(tz=UTC)
@@ -1826,7 +2052,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 "Protect coordinator: Update complete - "
                 "%d cameras, %d lights, %d sensors, %d NVRs, "
                 "%d chimes, %d viewers, %d liveviews, "
-                "%d fobs, %d link stations, %d alarm hubs",
+                "%d fobs, %d link stations, %d alarm hubs, %d sirens",
                 len(self.data["cameras"]),
                 len(self.data["lights"]),
                 len(self.data["sensors"]),
@@ -1837,6 +2063,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                 len(self.data["fobs"]),
                 len(self.data["link_stations"]),
                 len(self.data["alarm_hubs"]),
+                len(self.data["sirens"]),
             )
 
             return self.data
@@ -2418,8 +2645,19 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             return
 
         _LOGGER.debug("Protect coordinator: Fetching NVR")
+        generation = self._ws_generation["nvrs"]
         try:
             nvr_model = await self.protect_client.nvr.get()
+            if self._ws_generation["nvrs"] != generation:
+                # A frame for the NVR landed while the request was out, so it
+                # is newer than the answer, and applying the answer would undo
+                # it (an arm mode that has just changed, for one).
+                _LOGGER.debug(
+                    "Protect coordinator: a WebSocket frame for the NVR arrived "
+                    "while it was being fetched; keeping it instead of the "
+                    "older reading"
+                )
+                return
             nvr = self._model_to_dict(nvr_model)
             nvr_id = nvr.get("id") if isinstance(nvr, dict) else None
             if nvr_id:
@@ -2533,12 +2771,17 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
                     hub, record, requested_at=requested_at
                 )
 
+    async def _fetch_sirens(self) -> None:
+        """Fetch siren data (the endpoint is absent on older Protect versions)."""
+        await self._fetch_device_family("sirens")
+        self._apply_siren_stop_guards()
+
     async def _fetch_device_family(self, collection: str) -> None:
         """
         Fetch one simple device family into ``self.data[collection]``.
 
         ``collection`` is both the data key and the protect_client endpoint
-        attribute ("fobs", "link_stations", "alarm_hubs").
+        attribute ("fobs", "link_stations", "alarm_hubs", "sirens").
 
         A 404, or a 2xx web page instead of JSON, before the family has ever
         answered means this Protect version does not have the endpoint (it is
@@ -2558,6 +2801,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
 
         endpoint = getattr(self.protect_client, collection)
         answered = collection in self._answered_families
+        generation = self._ws_generation.get(collection)
         _LOGGER.debug("Protect coordinator: Fetching %s", collection)
         try:
             models = await endpoint.get_all(expected_unsupported=not answered)
@@ -2583,6 +2827,16 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
 
         self._unsupported_until.pop(collection, None)
         self._answered_families.add(collection)
+        if self._ws_generation.get(collection) != generation:
+            # The console sent a frame for this family while the request was
+            # out, so the frame is newer than the answer. Applying the answer
+            # would replace the family and undo it.
+            _LOGGER.debug(
+                "Protect coordinator: a WebSocket frame for %s arrived while "
+                "it was being fetched; keeping it instead of the older reading",
+                collection,
+            )
+            return
         devices: dict[str, Any] = {}
         for model in models:
             device = self._model_to_dict(model)
@@ -2635,6 +2889,7 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
             "fobs",
             "link_stations",
             "alarm_hubs",
+            "sirens",
         ]:
             current_ids: set[str] = set(self.data.get(device_type, {}).keys())
             previous_ids = self._previous_protect_device_ids.get(device_type, set())
@@ -2732,3 +2987,84 @@ class UnifiProtectCoordinator(UnifiBaseCoordinator):
         """Get NVR data by ID."""
         result = self.data.get("nvrs", {}).get(nvr_id)
         return result if isinstance(result, dict) else None
+
+    @callback
+    def mark_siren_stopped(self, siren_id: str) -> None:
+        """
+        Record a manual stop in the cache and notify listeners.
+
+        Protect sends no WebSocket frame after a manual stop, so without this
+        the siren would keep reading "on" until the next poll. The cache is
+        shared by every entity and rewritten on any device's frame, so the
+        optimistic "off" has to live here and not on the entity.
+
+        Listeners are notified without ``async_set_updated_data``: that would
+        also mark the last poll as successful and push the next one back,
+        when nothing has been polled.
+
+        The run that was stopped is remembered by its own ``activatedAt``, so
+        that a reading of the siren that was already on its way when it was
+        stopped, and still says it is active, cannot switch it back on (see
+        `_apply_siren_stop_guards`).
+        """
+        siren = self.data["sirens"].get(siren_id)
+        if not isinstance(siren, dict):
+            return
+        status = siren.get("sirenStatus")
+        self._siren_stopped_at[siren_id] = _SirenStop(
+            activated_at=_number(
+                status.get("activatedAt") if isinstance(status, dict) else None
+            ),
+            stopped_at_ms=datetime.now(tz=UTC).timestamp() * 1000,
+            monotonic=time.monotonic(),
+        )
+        self.data["sirens"][siren_id] = _deep_merge(
+            siren, {"sirenStatus": {"isActive": False}}
+        )
+        self.async_update_listeners()
+
+    @callback
+    def _apply_siren_stop_guards(self) -> None:
+        """
+        Keep a stopped siren off when a stale reading says it is still active.
+
+        A poll that was already in flight when the siren was stopped answers
+        with ``isActive: true`` and the ``activatedAt`` of the run that was
+        just stopped. That run is recognised by comparing ``activatedAt`` with
+        the one cached at the stop, both stamped by the console: a reading
+        whose ``activatedAt`` is the same, or older, is the stopped run, and a
+        later one is a new run. Home Assistant's clock is not compared with
+        the console's, which would be wrong by however far apart they are. Only
+        a siren whose cache held no ``activatedAt`` at the stop falls back to
+        the wall clock.
+
+        The guard ends with the first reading that is not the stopped run: an
+        idle siren, a siren that has gone, a new run, or an active siren with
+        no start time to compare. It also ends after `SIREN_STOP_GUARD_TTL`,
+        so it cannot linger.
+        """
+        now = time.monotonic()
+        for siren_id, stop in list(self._siren_stopped_at.items()):
+            siren = self.data["sirens"].get(siren_id)
+            status = siren.get("sirenStatus") if isinstance(siren, dict) else None
+            activated_at = _number(
+                status.get("activatedAt") if isinstance(status, dict) else None
+            )
+            limit = (
+                stop.activated_at
+                if stop.activated_at is not None
+                else stop.stopped_at_ms
+            )
+            if (
+                now - stop.monotonic <= SIREN_STOP_GUARD_TTL
+                and isinstance(siren, dict)
+                and isinstance(status, dict)
+                and status.get("isActive") is True
+                and activated_at is not None
+                and activated_at <= limit
+            ):
+                self.data["sirens"][siren_id] = _deep_merge(
+                    siren, {"sirenStatus": {"isActive": False}}
+                )
+            else:
+                del self._siren_stopped_at[siren_id]

@@ -126,6 +126,7 @@ UnifiInsightsConfigEntry: TypeAlias = ConfigEntry[UnifiInsightsData]  # noqa: UP
 CARRIER_FABRIC_PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 PLATFORMS: list[Platform] = [
+    Platform.ALARM_CONTROL_PANEL,
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.BUTTON,
@@ -138,6 +139,7 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.NUMBER,
     Platform.UPDATE,
+    Platform.SIREN,
 ]
 
 # Add CONFIG_SCHEMA definition

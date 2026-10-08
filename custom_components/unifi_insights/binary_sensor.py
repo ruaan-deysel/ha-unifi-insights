@@ -33,10 +33,6 @@ from .const import (
     ATTR_SENSOR_OPEN_STATUS_CHANGED_AT,
     ATTR_SENSOR_TAMPER_DETECTED,
     ATTR_SENSOR_TAMPER_DETECTED_AT,
-    CAMERA_TYPE_DOORBELL,
-    CAMERA_TYPE_DOORBELL_MAIN,
-    CAMERA_TYPE_DOORBELL_PACKAGE,
-    CAMERA_TYPE_DOORBELL_WITH_PACKAGE_DETECTION,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_SENSOR,
     SMART_DETECT_ANIMAL,
@@ -51,6 +47,7 @@ from .entity import (
     is_device_online,
     is_gateway_device,
 )
+from .helpers import is_doorbell_camera_model
 from .mobility_entity import async_setup_mobility_binary_sensors
 from .protect_security_entity import discover_protect_security_binary_sensors
 
@@ -120,28 +117,8 @@ def _is_smart_detect_active(camera_data: dict[str, Any], detect_type: str) -> bo
 
 def _is_doorbell_camera(camera_data: dict[str, Any]) -> bool:
     """Check if a camera is a doorbell camera."""
-    # Check camera type metadata set by the API client
-    camera_type = camera_data.get("_camera_type") or ""
-    if camera_type in [
-        CAMERA_TYPE_DOORBELL,
-        CAMERA_TYPE_DOORBELL_WITH_PACKAGE_DETECTION,
-        CAMERA_TYPE_DOORBELL_MAIN,
-        CAMERA_TYPE_DOORBELL_PACKAGE,
-    ]:
-        return True
-
-    # Fallback: Check camera type field from API (handle None safely)
-    api_camera_type = (camera_data.get("type") or "").lower()
-    if any(
-        doorbell_type in api_camera_type
-        for doorbell_type in [
-            "doorbell",
-            "g4-doorbell",
-            "ai-doorbell",
-            "g4doorbell",
-            "aidoorbell",
-        ]
-    ):
+    # The camera's type metadata and the API type field
+    if is_doorbell_camera_model(camera_data):
         return True
 
     # Fallback: Check camera name for doorbell indicators

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
@@ -21,6 +21,7 @@ from custom_components.unifi_insights.api import (
     ConnectionType,
     UniFiAuthenticationError,
     UniFiConnectionError,
+    UniFiGlobalAlarmManagerError,
     UniFiNotFoundError,
     UniFiRateLimitError,
     UniFiResponseError,
@@ -41,7 +42,11 @@ from custom_components.unifi_insights.api.network.models import (
     SiteReportBucket,
 )
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
-from custom_components.unifi_insights.api.protect.models import Fob, LinkStation
+from custom_components.unifi_insights.api.protect.models import (
+    Fob,
+    LinkStation,
+    Siren,
+)
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
     CONF_SITE_IDS,
@@ -82,6 +87,7 @@ from custom_components.unifi_insights.coordinators.internet_activity import (
 from custom_components.unifi_insights.coordinators.protect import (
     MAX_CONSECUTIVE_EMPTY_FETCHES,
     MAX_CONSECUTIVE_MISSING_POLLS,
+    SIREN_STOP_GUARD_TTL,
     STALE_EVENT_TIMEOUT,
     UNSUPPORTED_RESOURCE_RETRY,
     UnifiProtectCoordinator,
@@ -92,6 +98,7 @@ from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB,
     SAMPLE_ALARM_HUB_TAMPER_EVENT,
     SAMPLE_KEYPAD_FOB,
+    SAMPLE_SIREN,
     SAMPLE_THREAD_LINK_STATION,
 )
 
@@ -332,7 +339,7 @@ def _create_mock_protect_client() -> MagicMock:
     )
 
     # Protect 7.3.70 security device families
-    for family in ("fobs", "link_stations", "alarm_hubs"):
+    for family in ("fobs", "link_stations", "alarm_hubs", "sirens"):
         endpoint = MagicMock()
         endpoint.get_all = AsyncMock(return_value=[])
         endpoint.last_result_complete = True
@@ -5437,7 +5444,7 @@ class TestUnifiFacadeCoordinator:
         facade_coordinator_no_protect._aggregate_data()
 
         protect = facade_coordinator_no_protect.data["protect"]
-        for collection in ("fobs", "link_stations", "alarm_hubs"):
+        for collection in ("fobs", "link_stations", "alarm_hubs", "sirens"):
             assert protect[collection] == {}
 
     def test_aggregate_data(self, facade_coordinator: UnifiFacadeCoordinator):
@@ -6359,6 +6366,94 @@ class TestUnifiFacadeCoordinator:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("camera_ids", [["cam_a", "cam_b"], []])
+    async def test_async_set_chime_paired_cameras_patches_and_requests_refresh(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+        camera_ids: list[str],
+    ):
+        """The PATCH carries only cameraIds, then Protect is asked to refresh."""
+        facade_coordinator.protect_client.chimes.update = AsyncMock()
+
+        with patch.object(
+            protect_coordinator, "async_request_refresh", AsyncMock()
+        ) as refresh:
+            await facade_coordinator.async_set_chime_paired_cameras(
+                "chime1", camera_ids
+            )
+
+        facade_coordinator.protect_client.chimes.update.assert_awaited_once_with(
+            "chime1", cameraIds=camera_ids
+        )
+        refresh.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_async_set_chime_paired_cameras_api_error_skips_the_refresh(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+    ):
+        """A rejected PATCH is a HomeAssistantError and refreshes nothing."""
+        facade_coordinator.protect_client.chimes.update = AsyncMock(
+            side_effect=UniFiResponseError("x", 400)
+        )
+
+        with (
+            patch.object(
+                protect_coordinator, "async_request_refresh", AsyncMock()
+            ) as refresh,
+            pytest.raises(
+                HomeAssistantError,
+                match="Unable to set the paired doorbells of chime chime1",
+            ),
+        ):
+            await facade_coordinator.async_set_chime_paired_cameras("chime1", [])
+
+        refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_async_set_chime_paired_cameras_without_protect_coordinator(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        config_coordinator: UnifiConfigCoordinator,
+        device_coordinator: UnifiDeviceCoordinator,
+    ):
+        """A facade with a client but no Protect coordinator still sends the PATCH."""
+        protect_client = _create_mock_protect_client()
+        protect_client.chimes.update = AsyncMock()
+        facade = UnifiFacadeCoordinator(
+            hass=hass,
+            network_client=_create_mock_network_client(),
+            protect_client=protect_client,
+            entry=mock_config_entry,
+            config_coordinator=config_coordinator,
+            device_coordinator=device_coordinator,
+            protect_coordinator=None,
+        )
+        try:
+            await facade.async_set_chime_paired_cameras("chime1", ["cam_a"])
+        finally:
+            await facade.async_shutdown()
+            await config_coordinator.async_shutdown()
+            await device_coordinator.async_shutdown()
+
+        protect_client.chimes.update.assert_awaited_once_with(
+            "chime1", cameraIds=["cam_a"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_chime_paired_cameras_without_protect_client_raises(
+        self, facade_coordinator_no_protect: UnifiFacadeCoordinator
+    ):
+        """Pairing without Protect fails with the shared "not available" error."""
+        with pytest.raises(HomeAssistantError, match="Protect is not available"):
+            await facade_coordinator_no_protect.async_set_chime_paired_cameras(
+                "chime1", []
+            )
+
+    @pytest.mark.asyncio
     async def test_async_set_chime_repeat(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):
@@ -6417,6 +6512,168 @@ class TestUnifiFacadeCoordinator:
         facade_coordinator.protect_client.application.trigger_alarm_webhook.assert_called_once_with(
             "alarm1"
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "endpoint"),
+        [("async_arm_alarm", "enable"), ("async_disarm_alarm", "disable")],
+    )
+    async def test_async_arm_and_disarm_call_endpoint_and_request_refresh(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+        method: str,
+        endpoint: str,
+    ):
+        """Arm and disarm hit the matching endpoint with no arguments, then refresh.
+
+        The Protect coordinator's own debounced refresh is the fallback for the
+        NVR's WebSocket frame; there is no optimistic state.
+        """
+        arm_profiles = facade_coordinator.protect_client.arm_profiles
+        arm_profiles.enable = AsyncMock(return_value=True)
+        arm_profiles.disable = AsyncMock(return_value=True)
+
+        with patch.object(
+            protect_coordinator, "async_request_refresh", AsyncMock()
+        ) as refresh:
+            await getattr(facade_coordinator, method)()
+
+        called = getattr(arm_profiles, endpoint)
+        called.assert_awaited_once_with()
+        other = arm_profiles.disable if endpoint == "enable" else arm_profiles.enable
+        other.assert_not_awaited()
+        refresh.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "endpoint"),
+        [("async_arm_alarm", "enable"), ("async_disarm_alarm", "disable")],
+    )
+    async def test_async_arm_global_alarm_manager_raises_translated_error(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+        method: str,
+        endpoint: str,
+    ):
+        """Protect's global alarm manager refusal becomes a translated error.
+
+        Nothing is refreshed, because nothing changed.
+        """
+        arm_profiles = facade_coordinator.protect_client.arm_profiles
+        setattr(
+            arm_profiles,
+            endpoint,
+            AsyncMock(side_effect=UniFiGlobalAlarmManagerError("x", 400, "body")),
+        )
+        protect_coordinator.data["global_alarm_manager"] = False
+
+        with (
+            patch.object(
+                protect_coordinator, "async_request_refresh", AsyncMock()
+            ) as refresh,
+            pytest.raises(HomeAssistantError) as err,
+        ):
+            await getattr(facade_coordinator, method)()
+
+        assert err.value.translation_domain == DOMAIN
+        assert err.value.translation_key == "global_alarm_manager"
+        refresh.assert_not_awaited()
+        # The refusal is also the answer to whether the manager is on.
+        assert protect_coordinator.data["global_alarm_manager"] is True
+
+    @pytest.mark.asyncio
+    async def test_async_arm_alarm_other_error_wraps_message(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+    ):
+        """Any other API failure keeps the house "Unable to ..." wording."""
+        facade_coordinator.protect_client.arm_profiles.enable = AsyncMock(
+            side_effect=UniFiResponseError("x", 500)
+        )
+
+        with (
+            patch.object(
+                protect_coordinator, "async_request_refresh", AsyncMock()
+            ) as refresh,
+            pytest.raises(
+                HomeAssistantError, match="Unable to arm the UniFi Protect alarm"
+            ),
+        ):
+            await facade_coordinator.async_arm_alarm()
+
+        refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_async_disarm_alarm_without_protect_coordinator(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        config_coordinator: UnifiConfigCoordinator,
+        device_coordinator: UnifiDeviceCoordinator,
+    ):
+        """A facade with a client but no Protect coordinator still sends the request."""
+        protect_client = _create_mock_protect_client()
+        protect_client.arm_profiles.disable = AsyncMock(return_value=True)
+        facade = UnifiFacadeCoordinator(
+            hass=hass,
+            network_client=_create_mock_network_client(),
+            protect_client=protect_client,
+            entry=mock_config_entry,
+            config_coordinator=config_coordinator,
+            device_coordinator=device_coordinator,
+            protect_coordinator=None,
+        )
+        try:
+            await facade.async_disarm_alarm()
+        finally:
+            await facade.async_shutdown()
+            await config_coordinator.async_shutdown()
+            await device_coordinator.async_shutdown()
+
+        protect_client.arm_profiles.disable.assert_awaited_once_with()
+
+    @pytest.mark.asyncio
+    async def test_async_arm_global_alarm_manager_without_protect_coordinator(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        config_coordinator: UnifiConfigCoordinator,
+        device_coordinator: UnifiDeviceCoordinator,
+    ):
+        """The refusal is still translated when there is no coordinator to tell."""
+        protect_client = _create_mock_protect_client()
+        protect_client.arm_profiles.enable = AsyncMock(
+            side_effect=UniFiGlobalAlarmManagerError("x", 400, "body")
+        )
+        facade = UnifiFacadeCoordinator(
+            hass=hass,
+            network_client=_create_mock_network_client(),
+            protect_client=protect_client,
+            entry=mock_config_entry,
+            config_coordinator=config_coordinator,
+            device_coordinator=device_coordinator,
+            protect_coordinator=None,
+        )
+        try:
+            with pytest.raises(HomeAssistantError) as err:
+                await facade.async_arm_alarm()
+        finally:
+            await facade.async_shutdown()
+            await config_coordinator.async_shutdown()
+            await device_coordinator.async_shutdown()
+
+        assert err.value.translation_key == "global_alarm_manager"
+
+    @pytest.mark.asyncio
+    async def test_async_arm_alarm_without_protect_client_raises(
+        self, facade_coordinator_no_protect: UnifiFacadeCoordinator
+    ):
+        """Arming without Protect fails with the shared "not available" error."""
+        with pytest.raises(HomeAssistantError, match="Protect is not available"):
+            await facade_coordinator_no_protect.async_arm_alarm()
 
     @pytest.mark.asyncio
     async def test_async_create_liveview(
@@ -6509,6 +6766,112 @@ class TestUnifiFacadeCoordinator:
             assert unsub.call_count == 1
 
         assert facade_coordinator._sub_coordinator_unsubs == []
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("duration", [10, None])
+    async def test_async_play_siren_passes_duration(
+        self, facade_coordinator: UnifiFacadeCoordinator, duration: int | None
+    ):
+        """async_play_siren awaits the endpoint with the duration as a keyword."""
+        sirens = facade_coordinator.protect_client.sirens
+        sirens.play = AsyncMock(return_value=True)
+
+        await facade_coordinator.async_play_siren("siren_1", duration=duration)
+
+        sirens.play.assert_awaited_once_with("siren_1", duration=duration)
+
+    @pytest.mark.asyncio
+    async def test_async_set_siren_volume(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """async_set_siren_volume awaits the endpoint's set_volume."""
+        sirens = facade_coordinator.protect_client.sirens
+        sirens.set_volume = AsyncMock()
+
+        await facade_coordinator.async_set_siren_volume("siren_1", 50)
+
+        sirens.set_volume.assert_awaited_once_with("siren_1", 50)
+
+    @pytest.mark.asyncio
+    async def test_async_stop_siren_marks_stopped(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+    ):
+        """A stop is sent, then the cache shows the siren off in the facade data."""
+        sirens = facade_coordinator.protect_client.sirens
+        sirens.stop = AsyncMock(return_value=True)
+        active = copy.deepcopy(SAMPLE_SIREN)
+        active["sirenStatus"] = {"isActive": True}
+        protect_coordinator.data["sirens"] = {"siren_1": active}
+
+        await facade_coordinator.async_stop_siren("siren_1")
+
+        sirens.stop.assert_awaited_once_with("siren_1")
+        siren = facade_coordinator.data["protect"]["sirens"]["siren_1"]
+        assert siren["sirenStatus"]["isActive"] is False
+
+    @pytest.mark.asyncio
+    async def test_async_stop_siren_without_protect_coordinator(
+        self,
+        hass: HomeAssistant,
+        mock_config_entry: MockConfigEntry,
+        config_coordinator: UnifiConfigCoordinator,
+        device_coordinator: UnifiDeviceCoordinator,
+    ):
+        """A facade with a client but no Protect coordinator still sends the stop."""
+        protect_client = _create_mock_protect_client()
+        protect_client.sirens.stop = AsyncMock(return_value=True)
+        facade = UnifiFacadeCoordinator(
+            hass=hass,
+            network_client=_create_mock_network_client(),
+            protect_client=protect_client,
+            entry=mock_config_entry,
+            config_coordinator=config_coordinator,
+            device_coordinator=device_coordinator,
+            protect_coordinator=None,
+        )
+        try:
+            await facade.async_stop_siren("siren_1")
+        finally:
+            await facade.async_shutdown()
+            await config_coordinator.async_shutdown()
+            await device_coordinator.async_shutdown()
+
+        protect_client.sirens.stop.assert_awaited_once_with("siren_1")
+
+    @pytest.mark.asyncio
+    async def test_async_play_siren_api_error_raises_home_assistant_error(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """An API failure surfaces as a HomeAssistantError naming the siren."""
+        facade_coordinator.protect_client.sirens.play = AsyncMock(
+            side_effect=UniFiResponseError("x", 500)
+        )
+
+        with pytest.raises(HomeAssistantError, match="Unable to sound siren siren_1"):
+            await facade_coordinator.async_play_siren("siren_1")
+
+    @pytest.mark.asyncio
+    async def test_async_stop_siren_api_error_leaves_cache_untouched(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        protect_coordinator: UnifiProtectCoordinator,
+    ):
+        """A failed stop must not pretend the siren is off."""
+        facade_coordinator.protect_client.sirens.stop = AsyncMock(
+            side_effect=UniFiResponseError("x", 500)
+        )
+        active = copy.deepcopy(SAMPLE_SIREN)
+        active["sirenStatus"] = {"isActive": True}
+        protect_coordinator.data["sirens"] = {"siren_1": active}
+
+        with pytest.raises(HomeAssistantError, match="Unable to stop siren siren_1"):
+            await facade_coordinator.async_stop_siren("siren_1")
+
+        assert protect_coordinator.data["sirens"]["siren_1"]["sirenStatus"] == {
+            "isActive": True
+        }
 
 
 # ============================================================================
@@ -7263,6 +7626,7 @@ _SECURITY_FAMILIES = [
     ("fobs", "_fetch_fobs", Fob, SAMPLE_KEYPAD_FOB),
     ("link_stations", "_fetch_link_stations", LinkStation, SAMPLE_THREAD_LINK_STATION),
     ("alarm_hubs", "_fetch_alarm_hubs", LinkStation, SAMPLE_ALARM_HUB),
+    ("sirens", "_fetch_sirens", Siren, SAMPLE_SIREN),
 ]
 
 
@@ -7291,7 +7655,7 @@ class TestProtectSecurityDeviceFamilies:
         `UnifiProtectEntity` indexes `data["protect"][f"{device_type}s"]`
         directly, so a missing key is a KeyError in every entity.
         """
-        for collection in ("fobs", "link_stations", "alarm_hubs"):
+        for collection in ("fobs", "link_stations", "alarm_hubs", "sirens"):
             assert coordinator.data[collection] == {}
             assert coordinator._previous_protect_device_ids[collection] == set()
 
@@ -7319,6 +7683,9 @@ class TestProtectSecurityDeviceFamilies:
         assert stored["state"] == "CONNECTED"
         if collection == "fobs":
             assert stored["keypadSettings"]["beepVolume"] == 60
+        elif collection == "sirens":
+            assert stored["sirenStatus"]["isActive"] is False
+            assert stored["volume"] == 50
         else:
             assert "threadState" in stored
 
@@ -7337,12 +7704,16 @@ class TestProtectSecurityDeviceFamilies:
         client.alarm_hubs.get_all = AsyncMock(
             return_value=[LinkStation.model_validate(SAMPLE_ALARM_HUB)]
         )
+        client.sirens.get_all = AsyncMock(
+            return_value=[Siren.model_validate(SAMPLE_SIREN)]
+        )
 
         data = await coordinator._async_update_data()
 
         assert set(data["fobs"]) == {"fob_1"}
         assert set(data["link_stations"]) == {"link_station_thread"}
         assert set(data["alarm_hubs"]) == {"alarm_hub_1"}
+        assert set(data["sirens"]) == {"siren_1"}
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -7531,6 +7902,7 @@ class TestProtectSecurityDeviceFamilies:
             ("fobs", "protect_fob_dev1"),
             ("link_stations", "protect_link_station_dev1"),
             ("alarm_hubs", "protect_alarm_hub_dev1"),
+            ("sirens", "protect_siren_dev1"),
         ],
     )
     async def test_stale_cleanup_removes_vanished_device(
@@ -7721,6 +8093,485 @@ class TestProtectSecurityDeviceFamilies:
 
         keypad = coordinator.data["fobs"]["fob_1"]["keypadSettings"]
         assert keypad == {"beepEnabled": True, "beepVolume": 20}
+
+    def test_siren_frame_deep_merges_siren_status(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A partial siren frame keeps the nested siblings it does not carry.
+
+        Goes through the confirmed {"type", "item"} envelope. The siren starts
+        out sounding, and the frame carries only the changed leaves.
+        """
+        sounding = copy.deepcopy(SAMPLE_SIREN)
+        sounding["sirenStatus"] = {
+            "isActive": True,
+            "activatedAt": 1759700000000,
+            "duration": 10000,
+        }
+        coordinator.data["sirens"] = {"siren_1": sounding}
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        coordinator._on_websocket_message(
+            {
+                "type": "update",
+                "item": {
+                    "id": "siren_1",
+                    "modelKey": "siren",
+                    "sirenStatus": {"isActive": False},
+                    "wirelessConnectionState": {"batteryStatus": {"percentage": 80}},
+                },
+            }
+        )
+
+        siren = coordinator.data["sirens"]["siren_1"]
+        assert siren["sirenStatus"] == {
+            "isActive": False,
+            "activatedAt": 1759700000000,
+            "duration": 10000,
+        }
+        wireless = siren["wirelessConnectionState"]
+        assert wireless["batteryStatus"] == {"percentage": 80, "isLow": False}
+        assert wireless["signalState"] == {
+            "signalQuality": None,
+            "signalStrength": None,
+        }
+        assert siren["volume"] == 50
+        listener.assert_called()
+
+    def test_siren_frame_for_unpolled_siren_creates_entry(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A frame for a siren the poll has not seen yet creates its entry."""
+        coordinator._handle_device_update(
+            "siren", {"id": "siren_new", "sirenStatus": {"isActive": True}}
+        )
+
+        assert coordinator.data["sirens"]["siren_new"] == {
+            "id": "siren_new",
+            "sirenStatus": {"isActive": True},
+        }
+
+    def test_mark_siren_stopped_clears_is_active_and_notifies(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A manual stop shows off in the cache and notifies listeners once."""
+        active = copy.deepcopy(SAMPLE_SIREN)
+        active["sirenStatus"] = {
+            "isActive": True,
+            "activatedAt": 1759700000000,
+            "duration": 10000,
+        }
+        coordinator.data["sirens"] = {"siren_1": active}
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        coordinator.mark_siren_stopped("siren_1")
+
+        status = coordinator.data["sirens"]["siren_1"]["sirenStatus"]
+        assert status == {
+            "isActive": False,
+            "activatedAt": 1759700000000,
+            "duration": 10000,
+        }
+        listener.assert_called_once()
+
+    def test_mark_siren_stopped_with_null_status_sets_status(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A siren whose status was null still ends up with an explicit off."""
+        siren = copy.deepcopy(SAMPLE_SIREN)
+        siren["sirenStatus"] = None
+        coordinator.data["sirens"] = {"siren_1": siren}
+
+        coordinator.mark_siren_stopped("siren_1")
+
+        status = coordinator.data["sirens"]["siren_1"]["sirenStatus"]
+        assert status == {"isActive": False}
+
+    @pytest.mark.parametrize("record", [None, "not-a-dict"], ids=["absent", "garbage"])
+    def test_mark_siren_stopped_ignores_unknown_siren(
+        self, coordinator: UnifiProtectCoordinator, record: Any
+    ) -> None:
+        """A stop for a siren the cache has no usable record of changes nothing."""
+        if record is not None:
+            coordinator.data["sirens"] = {"siren_1": record}
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        coordinator.mark_siren_stopped("siren_1")
+
+        assert coordinator.data["sirens"] == (
+            {} if record is None else {"siren_1": record}
+        )
+        listener.assert_not_called()
+
+    def test_mark_siren_stopped_leaves_poll_state_alone(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Nothing was polled, so the poll is neither marked good nor pushed back."""
+        active = copy.deepcopy(SAMPLE_SIREN)
+        active["sirenStatus"] = {"isActive": True}
+        coordinator.data["sirens"] = {"siren_1": active}
+        coordinator.last_update_success = False
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+
+        with patch.object(coordinator, "_schedule_refresh") as reschedule:
+            coordinator.mark_siren_stopped("siren_1")
+
+        assert coordinator.last_update_success is False
+        reschedule.assert_not_called()
+        listener.assert_called_once()
+
+    @staticmethod
+    def _siren_with_status(**status: Any) -> dict[str, Any]:
+        siren = copy.deepcopy(SAMPLE_SIREN)
+        siren["sirenStatus"] = {"isActive": True, "duration": 10000, **status}
+        return siren
+
+    async def _poll_sirens(
+        self, coordinator: UnifiProtectCoordinator, siren: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Run one siren poll that answers with ``siren`` and return its record."""
+        coordinator.protect_client.sirens.get_all = AsyncMock(
+            return_value=[Siren.model_validate(siren)]
+        )
+        await coordinator._fetch_sirens()
+        return coordinator.data["sirens"]["siren_1"]["sirenStatus"]
+
+    @pytest.mark.asyncio
+    async def test_poll_in_flight_during_a_stop_cannot_switch_the_siren_back_on(
+        self, coordinator: UnifiProtectCoordinator, freezer: Any
+    ) -> None:
+        """A reading of the run that was just stopped does not resurrect it."""
+        freezer.move_to("2026-10-06 12:00:00+00:00")
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        running = self._siren_with_status(activatedAt=now_ms - 3000)
+        coordinator.data["sirens"] = {"siren_1": copy.deepcopy(running)}
+
+        coordinator.mark_siren_stopped("siren_1")
+        status = await self._poll_sirens(coordinator, running)
+
+        assert status["isActive"] is False
+        # The reading is applied but for the flag, so nothing else is lost.
+        assert status["activatedAt"] == now_ms - 3000
+
+        # The console keeps saying so until it reports the siren idle.
+        status = await self._poll_sirens(coordinator, running)
+        assert status["isActive"] is False
+        assert "siren_1" in coordinator._siren_stopped_at
+
+        idle = self._siren_with_status(isActive=False, activatedAt=now_ms - 3000)
+        status = await self._poll_sirens(coordinator, idle)
+        assert status["isActive"] is False
+        assert coordinator._siren_stopped_at == {}
+
+    @pytest.mark.asyncio
+    async def test_run_started_after_the_stop_is_believed(
+        self, coordinator: UnifiProtectCoordinator, freezer: Any
+    ) -> None:
+        """A poll showing a run that began after the stop is a new run."""
+        freezer.move_to("2026-10-06 12:00:00+00:00")
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        coordinator.data["sirens"] = {
+            "siren_1": self._siren_with_status(activatedAt=now_ms - 3000)
+        }
+        coordinator.mark_siren_stopped("siren_1")
+
+        freezer.tick(2)
+        status = await self._poll_sirens(
+            coordinator, self._siren_with_status(activatedAt=now_ms + 1500)
+        )
+
+        assert status["isActive"] is True
+        assert coordinator._siren_stopped_at == {}
+
+    @pytest.mark.asyncio
+    async def test_active_siren_without_a_start_time_is_believed(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """With no start time to compare, an active reading is taken as it is."""
+        coordinator.data["sirens"] = {"siren_1": self._siren_with_status()}
+        coordinator.mark_siren_stopped("siren_1")
+
+        status = await self._poll_sirens(
+            coordinator, self._siren_with_status(activatedAt=None)
+        )
+
+        assert status["isActive"] is True
+        assert coordinator._siren_stopped_at == {}
+
+    @pytest.mark.asyncio
+    async def test_stop_guard_is_dropped_for_a_siren_that_is_gone(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """A siren the console no longer lists leaves no guard behind."""
+        coordinator.data["sirens"] = {"siren_1": self._siren_with_status()}
+        coordinator.mark_siren_stopped("siren_1")
+
+        coordinator.protect_client.sirens.get_all = AsyncMock(return_value=[])
+        coordinator.data["sirens"] = {}
+        await coordinator._fetch_sirens()
+
+        assert coordinator._siren_stopped_at == {}
+
+    @pytest.mark.asyncio
+    async def test_console_clock_ahead_cannot_resurrect_the_stopped_run(
+        self, coordinator: UnifiProtectCoordinator, freezer: Any
+    ) -> None:
+        """The run is recognised by its own start time, not Home Assistant's clock.
+
+        A console 5 s ahead stamps the run with a time later than the moment
+        Home Assistant stopped it, so comparing the two clocks would believe
+        the stale reading.
+        """
+        freezer.move_to("2026-10-06 12:00:00+00:00")
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        running = self._siren_with_status(activatedAt=now_ms + 5000)
+        coordinator.data["sirens"] = {"siren_1": copy.deepcopy(running)}
+        coordinator.mark_siren_stopped("siren_1")
+
+        status = await self._poll_sirens(coordinator, running)
+
+        assert status["isActive"] is False
+        assert "siren_1" in coordinator._siren_stopped_at
+
+    @pytest.mark.asyncio
+    async def test_home_assistant_clock_ahead_does_not_hide_a_new_run(
+        self, coordinator: UnifiProtectCoordinator, freezer: Any
+    ) -> None:
+        """A new run is later than the stopped one on the console's own clock.
+
+        With Home Assistant 5 s ahead of the console, a run started 2 s after
+        the stop is stamped earlier than the moment of the stop, so comparing
+        the two clocks would hide it for its whole run.
+        """
+        freezer.move_to("2026-10-06 12:00:00+00:00")
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        coordinator.data["sirens"] = {
+            "siren_1": self._siren_with_status(activatedAt=now_ms - 8000)
+        }
+        coordinator.mark_siren_stopped("siren_1")
+
+        freezer.tick(2)
+        status = await self._poll_sirens(
+            coordinator, self._siren_with_status(activatedAt=now_ms - 3000)
+        )
+
+        assert status["isActive"] is True
+        assert coordinator._siren_stopped_at == {}
+
+    @pytest.mark.asyncio
+    async def test_siren_without_a_cached_start_falls_back_to_the_wall_clock(
+        self, coordinator: UnifiProtectCoordinator, freezer: Any
+    ) -> None:
+        """With no start time cached at the stop, the clocks are all there is."""
+        freezer.move_to("2026-10-06 12:00:00+00:00")
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        siren = copy.deepcopy(SAMPLE_SIREN)
+        siren["sirenStatus"] = None
+        coordinator.data["sirens"] = {"siren_1": siren}
+        coordinator.mark_siren_stopped("siren_1")
+
+        stale = await self._poll_sirens(
+            coordinator, self._siren_with_status(activatedAt=now_ms - 3000)
+        )
+        assert stale["isActive"] is False
+
+        fresh = await self._poll_sirens(
+            coordinator, self._siren_with_status(activatedAt=now_ms + 1500)
+        )
+        assert fresh["isActive"] is True
+        assert coordinator._siren_stopped_at == {}
+
+    @pytest.mark.asyncio
+    async def test_stop_guard_expires_after_two_poll_intervals(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """The guard cannot linger: after its TTL a reading is taken as it is."""
+        clock = [5000.0]
+        running = self._siren_with_status(activatedAt=1_000_000)
+        coordinator.data["sirens"] = {"siren_1": copy.deepcopy(running)}
+
+        with patch(
+            "custom_components.unifi_insights.coordinators.protect.time.monotonic",
+            side_effect=lambda: clock[0],
+        ):
+            coordinator.mark_siren_stopped("siren_1")
+
+            clock[0] += SIREN_STOP_GUARD_TTL - 1
+            held = await self._poll_sirens(coordinator, running)
+            assert held["isActive"] is False
+
+            clock[0] += 2
+            expired = await self._poll_sirens(coordinator, running)
+
+        assert expired["isActive"] is True
+        assert coordinator._siren_stopped_at == {}
+
+    def test_late_frame_of_the_stopped_run_does_not_switch_the_siren_back_on(
+        self, coordinator: UnifiProtectCoordinator, freezer: Any
+    ) -> None:
+        """The guard covers WebSocket frames as well as polls."""
+        freezer.move_to("2026-10-06 12:00:00+00:00")
+        now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
+        coordinator.data["sirens"] = {
+            "siren_1": self._siren_with_status(activatedAt=now_ms - 3000)
+        }
+        coordinator.mark_siren_stopped("siren_1")
+
+        coordinator._handle_device_update(
+            "siren",
+            {
+                "id": "siren_1",
+                "sirenStatus": {"isActive": True, "activatedAt": now_ms - 3000},
+            },
+        )
+
+        assert coordinator.data["sirens"]["siren_1"]["sirenStatus"]["isActive"] is False
+
+    async def _read_in_flight_while_a_frame_lands(
+        self,
+        coordinator: UnifiProtectCoordinator,
+        *,
+        collection: str,
+        fetch: Any,
+        frame_model_key: str,
+        frame: dict[str, Any],
+        older_reading: Any,
+        frame_before_request: bool = False,
+    ) -> None:
+        """Start ``fetch``, land ``frame`` while its request is out, then answer.
+
+        The answer is ``older_reading``: what the console reported before the
+        frame, handed back late.
+        """
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_get_all(*_args: Any, **_kwargs: Any) -> list[Any]:
+            started.set()
+            await release.wait()
+            return [older_reading]
+
+        getattr(coordinator.protect_client, collection).get_all = slow_get_all
+        if frame_before_request:
+            coordinator._handle_device_update(frame_model_key, copy.deepcopy(frame))
+        task = asyncio.create_task(fetch())
+        await started.wait()
+        if not frame_before_request:
+            coordinator._handle_device_update(frame_model_key, copy.deepcopy(frame))
+        release.set()
+        await task
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("path", ["poll", "reconcile"])
+    async def test_older_read_does_not_overwrite_a_siren_frame_that_landed_meanwhile(
+        self, coordinator: UnifiProtectCoordinator, path: str
+    ) -> None:
+        """A WebSocket frame that lands while a read is out is newer than the read.
+
+        Applying the read would replace the siren family and switch the run
+        the frame reported back off, until the next frame or poll.
+        """
+        coordinator.data["sirens"] = {
+            "siren_1": self._siren_with_status(isActive=False)
+        }
+        fetch = (
+            coordinator._fetch_sirens
+            if path == "poll"
+            else coordinator._reconcile_sirens
+        )
+
+        await self._read_in_flight_while_a_frame_lands(
+            coordinator,
+            collection="sirens",
+            fetch=fetch,
+            frame_model_key="siren",
+            frame={
+                "id": "siren_1",
+                "sirenStatus": {"isActive": True, "activatedAt": 1_000_000},
+            },
+            older_reading=Siren.model_validate(self._siren_with_status(isActive=False)),
+        )
+
+        status = coordinator.data["sirens"]["siren_1"]["sirenStatus"]
+        assert status["isActive"] is True
+        assert status["activatedAt"] == 1_000_000
+
+    @pytest.mark.asyncio
+    async def test_read_started_after_a_siren_frame_is_applied(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """Only a frame that lands after the request started makes it stale."""
+        coordinator.data["sirens"] = {"siren_1": self._siren_with_status(isActive=True)}
+
+        await self._read_in_flight_while_a_frame_lands(
+            coordinator,
+            collection="sirens",
+            fetch=coordinator._fetch_sirens,
+            frame_model_key="siren",
+            frame={"id": "siren_1", "sirenStatus": {"isActive": True}},
+            older_reading=Siren.model_validate(self._siren_with_status(isActive=False)),
+            frame_before_request=True,
+        )
+
+        assert coordinator.data["sirens"]["siren_1"]["sirenStatus"]["isActive"] is False
+
+    @pytest.mark.asyncio
+    async def test_families_without_a_counter_are_fetched_as_before(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """The check applies to the families that have a generation, no others."""
+        coordinator.data["fobs"] = {"fob_1": {"id": "fob_1"}}
+
+        await self._read_in_flight_while_a_frame_lands(
+            coordinator,
+            collection="fobs",
+            fetch=coordinator._fetch_fobs,
+            frame_model_key="fob",
+            frame={"id": "fob_1", "keypadSettings": {"beepVolume": 20}},
+            older_reading=Fob.model_validate(SAMPLE_KEYPAD_FOB),
+        )
+
+        assert coordinator.data["fobs"]["fob_1"]["keypadSettings"]["beepVolume"] == 60
+
+    @pytest.mark.asyncio
+    async def test_reconcile_refreshes_sirens_and_notifies_only_on_change(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """The independent timer re-reads sirens, and stays quiet when nothing moved."""
+        coordinator.data["sirens"] = {"siren_1": self._siren_with_status()}
+        listener = MagicMock()
+        coordinator.async_add_listener(listener)
+        idle = self._siren_with_status(isActive=False)
+        coordinator.protect_client.sirens.get_all = AsyncMock(
+            return_value=[Siren.model_validate(idle)]
+        )
+
+        await coordinator._reconcile_sirens()
+
+        assert coordinator.data["sirens"]["siren_1"]["sirenStatus"]["isActive"] is False
+        listener.assert_called_once()
+
+        await coordinator._reconcile_sirens()
+
+        listener.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_reconcile_timer_refresh_includes_sirens(
+        self, coordinator: UnifiProtectCoordinator
+    ) -> None:
+        """The sensor reconcile tick also reconciles the sirens."""
+        with (
+            patch.object(coordinator, "async_refresh_sensors", AsyncMock()) as sensors,
+            patch.object(coordinator, "_reconcile_sirens", AsyncMock()) as sirens,
+        ):
+            await coordinator._reconcile_sensor_refresh()
+
+        sensors.assert_awaited_once()
+        sirens.assert_awaited_once()
 
     def test_real_envelope_linkstation_frame_reaches_alarm_hubs(
         self, coordinator: UnifiProtectCoordinator
@@ -8055,9 +8906,11 @@ class TestProtectSecurityDeviceFamilies:
             await coord._fetch_fobs()
             await coord._fetch_link_stations()
             await coord._fetch_alarm_hubs()
+            await coord._fetch_sirens()
             assert coord.data["fobs"] == {}
             assert coord.data["link_stations"] == {}
             assert coord.data["alarm_hubs"] == {}
+            assert coord.data["sirens"] == {}
         finally:
             await coord.async_shutdown()
 

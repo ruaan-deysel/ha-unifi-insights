@@ -146,6 +146,9 @@ class ChimesEndpoint:
         """
         Play the chime sound.
 
+        Not in the Protect v7.3.70 OpenAPI (chimes are GET/PATCH only);
+        route existence not yet live-verified.
+
         Args:
             chime_id: The chime ID.
             site_id: The site ID (required for REMOTE connections, ignored for LOCAL).

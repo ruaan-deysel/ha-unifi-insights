@@ -116,6 +116,55 @@ DEVICE_DETAILS: dict[str, dict[str, Any]] = {
 }
 
 
+WORKSPACE_ADMINS: list[dict[str, Any]] = [
+    {
+        "name": "Alice Owner",
+        "email": "alice@example.com",
+        "status": "ACTIVE",
+        "is_owner": True,
+        "permissions": {
+            "umr": "ALL",
+        },
+    },
+    {
+        "name": "Bob Viewer",
+        "email": "bob@example.com",
+        "status": "ACTIVE",
+        "is_owner": False,
+        "permissions": {
+            "umr": "VIEW_ONLY",
+        },
+    },
+    {
+        "name": "Charlie Pending",
+        "email": "charlie@example.com",
+        "status": "PENDING",
+        "is_owner": False,
+        "permissions": None,
+    },
+]
+
+DEVICE_CLIENTS: list[dict[str, Any]] = [
+    {
+        "mac": "AA:BB:CC:DD:EE:FF",
+        "name": "John's iPhone",
+        "type": "WIRELESS",
+        "connection_status": "ONLINE",
+        "ip_address": "192.168.1.100",
+        "is_blocked": False,
+        "wifi_experience": 85,
+    },
+    {
+        "mac": "11:22:33:44:55:66",
+        "name": "NAS",
+        "type": "WIRED",
+        "connection_status": "ONLINE",
+        "ip_address": "192.168.1.50",
+        "is_blocked": False,
+    },
+]
+
+
 def mobility_client_mock() -> MagicMock:
     """Return a Mobility client mock that serves the spec examples."""
     client = MagicMock()
@@ -134,5 +183,23 @@ def mobility_client_mock() -> MagicMock:
 
     client.list_devices = AsyncMock(side_effect=list_devices)
     client.get_device = AsyncMock(side_effect=get_device)
+
+    async def list_workspace_admins(workspace_id: str) -> list[dict[str, Any]]:
+        if workspace_id != WORKSPACE_ID:
+            return []
+        return copy.deepcopy(WORKSPACE_ADMINS)
+
+    async def list_device_clients(
+        workspace_id: str, device_id: str
+    ) -> list[dict[str, Any]]:
+        if workspace_id != WORKSPACE_ID or device_id not in DEVICE_DETAILS:
+            return []
+        return copy.deepcopy(DEVICE_CLIENTS)
+
+    client.list_workspace_admins = AsyncMock(side_effect=list_workspace_admins)
+    client.list_device_clients = AsyncMock(side_effect=list_device_clients)
+    client.update_device_name = AsyncMock(return_value=None)
+    client.update_device_network = AsyncMock(return_value=None)
+    client.update_device_wireless = AsyncMock(return_value=None)
     client.close = AsyncMock()
     return client

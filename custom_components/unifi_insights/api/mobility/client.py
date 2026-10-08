@@ -1,10 +1,10 @@
 # Copyright 2026 UniFi Insights contributors
-"""Read-only client for the UniFi Mobility API."""
+"""Client for the UniFi Mobility API."""
 
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Any, ClassVar, NoReturn, TypeIs
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NoReturn, TypeIs
 
 from custom_components.unifi_insights.api.base import BaseUniFiClient
 from custom_components.unifi_insights.api.const import (
@@ -42,7 +42,7 @@ def is_valid_mobility_id(identifier: Any) -> TypeIs[str]:
 
 
 class UniFiMobilityClient(BaseUniFiClient):
-    """Async client for the read-only UniFi Mobility endpoints."""
+    """Async client for the UniFi Mobility API endpoints."""
 
     RATE_LIMIT: ClassVar[tuple[int, float] | None] = (
         MOBILITY_RATE_LIMIT_REQUESTS,
@@ -80,9 +80,14 @@ class UniFiMobilityClient(BaseUniFiClient):
         response = await self._get(_WORKSPACES_PATH)
         return self._extract_list(response, _WORKSPACES_PATH)
 
-    async def list_devices(self, workspace_id: str) -> list[dict[str, Any]]:
-        """Return the summary of every device in a workspace."""
-        path = f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}/devices"
+    async def list_workspace_admins(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Return every admin for a workspace with their permission levels."""
+        path = f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}/admins"
+        response = await self._get(path)
+        return self._extract_list(response, path)
+
+    async def _list_paginated(self, path: str) -> list[dict[str, Any]]:
+        """Paginate a Mobility collection up to the item and page limits."""
         items: list[dict[str, Any]] = []
 
         for _ in range(_MAX_PAGES):
@@ -105,6 +110,21 @@ class UniFiMobilityClient(BaseUniFiClient):
 
         return self._raise_response_error(f"{path} exceeded the page limit")
 
+    async def list_devices(self, workspace_id: str) -> list[dict[str, Any]]:
+        """Return the summary of every device in a workspace."""
+        path = f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}/devices"
+        return await self._list_paginated(path)
+
+    async def list_device_clients(
+        self, workspace_id: str, device_id: str
+    ) -> list[dict[str, Any]]:
+        """Return every client associated with a device."""
+        path = (
+            f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}"
+            f"/devices/{self._safe_id(device_id)}/clients"
+        )
+        return await self._list_paginated(path)
+
     async def get_device(self, workspace_id: str, device_id: str) -> dict[str, Any]:
         """Return the detail record of one device."""
         path = (
@@ -117,6 +137,73 @@ class UniFiMobilityClient(BaseUniFiClient):
         ):
             self._raise_response_error(f"{path} returned a malformed device")
         return data
+
+    async def update_device_name(
+        self,
+        workspace_id: str,
+        device_id: str,
+        *,
+        name: str,
+    ) -> None:
+        """Update the user-assigned display name of a device."""
+        if not isinstance(name, str):
+            msg = "Device name is required"
+            raise UniFiValidationError(msg)
+
+        path = (
+            f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}"
+            f"/devices/{self._safe_id(device_id)}"
+        )
+        await self._put(path, json_data={"name": name})
+
+    async def update_device_network(
+        self,
+        workspace_id: str,
+        device_id: str,
+        *,
+        host_address: str | None = None,
+        dhcp_mode: Literal["dhcp", "none"] | None = None,
+        dhcp_range_start: str | None = None,
+        dhcp_range_stop: str | None = None,
+        dhcp_lease_time: int | None = None,
+    ) -> None:
+        """Update LAN / DHCP settings for a device."""
+        body: dict[str, Any] = {}
+        if host_address is not None:
+            body["host_address"] = host_address
+        if dhcp_mode is not None:
+            body["dhcp_mode"] = dhcp_mode
+        if dhcp_range_start is not None:
+            body["dhcp_range_start"] = dhcp_range_start
+        if dhcp_range_stop is not None:
+            body["dhcp_range_stop"] = dhcp_range_stop
+        if dhcp_lease_time is not None:
+            body["dhcp_lease_time"] = dhcp_lease_time
+
+        path = (
+            f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}"
+            f"/devices/{self._safe_id(device_id)}/network"
+        )
+        await self._put(path, json_data=body)
+
+    async def update_device_wireless(
+        self,
+        workspace_id: str,
+        device_id: str,
+        *,
+        ssid: str,
+        password: str,
+    ) -> None:
+        """Update WiFi SSID and password for a device."""
+        if not isinstance(ssid, str) or not isinstance(password, str):
+            msg = "Both ssid and password are required"
+            raise UniFiValidationError(msg)
+
+        path = (
+            f"{_WORKSPACES_PATH}/{self._safe_id(workspace_id)}"
+            f"/devices/{self._safe_id(device_id)}/wireless"
+        )
+        await self._put(path, json_data={"ssid": ssid, "password": password})
 
     @staticmethod
     def _safe_id(identifier: Any) -> str:

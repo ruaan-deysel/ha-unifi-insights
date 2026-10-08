@@ -445,6 +445,20 @@ class TestUnifiProtectLightLevelNumber:
         assert number._attr_native_value is None
         assert number._attr_extra_state_attributes[ATTR_LIGHT_LEVEL] is None
 
+    def test_null_light_device_settings(self, mock_coordinator) -> None:
+        """Test lightDeviceSettings present but None reads as no value."""
+        mock_coordinator.data["protect"]["lights"]["light1"]["lightDeviceSettings"] = (
+            None
+        )
+
+        number = UnifiProtectLightLevelNumber(
+            coordinator=mock_coordinator,
+            light_id="light1",
+        )
+
+        assert number._attr_native_value is None
+        assert number._attr_extra_state_attributes[ATTR_LIGHT_LEVEL] is None
+
     @pytest.mark.parametrize("led_level", [0, 7, "3", True, 3.5])
     def test_invalid_led_level_reads_as_none(self, mock_coordinator, led_level) -> None:
         """Test an invalid ledLevel gives no value instead of a bogus percentage."""

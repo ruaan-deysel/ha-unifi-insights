@@ -247,8 +247,14 @@ class UnifiProtectLightLevelNumber(UnifiProtectEntity, NumberEntity):
         """Update entity from data."""
         light_data = self.coordinator.data["protect"]["lights"].get(self._device_id, {})
 
-        # The slider is a 0-100 percentage; Protect stores a 1-6 ledLevel
-        led_level = light_data.get("lightDeviceSettings", {}).get("ledLevel")
+        # The slider is a 0-100 percentage; Protect stores a 1-6 ledLevel.
+        # lightDeviceSettings can be present but None, as in light.py.
+        device_settings = light_data.get("lightDeviceSettings")
+        led_level = (
+            device_settings.get("ledLevel")
+            if isinstance(device_settings, dict)
+            else None
+        )
         self._attr_native_value = led_level_to_percent(led_level)
 
         # Set attributes

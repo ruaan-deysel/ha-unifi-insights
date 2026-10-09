@@ -508,6 +508,19 @@ class TestFacadeGenerateVoucher:
         facade._aggregate_data()
         assert facade.data["latest_vouchers"]["site1"]["id"] == "v1"
 
+    async def test_latest_voucher_is_kept_when_inventory_is_not_a_mapping(
+        self,
+        facade: UnifiFacadeCoordinator,
+        mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
+    ) -> None:
+        """A malformed voucher inventory leaves the latest voucher untouched."""
+        config_coord = mock_sub_coordinators[0]
+        latest = {"id": "v1", "code": "1111111111"}
+        facade._latest_vouchers["site1"] = dict(latest)
+        config_coord.data["vouchers"] = None
+        facade._aggregate_data()
+        assert facade.data["latest_vouchers"]["site1"] == latest
+
     def test_get_voucher_settings_creates_defaults_once_per_site(
         self, facade: UnifiFacadeCoordinator
     ) -> None:

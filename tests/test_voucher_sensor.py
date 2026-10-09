@@ -163,3 +163,20 @@ def test_helper_edge_cases():
     assert _active_vouchers_value(None, "default") == 0
     assert _active_vouchers_value({"vouchers": "bad"}, "default") == 0
     assert _latest_attributes(None, "default") == {}
+
+
+def test_latest_attributes_skip_missing_and_invalid_values():
+    """Absent fields and unparseable timestamps are omitted from attributes."""
+    data = {
+        "latest_vouchers": {
+            "default": {
+                "id": "v1",
+                "expiresAt": "not-a-timestamp",
+                "timeLimitMinutes": 60,
+            }
+        }
+    }
+    assert _latest_attributes(data, "default") == {
+        "voucher_id": "v1",
+        "duration_minutes": 60,
+    }

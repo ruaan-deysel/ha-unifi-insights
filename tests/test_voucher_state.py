@@ -178,6 +178,11 @@ def test_voucher_to_record_variants() -> None:
     # MagicMock -> None
     assert voucher_to_record(MagicMock()) is None
 
+    # model_dump raising -> None
+    failing = MagicMock()
+    failing.model_dump.side_effect = ValueError("cannot dump")
+    assert voucher_to_record(failing) is None
+
     # Missing id
     assert voucher_to_record({"code": "123"}) is None
     assert voucher_to_record({"id": ""}) is None
@@ -330,6 +335,15 @@ def test_latest_voucher_qr_payload_expires_at(freezer: Any) -> None:
         "expiresAt": "2026-10-09T12:00:00Z",
     }
     assert latest_voucher_qr_payload(at_record) is None
+
+    # Unparseable deadline is ignored and the code is still returned
+    invalid_record = {
+        "id": "v1",
+        "code": "1234567890",
+        "expired": False,
+        "expiresAt": "not-a-timestamp",
+    }
+    assert latest_voucher_qr_payload(invalid_record) == "1234567890"
 
     # Future deadline
     future_record = {

@@ -23,6 +23,7 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.exceptions import UniFiConnectionError
 from custom_components.unifi_insights.api.network import UniFiNetworkClient
 from custom_components.unifi_insights.api.network.models.voucher import Voucher
 from custom_components.unifi_insights.const import DOMAIN
@@ -577,3 +578,84 @@ async def test_root_validation_error_does_not_log_credential_sanitizers(
             assert code not in "".join(traceback.format_exception(caught.value))
     _assert_credential_absent(caplog, code)
     assert "root" in caplog.text
+
+
+async def test_voucher_inventory_skips_records_without_id(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+) -> None:
+    """Voucher records lacking an id are not stored in the inventory."""
+    config, _ = voucher_flow
+    config.network_client.vouchers.get_all_pages.return_value = [
+        _create_mock_model({"id": "v1", "code": "1234567890"}),
+        _create_mock_model({"code": "0987654321"}),
+        _create_mock_model({"id": "", "code": "1111111111"}),
+    ]
+    await config.async_refresh()
+    assert list(config.data["vouchers"]["site1"]) == ["v1"]
+
+
+async def test_stale_targeted_voucher_refresh_is_discarded(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+) -> None:
+    """A slower, older targeted refresh cannot overwrite a newer inventory."""
+    config, _ = voucher_flow
+    await config.async_refresh()
+    older = _create_mock_model({"id": "older", "code": "1234567890"})
+    newer = _create_mock_model({"id": "newer", "code": "0987654321"})
+    older_started = asyncio.Event()
+    release_older = asyncio.Event()
+    calls = 0
+
+    async def get_all_pages(site_id: str) -> list[MagicMock]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            older_started.set()
+            await release_older.wait()
+            return [older]
+        return [newer]
+
+    config.network_client.vouchers.get_all_pages = AsyncMock(side_effect=get_all_pages)
+    older_task = asyncio.create_task(config.async_refresh_vouchers("site1"))
+    await older_started.wait()
+    await config.async_refresh_vouchers("site1")
+    assert list(config.data["vouchers"]["site1"]) == ["newer"]
+
+    release_older.set()
+    await older_task
+    assert list(config.data["vouchers"]["site1"]) == ["newer"]
+    assert config.vouchers_available("site1") is True
+
+
+async def test_stale_full_poll_keeps_newer_voucher_failure(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+) -> None:
+    """A stale full poll does not clear a newer targeted refresh's failure."""
+    config, _ = voucher_flow
+    await config.async_refresh()
+    prior = {"old": {"id": "old", "code": "old-synthetic-code"}}
+    config.data["vouchers"]["site1"] = prior
+    poll_started = asyncio.Event()
+    release_poll = asyncio.Event()
+    calls = 0
+
+    async def get_all_pages(site_id: str) -> list[MagicMock]:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            poll_started.set()
+            await release_poll.wait()
+            return [_create_mock_model({"id": "polled", "code": "1234567890"})]
+        msg = "Refused"
+        raise UniFiConnectionError(msg)
+
+    config.network_client.vouchers.get_all_pages = AsyncMock(side_effect=get_all_pages)
+    poll_task = asyncio.create_task(config.async_refresh())
+    await poll_started.wait()
+    await config.async_refresh_vouchers("site1")
+    assert config.vouchers_available("site1") is False
+
+    release_poll.set()
+    await poll_task
+    assert config.vouchers_available("site1") is False
+    assert config.data["vouchers"]["site1"] == prior

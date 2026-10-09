@@ -1128,6 +1128,43 @@ class TestUnifiVoucherQrCodeImage:
         assert entity._expiration_unsub is None
 
     @pytest.mark.asyncio
+    async def test_voucher_image_reschedule_requires_hass(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """No expiration timer is scheduled for an entity without hass."""
+        mock_coordinator.vouchers_available.return_value = True
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {
+                "id": "v1",
+                "code": "1234567890",
+                "expired": False,
+                "expiresAt": "2099-01-01T00:00:00Z",
+            }
+        }
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        entity.hass = None  # type: ignore[assignment]
+        entity._reschedule_expiration_timer()
+        assert entity._expiration_unsub is None
+
+    @pytest.mark.asyncio
+    async def test_voucher_image_expiration_without_observed_payload(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Expiring before any payload was observed keeps the image timestamp."""
+        mock_coordinator.vouchers_available.return_value = True
+        mock_coordinator.data["latest_vouchers"] = {}
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        assert entity._last_observed_payload is None
+        before = entity._attr_image_last_updated
+        with patch.object(entity, "async_write_ha_state") as write_state:
+            entity._handle_expiration(dt_util.utcnow())
+        write_state.assert_called_once_with()
+        assert entity._attr_image_last_updated == before
+        assert entity._last_observed_payload is None
+        assert entity._rendered_payload is None
+        assert entity._rendered_png is None
+
+    @pytest.mark.asyncio
     async def test_voucher_image_timestamp_stability(
         self, hass: HomeAssistant, mock_coordinator: MagicMock
     ) -> None:

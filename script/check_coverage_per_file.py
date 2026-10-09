@@ -86,7 +86,9 @@ def check_coverage(
 def main(argv: Sequence[str] | None = None) -> int:
     """CLI entry point for per-file coverage verification."""
     parser = argparse.ArgumentParser(
-        description="Verify per-file test coverage against a threshold from Cobertura XML.",
+        description=(
+            "Verify per-file test coverage against a threshold from Cobertura XML."
+        ),
     )
     parser.add_argument(
         "xml",
@@ -125,7 +127,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     for r in failing:
         print(
-            f"{r['file']:60} {r['pct']:7.2f}%  miss={len(r['missed'])} partial={len(r['partial'])} of {r['total']}"
+            f"{r['file']:60} {r['pct']:7.2f}%  "
+            f"miss={len(r['missed'])} partial={len(r['partial'])} "
+            f"of {r['total']}"
         )
 
     if failing:
@@ -133,7 +137,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     print(
-        f"All {len(all_rows)} file(s) meet or exceed {threshold_str} coverage threshold."
+        f"All {len(all_rows)} file(s) meet or exceed "
+        f"{threshold_str} coverage threshold."
     )
     return 0
 

@@ -214,6 +214,16 @@ async def test_protect_device_endpoint_get_all_branches() -> None:
     assert ep.last_result_complete is False
     _assert_requests(session, [("GET", "dummies", None, None)])
 
+    # 4. REMOTE routes through the console and, like LOCAL, adds no site segment
+    session = _Session([{"data": [{"id": "ok-2"}]}])
+    ep = _DummyEndpoint(_client(session, connection_type=ConnectionType.REMOTE))
+    res = await ep.get_all(site_id="site-1")
+    assert [r.id for r in res] == ["ok-2"]
+    assert session.requests[0]["url"] == (
+        "https://api.ui.com/v1/connector/consoles/console-1"
+        "/protect/integration/v1/dummies"
+    )
+
 
 async def test_protect_device_endpoint_get_and_update_branches() -> None:
     """Test ProtectDeviceEndpoint get and update fallback and error branches."""
@@ -1877,6 +1887,7 @@ async def test_upload_file_spec_mismatch() -> None:
     ),
 )
 async def test_sensor_motion_sensitivity_spec_mismatch() -> None:
+    """Motion sensitivity PATCH must nest the value under motionSettings."""
     session = _Session([SAMPLE_SENSOR])
     sensor = await _client(session).sensors.set_motion_sensitivity("sensor-1", 75)
     assert isinstance(sensor, Sensor)

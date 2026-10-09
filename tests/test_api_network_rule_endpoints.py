@@ -181,6 +181,7 @@ async def test_list_port_forwards_remote_connector_path() -> None:
         ([port_forward_record()], 1),
         ({"meta": {"rc": "ok"}, "data": [port_forward_record()]}, 1),
         ({"data": port_forward_record()}, 1),
+        ({"data": "unexpected"}, 0),
         (None, 0),
         ("not-a-dict", 0),
         ([port_forward_record(), "invalid", 123, None], 1),

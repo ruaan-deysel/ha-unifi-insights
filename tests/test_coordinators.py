@@ -1441,7 +1441,7 @@ class TestUnifiConfigCoordinator:
 
         def _fetch_side_effect(ref: str) -> list[Any]:
             return (
-                [_create_mock_model(record1)]
+                [_create_mock_model(record1), _create_mock_model({"name": "No id"})]
                 if ref == "default"
                 else [_create_mock_model(record2)]
             )
@@ -7651,6 +7651,43 @@ class TestUnifiFacadeCoordinator:
             await action_fn("site1", rule_id, enabled=True)
 
         assert expected_msg in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("action_method", "endpoint_attr", "update_method"),
+        [
+            (
+                "async_set_port_forward_enabled",
+                "port_forwards",
+                "update_port_forward",
+            ),
+            (
+                "async_set_traffic_rule_enabled",
+                "traffic_rules",
+                "update_traffic_rule",
+            ),
+        ],
+    )
+    async def test_async_set_rule_enabled_reraises_home_assistant_error(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        action_method: str,
+        endpoint_attr: str,
+        update_method: str,
+    ) -> None:
+        """A HomeAssistantError from a rule toggle propagates unwrapped."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "default"}}
+        }
+        error = HomeAssistantError("already translated")
+        endpoint = getattr(facade_coordinator.network_client, endpoint_attr)
+        setattr(endpoint, update_method, AsyncMock(side_effect=error))
+        action_fn = getattr(facade_coordinator, action_method)
+
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await action_fn("site1", "rule1", enabled=True)
+
+        assert exc_info.value is error
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

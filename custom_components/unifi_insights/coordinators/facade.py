@@ -30,7 +30,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from pydantic import ValidationError
 
-from custom_components.unifi_insights.api import UniFiGlobalAlarmManagerError
+from custom_components.unifi_insights.api import (
+    UniFiAuthenticationError,
+    UniFiError,
+    UniFiGlobalAlarmManagerError,
+)
+from custom_components.unifi_insights.api.validation import sanitized_validation_fields
 from custom_components.unifi_insights.const import CONF_CONSOLE_ID, DOMAIN
 from custom_components.unifi_insights.data_transforms import (
     correlate_innerspace_devices,
@@ -577,17 +582,14 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise
         except Exception as err:
             if isinstance(err, ValidationError):
-                field_names = [
-                    str((e.get("loc") or ("root",))[-1]) for e in err.errors()
-                ]
-                fields_str = ", ".join(sorted(set(field_names)))
                 msg = (
-                    f"{error_message}: Invalid API response data (fields: {fields_str})"
+                    f"{error_message}: Invalid API response data "
+                    f"(fields: {sanitized_validation_fields(err)})"
                 )
                 _LOGGER.error("%s", msg)  # noqa: TRY400
                 raise HomeAssistantError(msg) from None
             _LOGGER.exception("%s", error_message)
-            raise HomeAssistantError(error_message) from None
+            raise HomeAssistantError(error_message) from err
 
     async def async_restart_device(self, site_id: str, device_id: str) -> bool:
         """Restart a network device."""
@@ -1066,7 +1068,9 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Refresh a site's vouchers after change; never fail change itself."""
         try:
             await self._config_coordinator.async_refresh_vouchers(site_id)
-        except Exception as err:
+        except UniFiAuthenticationError:
+            self.config_entry.async_start_reauth(self.hass)
+        except (UniFiError, RuntimeError) as err:
             _LOGGER.warning(
                 "Unable to refresh the vouchers of site %s after a change: %s",
                 site_id,

@@ -5927,9 +5927,11 @@ class TestUnifiFacadeCoordinator:
         self, facade_coordinator: UnifiFacadeCoordinator
     ):
         """Test _async_execute_api_action wraps generic errors."""
-        action = AsyncMock(side_effect=RuntimeError("boom"))
-        with pytest.raises(HomeAssistantError, match="test error"):
+        cause = RuntimeError("boom")
+        action = AsyncMock(side_effect=cause)
+        with pytest.raises(HomeAssistantError, match="test error") as exc_info:
             await facade_coordinator._async_execute_api_action("test error", action)
+        assert exc_info.value.__cause__ is cause
 
     @pytest.mark.asyncio
     async def test_async_restart_device(
@@ -9224,18 +9226,22 @@ class TestConfigCoordinatorVouchers:
     """Tests for voucher polling in UnifiConfigCoordinator."""
 
     @pytest.fixture
-    def coordinator(
+    async def coordinator(
         self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
-    ) -> UnifiConfigCoordinator:
+    ) -> AsyncGenerator[UnifiConfigCoordinator]:
         """Create a config coordinator for testing."""
         network_client = _create_mock_network_client()
         protect_client = _create_mock_protect_client()
-        return UnifiConfigCoordinator(
+        coordinator = UnifiConfigCoordinator(
             hass=hass,
             network_client=network_client,
             protect_client=protect_client,
             entry=mock_config_entry,
         )
+        try:
+            yield coordinator
+        finally:
+            await coordinator.async_shutdown()
 
     @pytest.mark.asyncio
     async def test_vouchers_polled_for_each_selected_site(
@@ -9481,7 +9487,12 @@ class TestConfigCoordinatorVouchers:
                 params: Any = None,
                 *,
                 expected_unsupported: bool = False,
+                log_body: bool = True,
             ) -> Any:
+                assert path.endswith("/hotspot/vouchers")
+                assert params == {"offset": 0, "limit": 1000}
+                assert expected_unsupported is True
+                assert log_body is False
                 return {"data": [{"code": synthetic_code}], "totalCount": 1}
 
         coordinator.network_client.vouchers = VouchersEndpoint(_TestClient())  # type: ignore[assignment]
@@ -9490,3 +9501,4 @@ class TestConfigCoordinatorVouchers:
 
         assert coordinator.vouchers_available("default") is False
         assert synthetic_code not in caplog.text
+        assert "Invalid voucher data (fields: id)" in caplog.text

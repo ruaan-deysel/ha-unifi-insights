@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import ValidationError
 
+from custom_components.unifi_insights.api.validation import sanitized_validation_fields
+
 from ..models.voucher import Voucher
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,9 +25,7 @@ def _validate_voucher(item: Any) -> Voucher:
     try:
         return Voucher.model_validate(item)
     except ValidationError as err:
-        field_names = [str((e.get("loc") or ("root",))[-1]) for e in err.errors()]
-        fields_str = ", ".join(sorted(set(field_names)))
-        msg = f"Invalid voucher data (fields: {fields_str})"
+        msg = f"Invalid voucher data (fields: {sanitized_validation_fields(err)})"
         raise ValueError(msg) from None
 
 

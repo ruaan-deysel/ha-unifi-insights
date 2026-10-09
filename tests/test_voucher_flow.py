@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from homeassistant.core import HomeAssistant
 
 from homeassistant.const import CONF_API_KEY
@@ -167,6 +169,7 @@ async def test_generate_flow_updates_inventory_and_latest_voucher(
 
     # Active count is 1
     assert count_active_vouchers(inventory) == 1
+    await facade.async_shutdown()
 
 
 @pytest.mark.asyncio
@@ -292,12 +295,13 @@ async def test_slower_full_poll_does_not_regress_newer_targeted_refresh_state(
     # State must NOT regress back to expired: False
     assert config_coord.data["vouchers"]["site1"]["v-1"]["expired"] is True
     assert facade.data["latest_vouchers"]["site1"]["expired"] is True
+    await facade.async_shutdown()
 
 
 @pytest.fixture
-def voucher_flow(
+async def voucher_flow(
     hass: HomeAssistant,
-) -> tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator]:
+) -> AsyncGenerator[tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator]]:
     """Build real coordinators with unrelated API sections mocked locally."""
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_API_KEY: "test-key"})
     client = MagicMock()
@@ -318,7 +322,10 @@ def voucher_flow(
     config = UnifiConfigCoordinator(hass, client, None, entry)
     device = UnifiDeviceCoordinator(hass, client, None, entry, config)
     facade = UnifiFacadeCoordinator(hass, client, None, entry, config, device, None)
-    return config, facade
+    try:
+        yield config, facade
+    finally:
+        await facade.async_shutdown()
 
 
 def _voucher_transport(responses: list[Any]) -> UniFiNetworkClient:
@@ -369,7 +376,11 @@ async def test_root_validation_error_does_not_log_credential(
         )
     _assert_credential_absent(caplog, code)
     assert code not in "".join(traceback.format_exception(caught.value))
-    assert caught.value.__cause__ is None
+    cause = caught.value.__cause__
+    assert isinstance(cause, ValueError)
+    assert str(cause) == "Invalid voucher data (fields: root)"
+    assert cause.__cause__ is None
+    assert cause.__suppress_context__ is True
     assert caught.value.__suppress_context__ is True
 
 

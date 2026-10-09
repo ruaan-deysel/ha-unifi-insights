@@ -16,6 +16,7 @@ from custom_components.unifi_insights.api import (
     UniFiResponseError,
     UniFiTimeoutError,
 )
+from custom_components.unifi_insights.api.validation import sanitized_validation_fields
 from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_CONFIG
 
 from .base import UnifiBaseCoordinator
@@ -159,11 +160,9 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     else _LOGGER.warning
                 )
                 if isinstance(err, ValidationError):
-                    field_names = [
-                        str((e.get("loc") or ("root",))[-1]) for e in err.errors()
-                    ]
-                    fields_str = ", ".join(sorted(set(field_names)))
-                    err_msg: Any = f"ValidationError(fields: {fields_str})"
+                    err_msg: Any = (
+                        f"ValidationError(fields: {sanitized_validation_fields(err)})"
+                    )
                 else:
                     err_msg = err
                 log(

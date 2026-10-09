@@ -2,7 +2,7 @@
 """Tests for UniFi Insights facade coordinator."""
 
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
@@ -12,6 +12,10 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.unifi_insights.api import (
+    UniFiAuthenticationError,
+    UniFiConnectionError,
+)
 from custom_components.unifi_insights.api.network.endpoints.vouchers import (
     VouchersEndpoint,
 )
@@ -403,7 +407,20 @@ class TestFacadeGenerateVoucher:
             def build_api_path(self, path: str) -> str:
                 return path
 
-            async def _post(self, path: str, json_data: Any = None) -> Any:
+            async def _post(
+                self,
+                path: str,
+                json_data: Any = None,
+                *,
+                log_body: bool = True,
+            ) -> Any:
+                assert path.endswith("/hotspot/vouchers")
+                assert json_data == {
+                    "count": 1,
+                    "name": "G1",
+                    "timeLimitMinutes": 60,
+                }
+                assert log_body is False
                 return {"vouchers": [{"code": synthetic_code}]}
 
         facade.network_client.vouchers = VouchersEndpoint(_TestClient())  # type: ignore[assignment]
@@ -416,6 +433,56 @@ class TestFacadeGenerateVoucher:
             )
 
         assert synthetic_code not in caplog.text
+        assert "Invalid voucher data (fields: id)" in caplog.text
+
+    async def test_refresh_vouchers_auth_failure_starts_reauth_and_notifies(
+        self,
+        facade: UnifiFacadeCoordinator,
+        mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
+    ) -> None:
+        """A targeted voucher refresh auth failure starts reauth and notifies."""
+        config_coord = mock_sub_coordinators[0]
+        config_coord.async_refresh_vouchers.side_effect = UniFiAuthenticationError(
+            "Revoked", status_code=401
+        )
+        listener = MagicMock()
+        facade.async_add_listener(listener)
+
+        with patch.object(facade.config_entry, "async_start_reauth") as start_reauth:
+            await facade._async_refresh_vouchers("site1")
+
+        start_reauth.assert_called_once_with(facade.hass)
+        listener.assert_called_once()
+
+    async def test_refresh_vouchers_expected_failure_notifies(
+        self,
+        facade: UnifiFacadeCoordinator,
+        mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
+    ) -> None:
+        """Expected targeted voucher refresh errors keep the action successful."""
+        config_coord = mock_sub_coordinators[0]
+        config_coord.async_refresh_vouchers.side_effect = UniFiConnectionError("Down")
+        listener = MagicMock()
+        facade.async_add_listener(listener)
+
+        await facade._async_refresh_vouchers("site1")
+
+        listener.assert_called_once()
+
+    async def test_refresh_vouchers_unexpected_failure_propagates(
+        self,
+        facade: UnifiFacadeCoordinator,
+        mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
+    ) -> None:
+        """Unexpected targeted voucher refresh errors are not hidden."""
+        config_coord = mock_sub_coordinators[0]
+        error = TypeError("broken implementation")
+        config_coord.async_refresh_vouchers.side_effect = error
+
+        with pytest.raises(TypeError) as exc_info:
+            await facade._async_refresh_vouchers("site1")
+
+        assert exc_info.value is error
 
     async def test_generate_voucher_api_error_raises_and_skips_refresh(
         self,

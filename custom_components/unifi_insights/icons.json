@@ -274,6 +274,30 @@
     "switch": {
       "outlet": {
         "default": "mdi:power-socket-us"
+      },
+      "port_forward": {
+        "default": "mdi:lan-connect",
+        "state": {
+          "off": "mdi:lan-disconnect"
+        }
+      },
+      "port_forward_unnamed": {
+        "default": "mdi:lan-connect",
+        "state": {
+          "off": "mdi:lan-disconnect"
+        }
+      },
+      "traffic_rule": {
+        "default": "mdi:filter",
+        "state": {
+          "off": "mdi:filter-off"
+        }
+      },
+      "traffic_rule_unnamed": {
+        "default": "mdi:filter",
+        "state": {
+          "off": "mdi:filter-off"
+        }
       }
     },
     "select": {

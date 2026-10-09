@@ -672,6 +672,18 @@
       "vpn_client_unnamed": {
         "name": "VPN Client"
       },
+      "port_forward": {
+        "name": "Port forward {rule_name}"
+      },
+      "port_forward_unnamed": {
+        "name": "Port forward {rule_id}"
+      },
+      "traffic_rule": {
+        "name": "Traffic rule {rule_name}"
+      },
+      "traffic_rule_unnamed": {
+        "name": "Traffic rule {rule_id}"
+      },
       "wifi": {
         "name": "WiFi {wifi_name}"
       }

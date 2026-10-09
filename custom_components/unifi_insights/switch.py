@@ -32,6 +32,7 @@ from .entity import (
     is_device_online,
     is_gateway_device,
 )
+from .network_rule_switch import discover_network_rule_switches
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -205,7 +206,7 @@ def _prune_orphaned_switch_entities(
     coordinator: UnifiFacadeCoordinator,
 ) -> None:
     """
-    Remove registry rows for deleted routes, rules, and VPN clients.
+    Remove registry rows for rule switches whose rule no longer exists.
 
     Runs once, after the first discovery pass in ``async_setup_entry`` --
     NOT on every coordinator update -- following the ``sensor.py`` stale
@@ -240,6 +241,16 @@ def _prune_orphaned_switch_entities(
             "_vpn_client",
             "vpn_clients",
             lambda _site_id: coordinator.config_available,
+        ),
+        (
+            "_port_forward",
+            "port_forwards",
+            coordinator.port_forwards_available,
+        ),
+        (
+            "_traffic_rule",
+            "traffic_rules",
+            coordinator.traffic_rules_available,
         ),
     )
 
@@ -528,6 +539,8 @@ async def async_setup_entry(
                             client_id=client_id,
                         )
                     )
+
+        entities.extend(discover_network_rule_switches(coordinator, known_switch_keys))
 
         if entities or first_setup:
             _LOGGER.info("Adding %d UniFi switches", len(entities))

@@ -20,6 +20,9 @@ from custom_components.unifi_insights.mobility_entity import (
     ROUTER_SENSORS,
     WORKSPACE_SENSORS,
 )
+from custom_components.unifi_insights.network_rule_switch import (
+    NETWORK_RULE_SWITCH_TYPES,
+)
 from custom_components.unifi_insights.protect_security_entity import (
     SECURITY_BINARY_SENSOR_TYPES,
     SECURITY_SENSOR_TYPES,
@@ -233,3 +236,39 @@ def test_protect_security_entity_icons_defined() -> None:
             entry = icons.get(platform, {}).get(desc.translation_key)
             assert entry is not None, f"{desc.translation_key} has no icon"
             assert entry["default"].startswith("mdi:")
+
+
+def test_network_rule_switch_translations_resolve_in_both_files() -> None:
+    """Network rule switch translations match in both files with placeholders."""
+    en_switch = json.loads(_EN_JSON.read_text())["entity"]["switch"]
+    strings_switch = json.loads(_STRINGS_JSON.read_text())["entity"]["switch"]
+
+    for desc in NETWORK_RULE_SWITCH_TYPES:
+        for key, placeholder in (
+            (desc.translation_key, "{rule_name}"),
+            (desc.unnamed_translation_key, "{rule_id}"),
+        ):
+            assert key in strings_switch, f"{key} missing from strings.json"
+            assert key in en_switch, f"{key} missing from translations/en.json"
+            assert en_switch[key] == strings_switch[key], (
+                f"{key} differs between strings.json and translations/en.json"
+            )
+            assert placeholder in strings_switch[key]["name"], (
+                f"{key} name must contain {placeholder}"
+            )
+
+
+def test_network_rule_switch_icons_defined() -> None:
+    """Network rule switch icons are defined with default and state.off."""
+    icons = json.loads(_ICONS_JSON.read_text())["entity"]["switch"]
+
+    for desc in NETWORK_RULE_SWITCH_TYPES:
+        for key in (desc.translation_key, desc.unnamed_translation_key):
+            entry = icons.get(key)
+            assert entry is not None, f"{key} has no icon entry in icons.json"
+            assert entry.get("default", "").startswith("mdi:"), (
+                f"{key} default icon missing or not mdi:"
+            )
+            assert entry.get("state", {}).get("off", "").startswith("mdi:"), (
+                f"{key} state.off icon missing or not mdi:"
+            )

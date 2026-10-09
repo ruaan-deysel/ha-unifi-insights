@@ -301,6 +301,12 @@ _ORPHAN_TYPE_PARAMS = [
         "firewall_rules", "_firewall_rule", "firewall_available", id="firewall_rule"
     ),
     pytest.param("vpn_clients", "_vpn_client", "config_available", id="vpn_client"),
+    pytest.param(
+        "port_forwards", "_port_forward", "port_forwards_available", id="port_forward"
+    ),
+    pytest.param(
+        "traffic_rules", "_traffic_rule", "traffic_rules_available", id="traffic_rule"
+    ),
 ]
 
 
@@ -322,10 +328,14 @@ class TestPruneOrphanedSwitchEntities:
         coordinator = MagicMock()
         coordinator.config_available = True
         coordinator.firewall_available = MagicMock(return_value=True)
+        coordinator.port_forwards_available = MagicMock(return_value=True)
+        coordinator.traffic_rules_available = MagicMock(return_value=True)
         coordinator.data = {
             "policy_based_routes": {"site1": {"route1": {}}},
             "firewall_rules": {"site1": {"rule1": {}}},
             "vpn_clients": {"site1": {"vpn1": {}}},
+            "port_forwards": {"site1": {"pf1": {}}},
+            "traffic_rules": {"site1": {"tr1": {}}},
         }
         return coordinator
 
@@ -373,8 +383,8 @@ class TestPruneOrphanedSwitchEntities:
         """This type's own predicate False -> zero pruned, regardless of the
         other two types' predicates being True (the regression the per-type
         guard exists to prevent)."""
-        if availability_attr == "firewall_available":
-            mock_coordinator.firewall_available = MagicMock(return_value=False)
+        if availability_attr != "config_available":
+            setattr(mock_coordinator, availability_attr, MagicMock(return_value=False))
         else:
             setattr(mock_coordinator, availability_attr, False)
 

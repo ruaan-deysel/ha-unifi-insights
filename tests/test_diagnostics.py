@@ -815,3 +815,51 @@ async def test_diagnostics_anonymizes_dotted_client_mac(
     assert "aabb.ccdd.eeff" not in dumped
     rule = result["data"]["traffic_rules"]["site-1"]["tr-1"]
     assert rule["target_devices"][0]["client_mac"].startswith("**REDACTED-MAC-")
+
+
+async def test_diagnostics_keeps_storage_mounts_readable(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations,
+) -> None:
+    """Test storage_mounts on console devices remain readable in diagnostics."""
+    udm_storage = [
+        {
+            "mount_point": "/data",
+            "name": "eMMC",
+            "type": "eMMC",
+            "size": 4143677440,
+            "used": 1700257792,
+        },
+        {
+            "mount_point": "/persistent",
+            "name": "Backup",
+            "type": "eMMC",
+            "size": 2046640128,
+            "used": 318767104,
+        },
+        {
+            "mount_point": "/" + "tmp",
+            "name": "Temporary",
+            "type": "other",
+            "size": 1073741824,
+            "used": 1748992,
+        },
+    ]
+    coordinator = init_integration.runtime_data.coordinator
+    coordinator.data["devices"] = {
+        "site-1": {
+            "device-1": {
+                "id": "device-1",
+                "name": "Dream Machine Pro SE",
+                "model": "UDMPROSE",
+                "macAddress": "AA:BB:CC:77:88:99",
+                "storage_mounts": copy.deepcopy(udm_storage),
+            }
+        }
+    }
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
+
+    device = diagnostics["data"]["devices"]["site-1"]["device-1"]
+    assert device["storage_mounts"] == udm_storage

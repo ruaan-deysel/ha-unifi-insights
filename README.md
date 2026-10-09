@@ -110,6 +110,7 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 - **Device health:** status, CPU, memory, uptime, temperature and uplink rates for gateways, switches and access points.
 - **Ports:** PoE power, link speed, traffic counters and rates, and SFP module details.
 - **Power:** PDU outlet switches with power, voltage, current and power factor, and AC power consumption and budget.
+- **Storage:** used percentage, used space and total space for each filesystem a console reports (for example eMMC and backup storage on a UDM Pro SE), and a Storage Nearly Full alert. Capacity only: per-disk health (SMART, RAID) and Protect NVR drive data are not available from UniFi's official APIs.
 - **Internet and WAN:** gateway and per-WAN connection status, WAN IP address, site-to-site VPN tunnel status, and internet download and upload totals for the last hour, day, week and month.
 - **Clients:** client counts per site, device and Wi-Fi network; optional presence tracking; allow/block switches and reconnect buttons.
 - **Controls:** switches for Wi-Fi networks, firewall policies, policy-based routes, VPN clients, port forwards and traffic rules; device restart buttons; QR code images to join each Wi-Fi network.
@@ -133,6 +134,9 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 | _Port_ SFP Module, SFP Vendor, SFP Type, SFP Serial | Sensor         | Per SFP port, disabled by default                                                      |
 | _Port_ SFP Module                                   | Binary sensor  | On when an SFP module is inserted                                                      |
 | AC Power Consumption, AC Power Budget               | Sensor         | Devices that report power                                                              |
+| Storage _mount_ Used Percentage                     | Sensor         | Consoles that report storage, per filesystem (%). /tmp-style mounts start disabled     |
+| Storage _mount_ Used, Storage _mount_ Total         | Sensor         | Per filesystem (GiB), disabled by default                                              |
+| Storage Nearly Full                                 | Binary sensor  | On when a persistent filesystem is 90% full or more                                    |
 | _Outlet name_ Power, Voltage, Current, Power Factor | Sensor         | Per PDU outlet                                                                         |
 | WAN Status                                          | Binary sensor  | Gateway online state (for the link state, use the WAN connection)                      |
 | _WAN name_ Connection                               | Binary sensor  | Internet connection state of each WAN (DHCP, static or PPPoE)                          |

@@ -22,6 +22,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from yarl import URL
 
 from custom_components.unifi_insights import services
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
 from custom_components.unifi_insights.services import (
     SERVICE_AUTHORIZE_GUEST,

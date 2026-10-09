@@ -75,6 +75,8 @@ from custom_components.unifi_insights.coordinators.config_sections import (
     enrich_wifi,
     map_legacy_site_names,
     resolve_report_site_name,
+    rule_display_name,
+    verified_legacy_site_name,
     wifi_qr_payload,
 )
 from custom_components.unifi_insights.coordinators.device import (
@@ -160,6 +162,16 @@ def _create_mock_network_client() -> MagicMock:
             {"name": "site2", "desc": "Site 2"},
         ]
     )
+
+    # Port forwards namespace
+    client.port_forwards = MagicMock()
+    client.port_forwards.list_port_forwards = AsyncMock(return_value=[])
+    client.port_forwards.update_port_forward = AsyncMock()
+
+    # Traffic rules namespace
+    client.traffic_rules = MagicMock()
+    client.traffic_rules.list_traffic_rules = AsyncMock(return_value=[])
+    client.traffic_rules.update_traffic_rule = AsyncMock()
 
     # WiFi namespace
     client.wifi = MagicMock()
@@ -522,6 +534,24 @@ class TestUnifiBaseCoordinator:
 # ============================================================================
 # UnifiConfigCoordinator Tests
 # ============================================================================
+
+
+_RULE_SECTION_PARAMS = [
+    pytest.param(
+        "port_forwards",
+        "port_forwards",
+        "list_port_forwards",
+        "port_forwards_available",
+        id="port_forward",
+    ),
+    pytest.param(
+        "traffic_rules",
+        "traffic_rules",
+        "list_traffic_rules",
+        "traffic_rules_available",
+        id="traffic_rule",
+    ),
+]
 
 
 class TestUnifiConfigCoordinator:
@@ -1336,6 +1366,380 @@ class TestUnifiConfigCoordinator:
         result = await coordinator._async_update_data()
 
         assert result["client_links"] == {}
+
+    def test_initialization_has_rule_sections(
+        self, coordinator: UnifiConfigCoordinator
+    ) -> None:
+        """Test coordinator initialization includes rule section dictionaries."""
+        assert "port_forwards" in coordinator.data
+        assert "traffic_rules" in coordinator.data
+        assert coordinator.data["port_forwards"] == {}
+        assert coordinator.data["traffic_rules"] == {}
+
+    @pytest.mark.parametrize(
+        ("site_data", "expected"),
+        [
+            ({"internalReference": " branch "}, "branch"),
+            ({"internalReference": ""}, None),
+            ({"internalReference": "   "}, None),
+            ({"name": "default"}, None),
+            ({"internalReference": 123}, None),
+            ("not-a-dict", None),
+            (None, None),
+        ],
+    )
+    def test_verified_legacy_site_name(
+        self, site_data: Any, expected: str | None
+    ) -> None:
+        """Test verified_legacy_site_name extracts valid non-blank internalReference."""
+        assert verified_legacy_site_name(site_data) == expected
+
+    @pytest.mark.parametrize(
+        ("rule_data", "name_field", "expected"),
+        [
+            ({"name": "  Plex  "}, "name", "Plex"),
+            ({"description": " Kids bedtime "}, "description", "Kids bedtime"),
+            ({"name": "   "}, "name", "pf1"),
+            ({"name": 42}, "name", "pf1"),
+            ({"description": "Plex"}, "name", "pf1"),
+            ("not-a-dict", "name", "pf1"),
+        ],
+    )
+    def test_rule_display_name(
+        self, rule_data: Any, name_field: str, expected: str
+    ) -> None:
+        """Test rule_display_name strips the name and falls back to the rule id."""
+        assert rule_display_name(rule_data, "pf1", name_field) == expected
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_section_fetched_by_internal_reference(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Rule sections are fetched with internalReference and keyed by id."""
+        site1 = _create_mock_model(
+            {"id": "default", "name": "Default", "internalReference": "default"}
+        )
+        site2 = _create_mock_model(
+            {"id": "site2", "name": "Site 2", "internalReference": "branch"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(
+            return_value=[site1, site2]
+        )
+
+        record1 = {"_id": "rule-1", "name": "Rule 1", "enabled": True}
+        record2 = {"id": "rule-2", "name": "Rule 2", "enabled": False}
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+
+        def _fetch_side_effect(ref: str) -> list[Any]:
+            return (
+                [_create_mock_model(record1)]
+                if ref == "default"
+                else [_create_mock_model(record2)]
+            )
+
+        setattr(endpoint, list_method, AsyncMock(side_effect=_fetch_side_effect))
+
+        result = await coordinator._async_update_data()
+        mock_fn = getattr(endpoint, list_method)
+        assert [c.args[0] for c in mock_fn.await_args_list] == ["default", "branch"]
+        assert result[data_key]["default"] == {"rule-1": record1}
+        assert result[data_key]["site2"] == {"rule-2": record2}
+        avail_fn = getattr(coordinator, avail_method)
+        assert avail_fn("default") is True
+        assert avail_fn("site2") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_section_ignores_fuzzy_legacy_mapping(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Rule sections ignore fuzzy legacy mapping from get_legacy_all."""
+        site1 = _create_mock_model(
+            {"id": "default", "name": "Default", "internalReference": "default"}
+        )
+        site2 = _create_mock_model(
+            {"id": "site2", "name": "Site 2", "internalReference": "branch"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(
+            return_value=[site1, site2]
+        )
+        coordinator.network_client.sites.get_legacy_all = AsyncMock(
+            return_value=[{"name": "default", "desc": "Site 2"}]
+        )
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        setattr(endpoint, list_method, AsyncMock(return_value=[]))
+
+        await coordinator._async_update_data()
+        mock_fn = getattr(endpoint, list_method)
+        assert [c.args[0] for c in mock_fn.await_args_list] == ["default", "branch"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_section_without_internal_reference_is_empty_and_available(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Without internalReference, fetch is skipped and data is empty."""
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        mock_fn = getattr(endpoint, list_method)
+
+        result = await coordinator._async_update_data()
+        mock_fn.assert_not_awaited()
+        assert result[data_key]["default"] == {}
+        assert result[data_key]["site2"] == {}
+        avail_fn = getattr(coordinator, avail_method)
+        assert avail_fn("default") is True
+        assert avail_fn("site2") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    @pytest.mark.parametrize(
+        "error",
+        [
+            UniFiAuthenticationError("Forbidden", status_code=403),
+            UniFiNotFoundError("Not found", status_code=404),
+            UniFiResponseError("Non-JSON body", status_code=200),
+        ],
+    )
+    async def test_rule_section_unsupported_response_stores_empty(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+        error: Exception,
+    ) -> None:
+        """Unsupported responses (403/404/200 non-JSON) store {} and keep available."""
+        site = _create_mock_model(
+            {"id": "default", "name": "Default", "internalReference": "default"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(return_value=[site])
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        setattr(endpoint, list_method, AsyncMock(side_effect=error))
+
+        result = await coordinator._async_update_data()
+        assert result[data_key]["default"] == {}
+        avail_fn = getattr(coordinator, avail_method)
+        assert avail_fn("default") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_section_transient_failure_keeps_previous_data(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Transient failure preserves data and toggles available until recovery."""
+        site = _create_mock_model(
+            {"id": "default", "name": "Default", "internalReference": "default"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(return_value=[site])
+        rec = {"_id": "r1", "name": "R1", "enabled": True}
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        setattr(
+            endpoint, list_method, AsyncMock(return_value=[_create_mock_model(rec)])
+        )
+
+        res1 = await coordinator._async_update_data()
+        assert res1[data_key]["default"] == {"r1": rec}
+        avail_fn = getattr(coordinator, avail_method)
+        assert avail_fn("default") is True
+
+        setattr(
+            endpoint,
+            list_method,
+            AsyncMock(side_effect=UniFiConnectionError("Connection lost")),
+        )
+        res2 = await coordinator._async_update_data()
+        assert res2[data_key]["default"] == {"r1": rec}
+        assert avail_fn("default") is False
+
+        setattr(
+            endpoint, list_method, AsyncMock(return_value=[_create_mock_model(rec)])
+        )
+        res3 = await coordinator._async_update_data()
+        assert res3[data_key]["default"] == {"r1": rec}
+        assert avail_fn("default") is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_section_failure_is_per_site(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Failure on site A does not affect availability on site B."""
+        site_a = _create_mock_model(
+            {"id": "site_a", "name": "Site A", "internalReference": "ref_a"}
+        )
+        site_b = _create_mock_model(
+            {"id": "site_b", "name": "Site B", "internalReference": "ref_b"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(
+            return_value=[site_a, site_b]
+        )
+
+        rec_b = {"_id": "rb", "name": "RB", "enabled": True}
+
+        def _side_effect(ref: str) -> list[Any]:
+            if ref == "ref_a":
+                msg = "Failure on A"
+                raise UniFiConnectionError(msg)
+            return [_create_mock_model(rec_b)]
+
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        setattr(endpoint, list_method, AsyncMock(side_effect=_side_effect))
+
+        result = await coordinator._async_update_data()
+        avail_fn = getattr(coordinator, avail_method)
+        assert avail_fn("site_a") is False
+        assert avail_fn("site_b") is True
+        assert result[data_key]["site_b"] == {"rb": rec_b}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_section_401_triggers_reauth(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """401 error during rule fetch triggers reauthentication."""
+        site = _create_mock_model(
+            {"id": "default", "name": "Default", "internalReference": "default"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(return_value=[site])
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        setattr(
+            endpoint,
+            list_method,
+            AsyncMock(
+                side_effect=UniFiAuthenticationError("Unauthorized", status_code=401)
+            ),
+        )
+
+        with pytest.raises(ConfigEntryAuthFailed):
+            await coordinator._async_update_data()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    async def test_rule_sections_pruned_with_sites(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Removed sites are pruned from rule sections, leaving empty dict."""
+        site1 = _create_mock_model(
+            {"id": "s1", "name": "S1", "internalReference": "r1"}
+        )
+        site2 = _create_mock_model(
+            {"id": "s2", "name": "S2", "internalReference": "r2"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(
+            return_value=[site1, site2]
+        )
+        endpoint = getattr(coordinator.network_client, endpoint_attr)
+        setattr(endpoint, list_method, AsyncMock(return_value=[]))
+
+        res1 = await coordinator._async_update_data()
+        assert "s1" in res1[data_key]
+        assert "s2" in res1[data_key]
+
+        coordinator.network_client.sites.get_all = AsyncMock(return_value=[site1])
+        res2 = await coordinator._async_update_data()
+        assert "s1" in res2[data_key]
+        assert "s2" not in res2[data_key]
+
+        coordinator.network_client.sites.get_all = AsyncMock(return_value=[])
+        res3 = await coordinator._async_update_data()
+        assert res3[data_key] == {}
+
+    @pytest.mark.asyncio
+    async def test_rule_sections_fetched_concurrently(
+        self, coordinator: UnifiConfigCoordinator
+    ) -> None:
+        """Port forwards and traffic rules are fetched concurrently with gather."""
+        site = _create_mock_model(
+            {"id": "default", "name": "Default", "internalReference": "default"}
+        )
+        coordinator.network_client.sites.get_all = AsyncMock(return_value=[site])
+
+        pf_started = asyncio.Event()
+        tr_started = asyncio.Event()
+
+        async def slow_list_pf(site_name: str) -> list[Any]:
+            pf_started.set()
+            await tr_started.wait()
+            return []
+
+        async def slow_list_tr(site_name: str) -> list[Any]:
+            tr_started.set()
+            await pf_started.wait()
+            return []
+
+        coordinator.network_client.port_forwards.list_port_forwards = AsyncMock(
+            side_effect=slow_list_pf
+        )
+        coordinator.network_client.traffic_rules.list_traffic_rules = AsyncMock(
+            side_effect=slow_list_tr
+        )
+
+        result = await asyncio.wait_for(coordinator._async_update_data(), timeout=2)
+        assert result["port_forwards"]["default"] == {}
+        assert result["traffic_rules"]["default"] == {}
+        assert pf_started.is_set()
+        assert tr_started.is_set()
 
 
 # ============================================================================
@@ -7050,6 +7454,279 @@ class TestUnifiFacadeCoordinator:
         assert protect_coordinator.data["sirens"]["siren_1"]["sirenStatus"] == {
             "isActive": True
         }
+
+    def test_aggregate_data_includes_rule_sections(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Test aggregate data includes port_forwards and traffic_rules."""
+        facade_coordinator._config_coordinator.data["port_forwards"] = {
+            "site1": {"pf1": {}}
+        }
+        facade_coordinator._config_coordinator.data["traffic_rules"] = {
+            "site1": {"tr1": {}}
+        }
+        facade_coordinator._aggregate_data()
+        assert "port_forwards" in facade_coordinator.data
+        assert "traffic_rules" in facade_coordinator.data
+        assert facade_coordinator.data["port_forwards"] == {"site1": {"pf1": {}}}
+        assert facade_coordinator.data["traffic_rules"] == {"site1": {"tr1": {}}}
+
+    @pytest.mark.parametrize(
+        ("data_key", "endpoint_attr", "list_method", "avail_method"),
+        _RULE_SECTION_PARAMS,
+    )
+    def test_rule_section_availability_passthrough(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        data_key: str,
+        endpoint_attr: str,
+        list_method: str,
+        avail_method: str,
+    ) -> None:
+        """Test facade availability methods pass through to config coordinator."""
+        setattr(
+            facade_coordinator._config_coordinator,
+            avail_method,
+            MagicMock(return_value=True),
+        )
+        avail_fn = getattr(facade_coordinator, avail_method)
+        assert avail_fn("site1") is True
+        getattr(
+            facade_coordinator._config_coordinator, avail_method
+        ).assert_called_once_with("site1")
+
+    @pytest.mark.asyncio
+    async def test_async_set_port_forward_enabled_uses_internal_reference(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Port forward toggle resolves site ONLY via internalReference."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {
+                "site_alpha": {
+                    "id": "site_alpha",
+                    "name": "Office",
+                    "internalReference": "alpha",
+                },
+                "site_beta": {
+                    "id": "site_beta",
+                    "name": "Office",
+                    "internalReference": "beta",
+                },
+            }
+        }
+        facade_coordinator._device_coordinator._legacy_site_names = {
+            "site_alpha": "beta",
+            "site_beta": "beta",
+        }
+        facade_coordinator.network_client.port_forwards.update_port_forward = (
+            AsyncMock()
+        )
+
+        await facade_coordinator.async_set_port_forward_enabled(
+            "site_alpha", "pf1", enabled=False
+        )
+        facade_coordinator.network_client.port_forwards.update_port_forward.assert_called_once_with(
+            "alpha", "pf1", enabled=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_set_traffic_rule_enabled_uses_internal_reference(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Traffic rule toggle resolves site ONLY via internalReference."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {
+                "site_alpha": {
+                    "id": "site_alpha",
+                    "name": "Office",
+                    "internalReference": "alpha",
+                },
+                "site_beta": {
+                    "id": "site_beta",
+                    "name": "Office",
+                    "internalReference": "beta",
+                },
+            }
+        }
+        facade_coordinator._device_coordinator._legacy_site_names = {
+            "site_alpha": "beta",
+            "site_beta": "beta",
+        }
+        facade_coordinator.network_client.traffic_rules.update_traffic_rule = (
+            AsyncMock()
+        )
+
+        await facade_coordinator.async_set_traffic_rule_enabled(
+            "site_alpha", "tr1", enabled=False
+        )
+        facade_coordinator.network_client.traffic_rules.update_traffic_rule.assert_called_once_with(
+            "alpha", "tr1", enabled=False
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("action_method", "endpoint_attr", "update_method"),
+        [
+            (
+                "async_set_port_forward_enabled",
+                "port_forwards",
+                "update_port_forward",
+            ),
+            (
+                "async_set_traffic_rule_enabled",
+                "traffic_rules",
+                "update_traffic_rule",
+            ),
+        ],
+    )
+    async def test_async_set_rule_enabled_without_internal_reference_raises(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        action_method: str,
+        endpoint_attr: str,
+        update_method: str,
+    ) -> None:
+        """Toggling a rule without internalReference raises HomeAssistantError."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1"}}
+        }
+        action_fn = getattr(facade_coordinator, action_method)
+        endpoint = getattr(facade_coordinator.network_client, endpoint_attr)
+        setattr(endpoint, update_method, AsyncMock())
+
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await action_fn("site1", "rule1", enabled=True)
+
+        assert exc_info.value.translation_key == "legacy_site_not_found"
+        getattr(endpoint, update_method).assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        (
+            "action_method",
+            "endpoint_attr",
+            "update_method",
+            "rule_id",
+            "expected_msg",
+        ),
+        [
+            (
+                "async_set_port_forward_enabled",
+                "port_forwards",
+                "update_port_forward",
+                "pf1",
+                "Unable to update port forward pf1",
+            ),
+            (
+                "async_set_traffic_rule_enabled",
+                "traffic_rules",
+                "update_traffic_rule",
+                "tr1",
+                "Unable to update traffic rule tr1",
+            ),
+        ],
+    )
+    async def test_async_set_rule_enabled_wraps_api_errors(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        action_method: str,
+        endpoint_attr: str,
+        update_method: str,
+        rule_id: str,
+        expected_msg: str,
+    ) -> None:
+        """API errors during rule toggles are wrapped in HomeAssistantError."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "default"}}
+        }
+        endpoint = getattr(facade_coordinator.network_client, endpoint_attr)
+        setattr(
+            endpoint,
+            update_method,
+            AsyncMock(side_effect=UniFiConnectionError("Connection failed")),
+        )
+        action_fn = getattr(facade_coordinator, action_method)
+
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await action_fn("site1", rule_id, enabled=True)
+
+        assert expected_msg in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        (
+            "action_method",
+            "endpoint_attr",
+            "update_method",
+            "rule_id",
+            "rule_key",
+            "name_key",
+            "rule_name",
+            "error_label",
+        ),
+        [
+            (
+                "async_set_port_forward_enabled",
+                "port_forwards",
+                "update_port_forward",
+                "pf1",
+                "port_forwards",
+                "name",
+                "Plex",
+                "port forward",
+            ),
+            (
+                "async_set_traffic_rule_enabled",
+                "traffic_rules",
+                "update_traffic_rule",
+                "tr1",
+                "traffic_rules",
+                "description",
+                "Bedtime",
+                "traffic rule",
+            ),
+        ],
+    )
+    async def test_async_set_rule_enabled_not_found_refreshes_and_raises_rule_name(
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        action_method: str,
+        endpoint_attr: str,
+        update_method: str,
+        rule_id: str,
+        rule_key: str,
+        name_key: str,
+        rule_name: str,
+        error_label: str,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When a toggled rule is vanished, request refresh and raise.
+
+        Verifies that HomeAssistantError is raised without traceback.
+        """
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "default"}},
+            rule_key: {"site1": {rule_id: {name_key: rule_name}}},
+        }
+        endpoint = getattr(facade_coordinator.network_client, endpoint_attr)
+        setattr(
+            endpoint,
+            update_method,
+            AsyncMock(
+                side_effect=UniFiNotFoundError(
+                    f"Rule {rule_id} not found", status_code=404
+                )
+            ),
+        )
+        facade_coordinator.async_request_refresh = AsyncMock()
+        action_fn = getattr(facade_coordinator, action_method)
+
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await action_fn("site1", rule_id, enabled=True)
+
+        assert f"Unable to update {error_label} {rule_name}" in str(exc_info.value)
+        facade_coordinator.async_request_refresh.assert_awaited_once()
+        assert not any(record.levelno >= logging.ERROR for record in caplog.records)
 
 
 # ============================================================================

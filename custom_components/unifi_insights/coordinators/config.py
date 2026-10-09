@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -20,12 +21,14 @@ from .base import UnifiBaseCoordinator
 from .config_sections import (
     async_fetch_site_firewall,
     async_fetch_site_routes,
+    async_fetch_site_rule_section,
     async_fetch_site_vpn_clients,
     async_fetch_site_vpns,
     async_fetch_site_wifi_and_links,
     client_links,
     enrich_wifi,
     map_legacy_site_names,
+    verified_legacy_site_name,
     wifi_qr_payload,
 )
 from .internet_activity import (
@@ -95,6 +98,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             "firewall_rules": {},
             "policy_based_routes": {},
             "vpn_clients": {},
+            "port_forwards": {},
+            "traffic_rules": {},
             "site_vpns": {},
             "network_info": {},
             "client_links": {},
@@ -123,6 +128,14 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     def firewall_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched firewall rules for a site."""
         return self._section_available("firewall_rules", site_id)
+
+    def port_forwards_available(self, site_id: str) -> bool:
+        """Return True if the last refresh fetched port forwards for a site."""
+        return self._section_available("port_forwards", site_id)
+
+    def traffic_rules_available(self, site_id: str) -> bool:
+        """Return True if the last refresh fetched traffic rules for a site."""
+        return self._section_available("traffic_rules", site_id)
 
     def internet_activity_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched internet activity for a site."""
@@ -241,6 +254,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     firewall_rules={},
                     policy_based_routes={},
                     vpn_clients={},
+                    port_forwards={},
+                    traffic_rules={},
                     site_vpns={},
                     network_info={},
                     client_links={},
@@ -256,6 +271,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 "firewall_rules",
                 "policy_based_routes",
                 "vpn_clients",
+                "port_forwards",
+                "traffic_rules",
                 "site_vpns",
             ):
                 self.data[key] = {
@@ -279,6 +296,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             failed_sections: set[tuple[str, str]] = set()
             routes_by_site: dict[str, dict[str, Any]] = {}
             vpn_clients_by_site: dict[str, dict[str, Any]] = {}
+            port_forwards_by_site: dict[str, dict[str, Any]] = {}
+            traffic_rules_by_site: dict[str, dict[str, Any]] = {}
             site_vpns_by_site: dict[str, dict[str, Any]] = {}
             client_links_by_site: dict[str, dict[str, Any]] = {}
             now_ms = int(datetime.now(tz=UTC).timestamp() * 1000)
@@ -317,6 +336,34 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     legacy_mapping_failed=legacy_mapping_failed,
                     prior_site_vpns=self.data.get("site_vpns", {}).get(site_id, {}),
                 )
+                rule_site_name = verified_legacy_site_name(sites.get(site_id))
+                pf_result: dict[str, Any] | BaseException
+                tr_result: dict[str, Any] | BaseException
+                pf_result, tr_result = await asyncio.gather(
+                    async_fetch_site_rule_section(
+                        self,
+                        "port_forwards",
+                        site_id,
+                        rule_site_name,
+                        self.network_client.port_forwards.list_port_forwards,
+                        failed_sections,
+                    ),
+                    async_fetch_site_rule_section(
+                        self,
+                        "traffic_rules",
+                        site_id,
+                        rule_site_name,
+                        self.network_client.traffic_rules.list_traffic_rules,
+                        failed_sections,
+                    ),
+                    return_exceptions=True,
+                )
+                if isinstance(pf_result, BaseException):
+                    raise pf_result
+                if isinstance(tr_result, BaseException):
+                    raise tr_result
+                port_forwards_by_site[site_id] = pf_result
+                traffic_rules_by_site[site_id] = tr_result
 
             self.data.update(
                 sites=sites,
@@ -328,6 +375,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 },
                 policy_based_routes=routes_by_site,
                 vpn_clients=vpn_clients_by_site,
+                port_forwards=port_forwards_by_site,
+                traffic_rules=traffic_rules_by_site,
                 site_vpns=site_vpns_by_site,
                 client_links=client_links_by_site,
             )

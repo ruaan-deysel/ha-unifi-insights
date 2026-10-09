@@ -27,12 +27,17 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
-from custom_components.unifi_insights.api import UniFiGlobalAlarmManagerError
+from custom_components.unifi_insights.api import (
+    UniFiGlobalAlarmManagerError,
+    UniFiNotFoundError,
+)
 from custom_components.unifi_insights.const import CONF_CONSOLE_ID, DOMAIN
 from custom_components.unifi_insights.data_transforms import (
     correlate_innerspace_devices,
     normalize_innerspace_snapshot,
 )
+
+from .config_sections import rule_display_name, verified_legacy_site_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -307,6 +312,8 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "policy_based_routes", {}
             ),
             "vpn_clients": self._config_coordinator.data.get("vpn_clients", {}),
+            "port_forwards": self._config_coordinator.data.get("port_forwards", {}),
+            "traffic_rules": self._config_coordinator.data.get("traffic_rules", {}),
             "site_vpns": self._config_coordinator.data.get("site_vpns", {}),
             "network_info": self._config_coordinator.data.get("network_info", {}),
             "client_links": self._config_coordinator.data.get("client_links", {}),
@@ -383,6 +390,14 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def firewall_available(self, site_id: str) -> bool:
         """Return True if a site's firewall rules were fetched on the last refresh."""
         return self._config_coordinator.firewall_available(site_id)
+
+    def port_forwards_available(self, site_id: str) -> bool:
+        """Return True if a site's port forwards were fetched on the last refresh."""
+        return bool(self._config_coordinator.port_forwards_available(site_id))
+
+    def traffic_rules_available(self, site_id: str) -> bool:
+        """Return True if a site's traffic rules were fetched on the last refresh."""
+        return bool(self._config_coordinator.traffic_rules_available(site_id))
 
     def internet_activity_available(self, site_id: str) -> bool:
         """Return True if a site's internet activity was fetched on the last refresh."""
@@ -649,6 +664,66 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             enabled=enabled,
         )
 
+    async def async_set_port_forward_enabled(
+        self, site_id: str, rule_id: str, *, enabled: bool
+    ) -> None:
+        """Enable or disable a port forwarding rule."""
+        rule_data = (
+            self._config_coordinator.data.get("port_forwards", {})
+            .get(site_id, {})
+            .get(rule_id, {})
+        )
+        display_name = rule_display_name(rule_data, rule_id, "name")
+        site_name = self._require_verified_legacy_site_name(site_id)
+        try:
+            await self.network_client.port_forwards.update_port_forward(
+                site_name, rule_id, enabled=enabled
+            )
+        except UniFiNotFoundError as err:
+            _LOGGER.warning(
+                "Unable to update port forward %s: it no longer exists on the console",
+                display_name,
+            )
+            await self.async_request_refresh()
+            msg = f"Unable to update port forward {display_name}"
+            raise HomeAssistantError(msg) from err
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _LOGGER.exception("Unable to update port forward %s", display_name)
+            msg = f"Unable to update port forward {display_name}"
+            raise HomeAssistantError(msg) from err
+
+    async def async_set_traffic_rule_enabled(
+        self, site_id: str, rule_id: str, *, enabled: bool
+    ) -> None:
+        """Enable or disable a traffic rule."""
+        rule_data = (
+            self._config_coordinator.data.get("traffic_rules", {})
+            .get(site_id, {})
+            .get(rule_id, {})
+        )
+        display_name = rule_display_name(rule_data, rule_id, "description")
+        site_name = self._require_verified_legacy_site_name(site_id)
+        try:
+            await self.network_client.traffic_rules.update_traffic_rule(
+                site_name, rule_id, enabled=enabled
+            )
+        except UniFiNotFoundError as err:
+            _LOGGER.warning(
+                "Unable to update traffic rule %s: it no longer exists on the console",
+                display_name,
+            )
+            await self.async_request_refresh()
+            msg = f"Unable to update traffic rule {display_name}"
+            raise HomeAssistantError(msg) from err
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            _LOGGER.exception("Unable to update traffic rule %s", display_name)
+            msg = f"Unable to update traffic rule {display_name}"
+            raise HomeAssistantError(msg) from err
+
     async def async_update_camera(self, camera_id: str, **kwargs: Any) -> None:
         """Update a camera via the Protect cameras endpoint."""
         protect_client = self._require_protect_client()
@@ -676,8 +751,8 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Never falls back to "default" or single-site mapping.
         """
         site = self._config_coordinator.get_site(site_id)
-        internal_ref = site.get("internalReference") if isinstance(site, dict) else None
-        if not isinstance(internal_ref, str) or not internal_ref.strip():
+        site_name = verified_legacy_site_name(site)
+        if not site_name:
             msg = f"No verified classic site name found for site {site_id}"
             raise HomeAssistantError(
                 msg,
@@ -685,7 +760,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 translation_key="legacy_site_not_found",
                 translation_placeholders={"site_id": site_id},
             )
-        return internal_ref.strip()
+        return site_name
 
     def _resolve_client_action_target(
         self, site_id: str, client_id: str

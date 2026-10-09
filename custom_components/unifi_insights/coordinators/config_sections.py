@@ -12,7 +12,7 @@ from custom_components.unifi_insights.topology_contract import normalize_mac
 from .internet_activity import resolve_report_site_name as resolve_report_site_name
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from custom_components.unifi_insights.api.network import UniFiNetworkClient
 
@@ -256,6 +256,58 @@ async def async_fetch_site_firewall(
         if firewall_rule_id:
             firewall_rules_dict[firewall_rule_id] = firewall_rule
     return firewall_rules_dict
+
+
+def verified_legacy_site_name(site_data: Any) -> str | None:
+    """
+    Return the verified classic site name (internalReference) for older APIs.
+
+    Spec: internal unique name of the site used in older APIs; never fuzzy.
+    """
+    if isinstance(site_data, dict):
+        val = site_data.get("internalReference")
+        if isinstance(val, str) and (stripped := val.strip()):
+            return stripped
+    return None
+
+
+def rule_display_name(
+    rule_data: Any,
+    rule_id: str,
+    name_field: str = "name",
+) -> str:
+    """Return stripped display name for a rule or fall back to rule_id."""
+    if isinstance(rule_data, dict):
+        rule_name = rule_data.get(name_field)
+        if isinstance(rule_name, str) and (stripped := rule_name.strip()):
+            return stripped
+    return rule_id
+
+
+async def async_fetch_site_rule_section(
+    coordinator: Any,
+    section: str,
+    site_id: str,
+    site_name: str | None,
+    fetch: Callable[[str], Awaitable[list[Any]]],
+    failed_sections: set[tuple[str, str]],
+) -> dict[str, Any]:
+    """Fetch a network rule section (port forwards, traffic rules) for one site."""
+    if site_name is None:
+        return {}
+    models = await coordinator._fetch_optional_section(
+        section, site_id, partial(fetch, site_name)
+    )
+    if models is None:
+        failed_sections.add((section, site_id))
+        return dict(coordinator.data.get(section, {}).get(site_id, {}))
+    rules_dict: dict[str, Any] = {}
+    for model in models:
+        record = coordinator._model_to_dict(model)
+        rule_id = record.get("_id") or record.get("id")
+        if isinstance(rule_id, str) and rule_id:
+            rules_dict[rule_id] = record
+    return rules_dict
 
 
 async def async_fetch_site_routes(

@@ -142,6 +142,18 @@ CLIENT_TO_REDACT = TO_REDACT | PERSONAL_NAMES
 # WiFi records: the SSID is also carried in the record's "name" field.
 WIFI_TO_REDACT = TO_REDACT | {"name"}
 
+# Port forwards: the forward target, the allowed source and the WAN-side
+# destination locate hosts inside and outside the network.
+PORT_FORWARD_TO_REDACT = TO_REDACT | {
+    "fwd",
+    "src",
+    "destination_ip",
+    "destination_ips",
+}
+# Traffic rules: the blocked or allowed domains and address ranges
+# ("ip_addresses" is already in TO_REDACT; client MACs are anonymised below).
+TRAFFIC_RULE_TO_REDACT = TO_REDACT | {"domains", "ip_ranges"}
+
 # Keys whose value is a MAC address even when it arrives unpunctuated. Values
 # are replaced with a per-report placeholder rather than dropped; see
 # _anonymize_macs.
@@ -167,6 +179,7 @@ MAC_KEYS = frozenset(
         "wan_mac",
         "lanMac",
         "lan_mac",
+        "client_mac",
     }
 )
 
@@ -267,6 +280,8 @@ def _redact_coordinator_data(data: Any) -> Any:
     for section, to_redact in (
         ("clients", CLIENT_TO_REDACT),
         ("wifi", WIFI_TO_REDACT),
+        ("port_forwards", PORT_FORWARD_TO_REDACT),
+        ("traffic_rules", TRAFFIC_RULE_TO_REDACT),
     ):
         records = data.get(section)
         if isinstance(records, Mapping):

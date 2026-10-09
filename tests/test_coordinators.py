@@ -9448,7 +9448,6 @@ class TestConfigCoordinatorVouchers:
         assert coordinator.vouchers_available("default") is False
 
     @pytest.mark.asyncio
-    @pytest.mark.asyncio
     async def test_vouchers_incomplete_listing_keeps_inventory_and_flags_section(
         self, coordinator: UnifiConfigCoordinator
     ) -> None:

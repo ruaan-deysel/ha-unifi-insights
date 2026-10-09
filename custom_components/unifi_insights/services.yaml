@@ -63,31 +63,6 @@ power_cycle_port:
           mode: box
 
 # UniFi Protect Camera services
-set_recording_mode:
-  name: Set Recording Mode
-  description: Set the recording mode for a UniFi Protect camera.
-  target:
-    entity:
-      integration: unifi_insights
-      domain: camera
-  fields:
-    camera_id:
-      name: Camera ID
-      description: The ID of the camera
-      required: false
-      selector:
-        text:
-    mode:
-      name: Recording Mode
-      description: The recording mode to set
-      required: true
-      selector:
-        select:
-          options:
-            - "always"
-            - "never"
-            - "detections"
-
 set_hdr_mode:
   name: Set HDR Mode
   description: Set the HDR mode for a UniFi Protect camera.

@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - **Breaking change:** The camera **Privacy Mode** switch is removed because the official UniFi Protect API neither reports privacy mode in camera GET responses nor accepts privacy fields in PATCH requests (toggling resulted in a 400 AJV_PARSE_ERROR). Existing `switch.*_privacy_mode` entity registry entries are automatically removed on upgrade. ([#271](https://github.com/ruaan-deysel/ha-unifi-insights/issues/271))
+- **Breaking change:** The `unifi_insights.set_recording_mode` action is removed because recording mode is not in the Protect v7.3.70 camera API (PATCH or GET), and the camera PATCH rejects unknown fields. Automations and scripts calling this action must be removed. ([#272](https://github.com/ruaan-deysel/ha-unifi-insights/issues/272))
 
 ### Fixed
 

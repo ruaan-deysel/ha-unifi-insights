@@ -68,7 +68,6 @@ from .const import (
     SERVICE_SET_LIGHT_MODE,
     SERVICE_SET_LIVEVIEW,
     SERVICE_SET_MIC_VOLUME,
-    SERVICE_SET_RECORDING_MODE,
     SERVICE_SET_VIDEO_MODE,
     SERVICE_TRIGGER_ALARM,
     VIDEO_MODE_DEFAULT,
@@ -1172,16 +1171,6 @@ POWER_CYCLE_PORT_SCHEMA = vol.Schema(
     }
 )
 
-# Schema for set_recording_mode service
-SET_RECORDING_MODE_SCHEMA = vol.Schema(
-    {
-        vol.Optional("camera_id"): TARGET_SELECTOR_SCHEMA,
-        vol.Optional("device_id"): TARGET_SELECTOR_SCHEMA,
-        vol.Optional("entity_id"): TARGET_SELECTOR_SCHEMA,
-        vol.Optional("target"): TARGET_DICT_SCHEMA,
-        vol.Required("mode"): cv.string,
-    }
-)
 
 # Schema for set_hdr_mode service
 SET_HDR_MODE_SCHEMA = vol.Schema(
@@ -1893,21 +1882,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         """Handle the power cycle port service call."""
         await _async_handle_power_cycle_port(hass, call)
 
-    async def async_handle_set_recording_mode(call: ServiceCall) -> None:
-        """Handle the set_recording_mode service call."""
-        raw_camera_id = _extract_target_id(call, "camera_id")
-        if not raw_camera_id:
-            msg = "Camera ID or target is required"
-            raise ServiceValidationError(msg)
-        mode = call.data["mode"]
-
-        coordinator, camera_id = _get_coordinator_for_protect_resource(
-            hass, resource_type="camera", resource_id=raw_camera_id
-        )
-
-        _LOGGER.info("Setting recording mode for camera %s to %s", camera_id, mode)
-        await coordinator.async_set_recording_mode(camera_id, mode)
-
     async def async_handle_set_hdr_mode(call: ServiceCall) -> None:
         """Handle the set_hdr_mode service call."""
         raw_camera_id = _extract_target_id(call, "camera_id")
@@ -1974,13 +1948,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         SERVICE_POWER_CYCLE_PORT,
         async_handle_power_cycle_port,
         schema=POWER_CYCLE_PORT_SCHEMA,  # type: ignore[arg-type]
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_RECORDING_MODE,
-        async_handle_set_recording_mode,
-        schema=SET_RECORDING_MODE_SCHEMA,
     )
 
     hass.services.async_register(
@@ -2473,10 +2440,6 @@ async def async_unload_services(hass: HomeAssistant) -> None:
 
     if hass.services.has_service(DOMAIN, SERVICE_POWER_CYCLE_PORT):
         hass.services.async_remove(DOMAIN, SERVICE_POWER_CYCLE_PORT)
-
-    # Unload Unifi Protect services
-    if hass.services.has_service(DOMAIN, SERVICE_SET_RECORDING_MODE):
-        hass.services.async_remove(DOMAIN, SERVICE_SET_RECORDING_MODE)
 
     if hass.services.has_service(DOMAIN, SERVICE_SET_HDR_MODE):
         hass.services.async_remove(DOMAIN, SERVICE_SET_HDR_MODE)

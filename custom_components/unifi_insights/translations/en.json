@@ -674,9 +674,6 @@
       "liveview": {
         "name": "Liveview"
       },
-      "recording_mode": {
-        "name": "Recording Mode"
-      },
       "infrared_mode": {
         "name": "Infrared Mode"
       }

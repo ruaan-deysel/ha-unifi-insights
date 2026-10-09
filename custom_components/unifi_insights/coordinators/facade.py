@@ -806,16 +806,6 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mode,
         )
 
-    async def async_set_recording_mode(self, camera_id: str, mode: str) -> None:
-        """Set recording mode for a camera."""
-        protect_client = self._require_protect_client()
-        await self._async_execute_api_action(
-            f"Unable to set recording mode for camera {camera_id}",
-            protect_client.cameras.update,
-            camera_id,
-            recordingMode=mode,
-        )
-
     async def async_set_chime_ringtone(self, chime_id: str, ringtone_id: str) -> None:
         """Set ringtone for a chime."""
         protect_client = self._require_protect_client()

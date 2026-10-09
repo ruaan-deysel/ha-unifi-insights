@@ -32,7 +32,6 @@ from custom_components.unifi_insights.services import (
     SERVICE_SET_LIGHT_MODE,
     SERVICE_SET_LIVEVIEW,
     SERVICE_SET_MIC_VOLUME,
-    SERVICE_SET_RECORDING_MODE,
     SERVICE_SET_VIDEO_MODE,
     _extract_target_id,
     _get_coordinator_for_network_resource,
@@ -45,7 +44,6 @@ from custom_components.unifi_insights.services import (
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
 from custom_components.unifi_insights.api.network.client import UniFiNetworkClient
 from custom_components.unifi_insights.const import DOMAIN, SERVICE_POWER_CYCLE_PORT
 from custom_components.unifi_insights.coordinators.carrier_fabric import (
@@ -137,7 +135,6 @@ class TestAsyncSetupServices:
         assert hass.services.has_service(DOMAIN, SERVICE_REFRESH_DATA)
         assert hass.services.has_service(DOMAIN, SERVICE_RESTART_DEVICE)
         assert hass.services.has_service(DOMAIN, SERVICE_POWER_CYCLE_PORT)
-        assert hass.services.has_service(DOMAIN, "set_recording_mode")
         assert hass.services.has_service(DOMAIN, "set_hdr_mode")
         assert hass.services.has_service(DOMAIN, "set_video_mode")
         assert hass.services.has_service(DOMAIN, "set_mic_volume")
@@ -145,6 +142,7 @@ class TestAsyncSetupServices:
         assert hass.services.has_service(DOMAIN, "set_light_level")
         assert hass.services.has_service(DOMAIN, "ptz_move")
         assert hass.services.has_service(DOMAIN, "ptz_patrol")
+        assert not hass.services.has_service(DOMAIN, "set_recording_mode")
 
         # Clean up
         await async_unload_services(hass)
@@ -734,56 +732,6 @@ class TestPowerCyclePortService:
 
 class TestProtectServices:
     """Tests for UniFi Protect service handlers."""
-
-    async def test_set_recording_mode_no_coordinator(self, hass: HomeAssistant):
-        """Test set_recording_mode with no coordinator."""
-        await async_setup_services(hass)
-
-        with (
-            patch.object(
-                hass.config_entries,
-                "async_entries",
-                return_value=[],
-            ),
-            pytest.raises(HomeAssistantError, match="No UniFi Protect coordinator"),
-        ):
-            await hass.services.async_call(
-                DOMAIN,
-                "set_recording_mode",
-                {"camera_id": "cam1", "mode": "always"},
-                blocking=True,
-            )
-
-        await async_unload_services(hass)
-
-    async def test_set_recording_mode_success(self, hass: HomeAssistant):
-        """Test set_recording_mode success."""
-        mock_coordinator = MagicMock()
-        mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.async_set_recording_mode = AsyncMock()
-        mock_entry = MagicMock()
-        mock_entry.runtime_data = MagicMock()
-        mock_entry.runtime_data.coordinator = mock_coordinator
-
-        await async_setup_services(hass)
-
-        with patch.object(
-            hass.config_entries,
-            "async_entries",
-            return_value=[mock_entry],
-        ):
-            await hass.services.async_call(
-                DOMAIN,
-                "set_recording_mode",
-                {"camera_id": "cam1", "mode": "always"},
-                blocking=True,
-            )
-
-        mock_coordinator.async_set_recording_mode.assert_called_once_with(
-            "cam1", "always"
-        )
-
-        await async_unload_services(hass)
 
     async def test_set_hdr_mode_success(self, hass: HomeAssistant):
         """Test set_hdr_mode success."""
@@ -1511,63 +1459,6 @@ class TestServiceErrorHandling:
                 DOMAIN,
                 "restart_device",
                 {"site_id": "site1", "device_id": "device1"},
-                blocking=True,
-            )
-
-        await async_unload_services(hass)
-
-    async def test_set_recording_mode_no_protect(self, hass: HomeAssistant):
-        """Test set_recording_mode when no Protect coordinator is found."""
-        mock_coordinator = MagicMock()
-        mock_coordinator.protect_client = None
-        mock_entry = MagicMock()
-        mock_entry.runtime_data = MagicMock()
-        mock_entry.runtime_data.coordinator = mock_coordinator
-
-        await async_setup_services(hass)
-
-        with (
-            patch.object(
-                hass.config_entries,
-                "async_entries",
-                return_value=[mock_entry],
-            ),
-            pytest.raises(HomeAssistantError, match="No UniFi Protect"),
-        ):
-            await hass.services.async_call(
-                DOMAIN,
-                "set_recording_mode",
-                {"camera_id": "cam1", "mode": "always"},
-                blocking=True,
-            )
-
-        await async_unload_services(hass)
-
-    async def test_set_recording_mode_error(self, hass: HomeAssistant):
-        """Test set_recording_mode with exception."""
-        mock_coordinator = MagicMock()
-        mock_coordinator.protect_client = MagicMock()
-        mock_coordinator.async_set_recording_mode = AsyncMock(
-            side_effect=HomeAssistantError("Error setting recording mode")
-        )
-        mock_entry = MagicMock()
-        mock_entry.runtime_data = MagicMock()
-        mock_entry.runtime_data.coordinator = mock_coordinator
-
-        await async_setup_services(hass)
-
-        with (
-            patch.object(
-                hass.config_entries,
-                "async_entries",
-                return_value=[mock_entry],
-            ),
-            pytest.raises(HomeAssistantError, match="Error setting recording"),
-        ):
-            await hass.services.async_call(
-                DOMAIN,
-                "set_recording_mode",
-                {"camera_id": "cam1", "mode": "always"},
                 blocking=True,
             )
 
@@ -2789,7 +2680,6 @@ class TestConsoleOwnershipRouting:
         coord1.async_authorize_guest = AsyncMock()
         coord1.async_generate_voucher = AsyncMock()
         coord1.async_delete_voucher = AsyncMock()
-        coord1.async_set_recording_mode = AsyncMock()
         coord1.async_set_hdr_mode = AsyncMock()
         coord1.async_set_video_mode = AsyncMock()
         coord1.async_set_microphone_volume = AsyncMock()
@@ -2829,7 +2719,6 @@ class TestConsoleOwnershipRouting:
         coord2.async_authorize_guest = AsyncMock()
         coord2.async_generate_voucher = AsyncMock()
         coord2.async_delete_voucher = AsyncMock()
-        coord2.async_set_recording_mode = AsyncMock()
         coord2.async_set_hdr_mode = AsyncMock()
         coord2.async_set_video_mode = AsyncMock()
         coord2.async_set_microphone_volume = AsyncMock()
@@ -2899,15 +2788,6 @@ class TestConsoleOwnershipRouting:
             return_value=[entry1, entry2],
         ):
             # Camera services on console 2
-            await hass.services.async_call(
-                DOMAIN,
-                "set_recording_mode",
-                {"camera_id": "cam2", "mode": "always"},
-                blocking=True,
-            )
-            coord2.async_set_recording_mode.assert_called_once_with("cam2", "always")
-            coord1.async_set_recording_mode.assert_not_called()
-
             await hass.services.async_call(
                 DOMAIN,
                 "set_hdr_mode",
@@ -3269,8 +3149,8 @@ class TestConsoleOwnershipRouting:
         ):
             await hass.services.async_call(
                 DOMAIN,
-                "set_recording_mode",
-                {"camera_id": "cam_nonexistent", "mode": "always"},
+                "set_hdr_mode",
+                {"camera_id": "cam_nonexistent", "mode": "auto"},
                 blocking=True,
             )
 
@@ -4176,7 +4056,7 @@ class TestServiceComprehensiveFullCoverage:
         assert _extract_target_id(call, "device_id") == "switch.dev2"
 
         # Top-level device_id when looking for camera_id
-        call = MagicMock(service="set_recording_mode", data={"device_id": "cam_dev"})
+        call = MagicMock(service="set_hdr_mode", data={"device_id": "cam_dev"})
         assert _extract_target_id(call, "camera_id") == "cam_dev"
 
         # List with single item
@@ -4688,14 +4568,6 @@ class TestServiceComprehensiveFullCoverage:
                 DOMAIN, SERVICE_POWER_CYCLE_PORT, {"port_idx": 1}, blocking=True
             )
 
-        # 2. set_recording_mode missing camera_id
-        with pytest.raises(
-            ServiceValidationError, match="Camera ID or target is required"
-        ):
-            await hass.services.async_call(
-                DOMAIN, SERVICE_SET_RECORDING_MODE, {"mode": "always"}, blocking=True
-            )
-
         # 3. set_hdr_mode missing camera_id
         with pytest.raises(
             ServiceValidationError, match="Camera ID or target is required"
@@ -5072,11 +4944,11 @@ class TestServiceComprehensiveFullCoverage:
             "async_restart_device",
         ),
         (
-            "set_recording_mode",
+            "set_hdr_mode",
             "camera",
             "unifi_insights_camera_cam",
-            {"mode": "always"},
-            "async_set_recording_mode",
+            {"mode": "auto"},
+            "async_set_hdr_mode",
         ),
         (
             "authorize_guest",

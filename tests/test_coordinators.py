@@ -6238,17 +6238,6 @@ class TestUnifiFacadeCoordinator:
         )
 
     @pytest.mark.asyncio
-    async def test_async_set_recording_mode(
-        self, facade_coordinator: UnifiFacadeCoordinator
-    ):
-        """Test async_set_recording_mode delegates correctly."""
-        facade_coordinator.protect_client.cameras.update = AsyncMock()
-        await facade_coordinator.async_set_recording_mode("cam1", "always")
-        facade_coordinator.protect_client.cameras.update.assert_called_once_with(
-            "cam1", recordingMode="always"
-        )
-
-    @pytest.mark.asyncio
     async def test_async_set_chime_ringtone(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):

@@ -192,10 +192,14 @@ class UnifiProtectMicrophoneVolumeNumber(UnifiProtectEntity, NumberEntity):
         self._attr_native_value = camera_data.get("micVolume")
 
         # Set attributes
+        mic_enabled = camera_data.get("isMicEnabled")
+        if mic_enabled is None:
+            mic_enabled = camera_data.get("micEnabled", False)
+
         self._attr_extra_state_attributes = {
             ATTR_CAMERA_ID: self._device_id,
             ATTR_CAMERA_NAME: camera_data.get("name"),
-            ATTR_MIC_ENABLED: camera_data.get("micEnabled", False),
+            ATTR_MIC_ENABLED: bool(mic_enabled),
         }
 
     async def async_set_native_value(self, value: float) -> None:

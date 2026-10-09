@@ -156,6 +156,17 @@ def _water_leak_channel_count(sensor_data: dict[str, Any]) -> int:
     return 0
 
 
+def _camera_has_mic(camera_data: dict[str, Any]) -> bool:
+    """Return True if the camera has a microphone, defaulting to True when missing."""
+    feature_flags = get_field(camera_data, "featureFlags", "feature_flags")
+    if not isinstance(feature_flags, dict):
+        return True
+    has_mic = get_field(feature_flags, "hasMic", "has_mic")
+    if has_mic is None:
+        return True
+    return bool(has_mic)
+
+
 def _supports_internal_leak(sensor_data: dict[str, Any]) -> bool:
     """Return True if the sensor supports (internal) leak detection."""
     return (
@@ -294,6 +305,22 @@ BINARY_SENSOR_TYPES: tuple[UnifiInsightsBinarySensorEntityDescription, ...] = (
         ),
         device_type=DEVICE_TYPE_CAMERA,
         entity_type="protect",
+    ),
+    # Camera microphone status (read-only)
+    UnifiInsightsBinarySensorEntityDescription(
+        key="camera_microphone",
+        translation_key="camera_microphone",
+        device_type=DEVICE_TYPE_CAMERA,
+        entity_type="protect",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        capability_fn=_camera_has_mic,
+        value_fn=lambda device: (
+            bool(
+                device.get("isMicEnabled")
+                if device.get("isMicEnabled") is not None
+                else device.get("micEnabled", False)
+            )
+        ),
     ),
     # Sensor motion detection
     UnifiInsightsBinarySensorEntityDescription(
@@ -545,6 +572,10 @@ async def async_setup_entry(
                             if (
                                 description.entity_type == "protect"
                                 and description.device_type == DEVICE_TYPE_CAMERA
+                                and (
+                                    description.capability_fn is None
+                                    or description.capability_fn(camera_data)
+                                )
                             ):
                                 # Skip doorbell sensors for non-doorbell cameras
                                 if description.key in [
@@ -727,7 +758,9 @@ class UnifiProtectBinarySensor(UnifiProtectEntity, BinarySensorEntity):
             ),
         )
 
-        if self.entity_description.device_type == DEVICE_TYPE_CAMERA:
+        if self.entity_description.key == "camera_microphone":
+            self._attr_extra_state_attributes = {}
+        elif self.entity_description.device_type == DEVICE_TYPE_CAMERA:
             self._attr_extra_state_attributes = {
                 ATTR_CAMERA_ID: self._device_id,
                 ATTR_CAMERA_NAME: device_name,

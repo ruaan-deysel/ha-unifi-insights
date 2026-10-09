@@ -603,6 +603,9 @@
       },
       "fob_keypad_beep": {
         "name": "Keypad Beep"
+      },
+      "camera_microphone": {
+        "name": "Microphone"
       }
     },
     "button": {
@@ -636,9 +639,6 @@
       }
     },
     "switch": {
-      "microphone": {
-        "name": "Microphone"
-      },
       "privacy_mode": {
         "name": "Privacy Mode"
       },

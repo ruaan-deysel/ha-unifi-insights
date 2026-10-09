@@ -264,6 +264,36 @@ class TestUnifiProtectMicrophoneVolumeNumber:
         assert attrs[ATTR_CAMERA_NAME] == "Test Camera"
         assert attrs[ATTR_MIC_ENABLED] is True
 
+    def test_extra_state_attributes_mic_enabled_precedence(
+        self, mock_coordinator
+    ) -> None:
+        """Test mic_enabled reads isMicEnabled first, then micEnabled."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = True
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = False
+        number = UnifiProtectMicrophoneVolumeNumber(
+            coordinator=mock_coordinator,
+            camera_id="camera1",
+        )
+        assert number.extra_state_attributes[ATTR_MIC_ENABLED] is True
+
+        # isMicEnabled False takes precedence over micEnabled True
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = False
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = True
+        number._update_from_data()
+        assert number.extra_state_attributes[ATTR_MIC_ENABLED] is False
+
+        # Fallback to micEnabled when isMicEnabled is None
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = None
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = True
+        number._update_from_data()
+        assert number.extra_state_attributes[ATTR_MIC_ENABLED] is True
+
+        # Default to False when both missing
+        del mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"]
+        del mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"]
+        number._update_from_data()
+        assert number.extra_state_attributes[ATTR_MIC_ENABLED] is False
+
     @pytest.mark.asyncio
     async def test_async_set_native_value_success(self, mock_coordinator) -> None:
         """Test setting volume successfully."""

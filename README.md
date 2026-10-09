@@ -200,7 +200,7 @@ data:
 
 ## UniFi Protect
 
-- **Cameras:** live view, snapshots and RTSPS streams, with switches and selects for the microphone, privacy mode, status light, HDR and video mode.
+- **Cameras:** live view, snapshots and RTSPS streams, with switches and selects for the privacy mode, status light, HDR and video mode.
 - **Detection:** motion, person, vehicle, animal and package binary sensors, and smart detection and doorbell event entities.
 - **Lights:** floodlight on/off and brightness, and a light mode action.
 - **Chimes:** play button, volume, repeat count and ringtone, and which doorbells ring the chime.
@@ -214,31 +214,31 @@ data:
 
 ### Protect entities
 
-| Entity                                                                                          | Type                  | Notes                                                                           |
-| ----------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
-| Camera                                                                                          | Camera                | Live view, snapshots, RTSPS stream                                              |
-| Motion Detection, Person Detection, Vehicle Detection, Animal Detection, Package Detection      | Binary sensor         | Cameras                                                                         |
-| Ring                                                                                            | Binary sensor         | Doorbells                                                                       |
-| Doorbell, Smart Detection, Door/Window                                                          | Event                 | Doorbell rings, smart detections, and sensor open/close events                  |
-| Microphone, Privacy Mode, Status Light, High FPS Mode                                           | Switch                | Camera settings                                                                 |
-| HDR Mode, Video Mode, PTZ Preset                                                                | Select                | Camera settings                                                                 |
-| Microphone Volume                                                                               | Number                | Camera microphone volume                                                        |
-| Start PTZ Patrol, Stop PTZ Patrol                                                               | Button                | PTZ cameras                                                                     |
-| Floodlight                                                                                      | Light                 | On/off and brightness                                                           |
-| Brightness Level                                                                                | Number                | Floodlight brightness level                                                     |
-| Play                                                                                            | Button                | Play the chime                                                                  |
-| Chime Volume, Repeat Times                                                                      | Number                | Chime settings                                                                  |
-| Ringtone                                                                                        | Select                | Chime ringtone                                                                  |
-| Liveview                                                                                        | Select                | Live view shown on a viewer                                                     |
-| Temperature, Humidity, Light, Battery                                                           | Sensor                | Protect sensors (°C, %, lux, %)                                                 |
-| Motion Detection, Door/Window Status, Tamper Detection, Leak Detection, External Leak Detection | Binary sensor         | Protect sensors                                                                 |
-| Storage Used, Storage Total, Storage Available, Storage Used Percentage                         | Sensor                | NVR storage (GB, %), when the console reports it                                |
-| Tamper Detection                                                                                | Binary sensor         | Alarm hubs, with the time and user name of the last tamper event                |
-| Thread Network                                                                                  | Binary sensor         | On when a gateway's Thread network reports a problem                            |
-| Thread Role, Thread Joined Devices                                                              | Sensor                | Thread gateways, diagnostic                                                     |
-| Keypad Beep, Keypad Beep Volume, Arm Control                                                    | Binary sensor, sensor | Keypad fobs, diagnostic, disabled by default                                    |
-| Siren (named after the device)                                                                  | Siren                 | Protect sirens: sound for 5, 10, 20 or 30 seconds, with volume                  |
-| Alarm                                                                                           | Alarm control panel   | NVRs that report an arm mode: arm away and disarm with the selected arm profile |
+| Entity                                                                                                 | Type                  | Notes                                                                           |
+| ------------------------------------------------------------------------------------------------------ | --------------------- | ------------------------------------------------------------------------------- |
+| Camera                                                                                                 | Camera                | Live view, snapshots, RTSPS stream                                              |
+| Motion Detection, Person Detection, Vehicle Detection, Animal Detection, Package Detection, Microphone | Binary sensor         | Cameras (Microphone is read-only; skipped if the camera reports no mic)         |
+| Ring                                                                                                   | Binary sensor         | Doorbells                                                                       |
+| Doorbell, Smart Detection, Door/Window                                                                 | Event                 | Doorbell rings, smart detections, and sensor open/close events                  |
+| Privacy Mode, Status Light, High FPS Mode                                                              | Switch                | Camera settings                                                                 |
+| HDR Mode, Video Mode, PTZ Preset                                                                       | Select                | Camera settings                                                                 |
+| Microphone Volume                                                                                      | Number                | Camera microphone volume                                                        |
+| Start PTZ Patrol, Stop PTZ Patrol                                                                      | Button                | PTZ cameras                                                                     |
+| Floodlight                                                                                             | Light                 | On/off and brightness                                                           |
+| Brightness Level                                                                                       | Number                | Floodlight brightness level                                                     |
+| Play                                                                                                   | Button                | Play the chime                                                                  |
+| Chime Volume, Repeat Times                                                                             | Number                | Chime settings                                                                  |
+| Ringtone                                                                                               | Select                | Chime ringtone                                                                  |
+| Liveview                                                                                               | Select                | Live view shown on a viewer                                                     |
+| Temperature, Humidity, Light, Battery                                                                  | Sensor                | Protect sensors (°C, %, lux, %)                                                 |
+| Motion Detection, Door/Window Status, Tamper Detection, Leak Detection, External Leak Detection        | Binary sensor         | Protect sensors                                                                 |
+| Storage Used, Storage Total, Storage Available, Storage Used Percentage                                | Sensor                | NVR storage (GB, %), when the console reports it                                |
+| Tamper Detection                                                                                       | Binary sensor         | Alarm hubs, with the time and user name of the last tamper event                |
+| Thread Network                                                                                         | Binary sensor         | On when a gateway's Thread network reports a problem                            |
+| Thread Role, Thread Joined Devices                                                                     | Sensor                | Thread gateways, diagnostic                                                     |
+| Keypad Beep, Keypad Beep Volume, Arm Control                                                           | Binary sensor, sensor | Keypad fobs, diagnostic, disabled by default                                    |
+| Siren (named after the device)                                                                         | Siren                 | Protect sirens: sound for 5, 10, 20 or 30 seconds, with volume                  |
+| Alarm                                                                                                  | Alarm control panel   | NVRs that report an arm mode: arm away and disarm with the selected arm profile |
 
 > **Alarm panel and the UniFi global alarm manager:** Protect's own arm state (`armMode`) does not follow the UniFi global alarm manager. While the global alarm manager is enabled, the panel is not created, or becomes unavailable, instead of showing a state that may be wrong. Whether it is enabled is checked with a read-only request when the NVR reports an arm mode. The check is repeated about every 10 minutes, so switching the global alarm manager on or off in the UniFi app takes up to that long to show, and reloading the integration entry checks immediately. If Protect gives no answer, the check is retried every 5 minutes, and Home Assistant logs a warning after three tries in a row. If Protect refuses an arm or disarm because the global alarm manager is on, Home Assistant says so.
 

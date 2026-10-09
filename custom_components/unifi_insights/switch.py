@@ -16,7 +16,6 @@ from .const import (
     ATTR_CAMERA_ID,
     ATTR_CAMERA_NAME,
     ATTR_HIGH_FPS_MODE,
-    ATTR_MIC_ENABLED,
     ATTR_PRIVACY_MODE,
     ATTR_STATUS_LIGHT,
     CONF_CLIENT_CONTROL,
@@ -287,6 +286,20 @@ async def async_setup_entry(
                 )
                 registry.async_remove(reg_entry.entity_id)
 
+    # Remove obsolete camera microphone switches (#269).
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            reg_entry.domain == "switch"
+            and reg_entry.platform == DOMAIN
+            and reg_entry.unique_id.startswith(f"{DOMAIN}_{DEVICE_TYPE_CAMERA}_")
+            and reg_entry.unique_id.endswith("_microphone")
+        ):
+            _LOGGER.debug(
+                "Removing obsolete camera microphone switch %s",
+                reg_entry.entity_id,
+            )
+            registry.async_remove(reg_entry.entity_id)
+
     known_switch_keys: set[tuple[Any, ...]] = set()
     first_setup = True
 
@@ -311,16 +324,6 @@ async def async_setup_entry(
                     for camera_id, camera_data in cameras.items():
                         if not isinstance(camera_data, dict):
                             continue
-                        # Microphone switch
-                        mic_key = (camera_id, "mic")
-                        if mic_key not in known_switch_keys:
-                            known_switch_keys.add(mic_key)
-                            entities.append(
-                                UnifiProtectMicrophoneSwitch(
-                                    coordinator=coordinator,
-                                    camera_id=camera_id,
-                                )
-                            )
                         # Privacy mode switch
                         privacy_key = (camera_id, "privacy")
                         if privacy_key not in known_switch_keys:
@@ -1000,85 +1003,6 @@ class UnifiInsightsVpnClientSwitch(
 # Backward compatibility aliases for switch classes
 UnifiPolicyBasedRouteSwitch = UnifiInsightsPolicyBasedRouteSwitch
 UnifiVpnClientSwitch = UnifiInsightsVpnClientSwitch
-
-
-class UnifiProtectMicrophoneSwitch(UnifiProtectEntity, SwitchEntity):
-    """Representation of a UniFi Protect Camera Microphone Switch."""
-
-    _attr_has_entity_name = True
-    _attr_translation_key = "microphone"
-
-    def __init__(
-        self,
-        coordinator: UnifiFacadeCoordinator,
-        camera_id: str,
-    ) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator, DEVICE_TYPE_CAMERA, camera_id, "microphone")
-
-        # Set entity category
-        self._attr_entity_category = EntityCategory.CONFIG
-
-        # Set initial state
-        self._update_from_data()
-
-    def _update_from_data(self) -> None:
-        """Update entity from data."""
-        camera_data = self.coordinator.data["protect"]["cameras"].get(
-            self._device_id, {}
-        )
-
-        # Protect v7.1+ renamed the field from micEnabled to isMicEnabled.
-        # Try the new name first so both firmware generations work correctly.
-        mic_val = camera_data.get("isMicEnabled")
-        if mic_val is None:
-            mic_val = camera_data.get("micEnabled", False)
-        self._attr_is_on = bool(mic_val)
-
-        # Set attributes
-        self._attr_extra_state_attributes = {
-            ATTR_CAMERA_ID: self._device_id,
-            ATTR_CAMERA_NAME: camera_data.get("name"),
-            ATTR_MIC_ENABLED: self._attr_is_on,
-        }
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the microphone on."""
-        _ = kwargs
-        _LOGGER.debug("Turning on microphone for camera %s", self._device_id)
-
-        await async_call_coordinator_action(
-            self.coordinator,
-            "async_update_camera",
-            f"Unable to turn on microphone for camera {self._device_id}",
-            self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
-                self._device_id,
-                isMicEnabled=True,
-            ),
-            isMicEnabled=True,
-        )
-        self._attr_is_on = True
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the microphone off."""
-        _ = kwargs
-        _LOGGER.debug("Turning off microphone for camera %s", self._device_id)
-
-        await async_call_coordinator_action(
-            self.coordinator,
-            "async_update_camera",
-            f"Unable to turn off microphone for camera {self._device_id}",
-            self._device_id,
-            fallback_factory=lambda: self.coordinator.protect_client.cameras.update(  # type: ignore[union-attr]
-                self._device_id,
-                isMicEnabled=False,
-            ),
-            isMicEnabled=False,
-        )
-        self._attr_is_on = False
-        self.async_write_ha_state()
 
 
 class UnifiProtectPrivacySwitch(UnifiProtectEntity, SwitchEntity):

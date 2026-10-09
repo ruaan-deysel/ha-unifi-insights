@@ -31,7 +31,6 @@ from custom_components.unifi_insights.const import (
     ATTR_CAMERA_ID,
     ATTR_CAMERA_NAME,
     ATTR_HIGH_FPS_MODE,
-    ATTR_MIC_ENABLED,
     ATTR_PRIVACY_MODE,
     ATTR_STATUS_LIGHT,
     CONF_CLIENT_CONTROL,
@@ -49,7 +48,6 @@ from custom_components.unifi_insights.switch import (
     UnifiOutletSwitch,
     UnifiPolicyBasedRouteSwitch,
     UnifiProtectHighFPSSwitch,
-    UnifiProtectMicrophoneSwitch,
     UnifiProtectPrivacySwitch,
     UnifiProtectStatusLightSwitch,
     UnifiVpnClientSwitch,
@@ -140,14 +138,13 @@ class TestAsyncSetupEntry:
 
         await async_setup_entry(hass, mock_entry, async_add_entities)
 
-        # Should add 3 switch entities per camera (microphone, privacy, status light)
+        # Should add 2 switch entities per camera (privacy, status light)
         # High FPS only added if hasHighFpsCapability is True
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
-        assert len(entities) == 3
-        assert isinstance(entities[0], UnifiProtectMicrophoneSwitch)
-        assert isinstance(entities[1], UnifiProtectPrivacySwitch)
-        assert isinstance(entities[2], UnifiProtectStatusLightSwitch)
+        assert len(entities) == 2
+        assert isinstance(entities[0], UnifiProtectPrivacySwitch)
+        assert isinstance(entities[1], UnifiProtectStatusLightSwitch)
 
     @pytest.mark.asyncio
     async def test_setup_entry_with_multiple_cameras(
@@ -173,8 +170,8 @@ class TestAsyncSetupEntry:
         await async_setup_entry(hass, mock_entry, async_add_entities)
 
         entities = async_add_entities.call_args[0][0]
-        # 3 cameras x 3 switches each = 9 switches
-        assert len(entities) == 9
+        # 3 cameras x 2 switches each = 6 switches
+        assert len(entities) == 6
 
     @pytest.mark.asyncio
     async def test_setup_entry_top_level_collections_not_dicts_are_skipped(
@@ -584,224 +581,94 @@ class TestPruneOrphanedSwitchEntities:
             assert mock_prune.call_count == 1
 
 
-class TestUnifiProtectMicrophoneSwitch:
-    """Tests for UnifiProtectMicrophoneSwitch entity."""
+class TestObsoleteMicrophoneSwitchCleanup:
+    """Tests for microphone switch removal and entity registry cleanup."""
 
-    @pytest.fixture
-    def mock_coordinator(self) -> MagicMock:
-        """Create mock coordinator."""
-        coordinator = MagicMock()
-        coordinator.protect_client = MagicMock()
-        coordinator.protect_client.base_url = "https://192.168.1.1"
-        coordinator.protect_client.cameras = MagicMock()
-        coordinator.protect_client.cameras.update = AsyncMock()
-        coordinator.network_client = MagicMock()
-        coordinator.network_client.base_url = "https://192.168.1.1"
-        coordinator.data = {
-            "sites": {},
-            "devices": {},
-            "protect": {
-                "cameras": {
-                    "camera1": {
-                        "id": "camera1",
-                        "name": "Test Camera",
-                        "state": "CONNECTED",
-                        "mac": "AA:BB:CC:DD:EE:FF",
-                        "type": "UVC-G4-Pro",
-                        "firmwareVersion": "1.0.0",
-                        "isMicEnabled": True,
-                    }
-                },
-                "lights": {},
-                "sensors": {},
-                "nvrs": {},
-                "viewers": {},
-                "chimes": {},
-                "liveviews": {},
-            },
+    @pytest.mark.asyncio
+    async def test_camera_discovery_does_not_create_microphone_switch(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Assert that camera discovery does not create a microphone switch."""
+        mock_coordinator.data["protect"]["cameras"] = {
+            "camera1": {
+                "id": "camera1",
+                "name": "Front Camera",
+                "state": "CONNECTED",
+                "isMicEnabled": True,
+            }
         }
-        return coordinator
+        mock_entry = MagicMock()
+        mock_entry.entry_id = "test_entry"
+        mock_entry.options = {CONF_CLIENT_CONTROL: False}
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
-    def test_initialization(self, mock_coordinator) -> None:
-        """Test switch entity initialization."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
+        async_add_entities = MagicMock()
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        assert not any(e.unique_id.endswith("_microphone") for e in entities)
+        assert not any(
+            getattr(e, "_attr_translation_key", None) == "microphone" for e in entities
         )
-
-        assert switch._device_id == "camera1"
-        assert switch._device_type == DEVICE_TYPE_CAMERA
-        assert switch._attr_has_entity_name is True
-        assert switch._attr_translation_key == "microphone"
-        assert switch._attr_entity_category == EntityCategory.CONFIG
-
-    def test_update_from_data_mic_enabled(self, mock_coordinator) -> None:
-        """Test _update_from_data with microphone enabled."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is True
-
-    def test_update_from_data_mic_disabled(self, mock_coordinator) -> None:
-        """Test _update_from_data with microphone disabled."""
-        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = False
-
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is False
-
-    def test_extra_state_attributes(self, mock_coordinator) -> None:
-        """Test extra state attributes."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        attrs = switch._attr_extra_state_attributes
-        assert attrs[ATTR_CAMERA_ID] == "camera1"
-        assert attrs[ATTR_CAMERA_NAME] == "Test Camera"
-        assert attrs[ATTR_MIC_ENABLED] is True
 
     @pytest.mark.asyncio
-    async def test_async_turn_on_success(self, mock_coordinator) -> None:
-        """Test turning microphone on successfully."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
+    async def test_setup_removes_obsolete_microphone_switch_registry_entry(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Assert that setup removes obsolete microphone switch entries
+        and preserves other switches.
+        """
+        mock_coordinator.data["protect"]["cameras"] = {}
+        mock_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="UniFi Protect Test",
+            data={},
+            entry_id="test_cleanup_entry",
+            options={CONF_CLIENT_CONTROL: True},
         )
-        switch.async_write_ha_state = MagicMock()
+        mock_entry.add_to_hass(hass)
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
-        await switch.async_turn_on()
-
-        mock_coordinator.protect_client.cameras.update.assert_called_once_with(
-            "camera1",
-            isMicEnabled=True,
+        registry: EntityRegistry = async_get_entity_registry(hass)
+        stale_mic_entry = registry.async_get_or_create(
+            "switch",
+            DOMAIN,
+            f"{DOMAIN}_camera_camera1_microphone",
+            config_entry=mock_entry,
         )
-        assert switch._attr_is_on is True
-        switch.async_write_ha_state.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_on_error(self, mock_coordinator) -> None:
-        """Test turning microphone on with error."""
-        mock_coordinator.protect_client.cameras.update.side_effect = Exception(
-            "API error"
+        preserved_mic_sensor_entry = registry.async_get_or_create(
+            "binary_sensor",
+            DOMAIN,
+            f"{DOMAIN}_camera_camera1_camera_microphone",
+            config_entry=mock_entry,
         )
-
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
+        preserved_light_entry = registry.async_get_or_create(
+            "switch",
+            DOMAIN,
+            f"{DOMAIN}_camera_camera1_status_light",
+            config_entry=mock_entry,
         )
-        switch._attr_is_on = False
-        switch.async_write_ha_state = MagicMock()
-
-        with pytest.raises(HomeAssistantError, match="Unable to turn on microphone"):
-            await switch.async_turn_on()
-
-        switch.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_off_success(self, mock_coordinator) -> None:
-        """Test turning microphone off successfully."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch.async_write_ha_state = MagicMock()
-
-        await switch.async_turn_off()
-
-        mock_coordinator.protect_client.cameras.update.assert_called_once_with(
-            "camera1",
-            isMicEnabled=False,
-        )
-        assert switch._attr_is_on is False
-        switch.async_write_ha_state.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_off_error(self, mock_coordinator) -> None:
-        """Test turning microphone off with error."""
-        mock_coordinator.protect_client.cameras.update.side_effect = Exception(
-            "API error"
+        preserved_block_entry = registry.async_get_or_create(
+            "switch",
+            DOMAIN,
+            "site1_client1_block_switch",
+            config_entry=mock_entry,
         )
 
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch._attr_is_on = True
-        switch.async_write_ha_state = MagicMock()
+        assert registry.async_get(stale_mic_entry.entity_id) is not None
+        assert registry.async_get(preserved_mic_sensor_entry.entity_id) is not None
+        assert registry.async_get(preserved_light_entry.entity_id) is not None
+        assert registry.async_get(preserved_block_entry.entity_id) is not None
 
-        with pytest.raises(HomeAssistantError, match="Unable to turn off microphone"):
-            await switch.async_turn_off()
+        async_add_entities = MagicMock()
+        await async_setup_entry(hass, mock_entry, async_add_entities)
 
-        switch.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_on_ignores_kwargs(self, mock_coordinator) -> None:
-        """Test turning microphone on ignores extra kwargs."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch.async_write_ha_state = MagicMock()
-
-        await switch.async_turn_on(some_extra_kwarg="value")
-
-        mock_coordinator.protect_client.cameras.update.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_off_ignores_kwargs(self, mock_coordinator) -> None:
-        """Test turning microphone off ignores extra kwargs."""
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch.async_write_ha_state = MagicMock()
-
-        await switch.async_turn_off(some_extra_kwarg="value")
-
-        mock_coordinator.protect_client.cameras.update.assert_called_once()
-
-    def test_missing_camera_data(self, mock_coordinator) -> None:
-        """Test handling missing camera data."""
-        mock_coordinator.data["protect"]["cameras"]["camera1"] = {}
-
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        # Should default to off
-        assert switch._attr_is_on is False
-
-    def test_missing_mic_enabled(self, mock_coordinator) -> None:
-        """Test handling missing isMicEnabled/micEnabled fields defaults to False."""
-        del mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"]
-
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is False
-
-    def test_legacy_mic_enabled_field(self, mock_coordinator) -> None:
-        """Test backward compat: old micEnabled field (pre-Protect v7.1) is read."""
-        camera = mock_coordinator.data["protect"]["cameras"]["camera1"]
-        del camera["isMicEnabled"]
-        camera["micEnabled"] = True
-
-        switch = UnifiProtectMicrophoneSwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is True
+        assert registry.async_get(stale_mic_entry.entity_id) is None
+        assert registry.async_get(preserved_mic_sensor_entry.entity_id) is not None
+        assert registry.async_get(preserved_light_entry.entity_id) is not None
+        assert registry.async_get(preserved_block_entry.entity_id) is not None
 
 
 class TestUnifiClientBlockSwitch:
@@ -3055,14 +2922,14 @@ class TestAsyncSetupEntryWithNewSwitches:
 
         entities = async_add_entities.call_args[0][0]
 
-        # Camera 1 gets 4 switches (mic, privacy, status light, high FPS)
-        # Camera 2 gets 3 switches (mic, privacy, status light - no high FPS)
-        # Total: 7 switches
-        assert len(entities) == 7
+        # Camera 1 gets 3 switches (privacy, status light, high FPS)
+        # Camera 2 gets 2 switches (privacy, status light - no high FPS)
+        # Total: 5 switches
+        assert len(entities) == 5
 
         # Check types
         entity_types = [type(e).__name__ for e in entities]
-        assert entity_types.count("UnifiProtectMicrophoneSwitch") == 2
+        assert "UnifiProtectMicrophoneSwitch" not in entity_types
         assert entity_types.count("UnifiProtectPrivacySwitch") == 2
         assert entity_types.count("UnifiProtectStatusLightSwitch") == 2
         assert entity_types.count("UnifiProtectHighFPSSwitch") == 1

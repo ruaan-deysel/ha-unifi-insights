@@ -252,6 +252,12 @@
         "state": {
           "off": "mdi:volume-off"
         }
+      },
+      "camera_microphone": {
+        "default": "mdi:microphone",
+        "state": {
+          "off": "mdi:microphone-off"
+        }
       }
     },
     "button": {
@@ -266,12 +272,6 @@
       }
     },
     "switch": {
-      "microphone": {
-        "default": "mdi:microphone",
-        "state": {
-          "off": "mdi:microphone-off"
-        }
-      },
       "outlet": {
         "default": "mdi:power-socket-us"
       }

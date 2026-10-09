@@ -3,16 +3,17 @@
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 import pytest
+from homeassistant.components.binary_sensor import BinarySensorDeviceClass
+from homeassistant.const import EntityCategory
 
 from custom_components.unifi_insights.binary_sensor import (
     BINARY_SENSOR_TYPES,
     UnifiInsightsBinarySensor,
-    UnifiPortBinarySensor,
-    UnifiProtectBinarySensor,
     UnifiInsightsSiteToSiteVpnBinarySensor,
     UnifiInsightsWanLinkBinarySensor,
+    UnifiPortBinarySensor,
+    UnifiProtectBinarySensor,
     _get_supported_smart_detect_types,
     _is_doorbell_camera,
     _is_smart_detect_active,
@@ -433,6 +434,109 @@ class TestUnifiProtectBinarySensor:
         )
 
         assert sensor.is_on is True
+
+    async def test_camera_microphone_is_mic_enabled_true(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test camera microphone binary sensor when isMicEnabled is True."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = True
+        description = next(
+            s for s in BINARY_SENSOR_TYPES if s.key == "camera_microphone"
+        )
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="camera1",
+        )
+        assert sensor.is_on is True
+        assert sensor.unique_id == "unifi_insights_camera_camera1_camera_microphone"
+        assert sensor.translation_key == "camera_microphone"
+        assert sensor.entity_description.entity_category == EntityCategory.DIAGNOSTIC
+
+    async def test_camera_microphone_precedence_over_legacy(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test isMicEnabled False takes precedence over legacy micEnabled True."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = False
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = True
+        description = next(
+            s for s in BINARY_SENSOR_TYPES if s.key == "camera_microphone"
+        )
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="camera1",
+        )
+        assert sensor.is_on is False
+
+    async def test_camera_microphone_legacy_fallback(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test legacy micEnabled fallback when isMicEnabled is None."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["isMicEnabled"] = None
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = True
+        description = next(
+            s for s in BINARY_SENSOR_TYPES if s.key == "camera_microphone"
+        )
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="camera1",
+        )
+        assert sensor.is_on is True
+
+        mock_coordinator.data["protect"]["cameras"]["camera1"]["micEnabled"] = False
+        sensor_off = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="camera1",
+        )
+        assert sensor_off.is_on is False
+
+    async def test_camera_microphone_both_missing_defaults_off(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test camera microphone defaults to False when both fields are missing."""
+        mock_coordinator.data["protect"]["cameras"]["camera1"].pop("isMicEnabled", None)
+        mock_coordinator.data["protect"]["cameras"]["camera1"].pop("micEnabled", None)
+        description = next(
+            s for s in BINARY_SENSOR_TYPES if s.key == "camera_microphone"
+        )
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="camera1",
+        )
+        assert sensor.is_on is False
+
+    async def test_camera_microphone_missing_camera_data(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test is_on returns None when camera data is missing."""
+        description = next(
+            s for s in BINARY_SENSOR_TYPES if s.key == "camera_microphone"
+        )
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="nonexistent_camera",
+        )
+        assert sensor.is_on is None
+
+    async def test_camera_microphone_no_extra_state_attributes(
+        self, hass: HomeAssistant, mock_coordinator
+    ):
+        """Test camera microphone binary sensor exposes no extra attributes."""
+        description = next(
+            s for s in BINARY_SENSOR_TYPES if s.key == "camera_microphone"
+        )
+        sensor = UnifiProtectBinarySensor(
+            coordinator=mock_coordinator,
+            description=description,
+            device_id="camera1",
+        )
+        assert sensor.extra_state_attributes == {}
+        assert "last_motion" not in (sensor.extra_state_attributes or {})
 
     async def test_sensor_motion_detected(self, hass: HomeAssistant, mock_coordinator):
         """Test sensor motion detection."""
@@ -1257,6 +1361,181 @@ class TestSetupSkipsNonDoorbellCameraSensors:
             and e.entity_description.key == "camera_motion"
         ]
         assert len(motion_sensors) == 1
+
+        # Camera microphone sensor should also be created for non-doorbell cameras
+        mic_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_microphone"
+        ]
+        assert len(mic_sensors) == 1
+
+    @pytest.mark.asyncio
+    async def test_camera_microphone_skipped_when_has_mic_false(
+        self, hass: HomeAssistant
+    ):
+        """Test no camera microphone sensor is created when hasMic is False."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "clients": {},
+            "stats": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Camera Without Mic",
+                        "type": "G4-Dome",
+                        "state": "CONNECTED",
+                        "isMicEnabled": True,
+                        "featureFlags": {"hasMic": False},
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
+        config_entry.runtime_data.coordinator = coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        mic_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_microphone"
+        ]
+        assert len(mic_sensors) == 0
+
+    @pytest.mark.asyncio
+    async def test_camera_microphone_created_when_has_mic_true(
+        self, hass: HomeAssistant
+    ):
+        """Test camera microphone sensor is created when featureFlags.hasMic is True."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "clients": {},
+            "stats": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Camera With Mic",
+                        "type": "G4-Pro",
+                        "state": "CONNECTED",
+                        "isMicEnabled": True,
+                        "featureFlags": {"hasMic": True},
+                    }
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
+        config_entry.runtime_data.coordinator = coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        mic_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_microphone"
+        ]
+        assert len(mic_sensors) == 1
+
+    @pytest.mark.asyncio
+    async def test_camera_microphone_created_when_has_mic_missing(
+        self, hass: HomeAssistant
+    ):
+        """Test the camera microphone sensor is created when hasMic is missing."""
+        coordinator = MagicMock()
+        coordinator.protect_client = MagicMock()
+        coordinator.network_client = MagicMock()
+        coordinator.network_client.base_url = "https://192.168.1.1"
+        coordinator.data = {
+            "sites": {"site1": {"id": "site1"}},
+            "devices": {"site1": {}},
+            "clients": {},
+            "stats": {},
+            "protect": {
+                "cameras": {
+                    "cam1": {
+                        "id": "cam1",
+                        "name": "Camera Missing FeatureFlags",
+                        "type": "G3-Flex",
+                        "state": "CONNECTED",
+                        "isMicEnabled": True,
+                    },
+                    "cam2": {
+                        "id": "cam2",
+                        "name": "Camera Missing hasMic",
+                        "type": "G3-Flex",
+                        "state": "CONNECTED",
+                        "isMicEnabled": True,
+                        "featureFlags": {},
+                    },
+                },
+                "lights": {},
+                "sensors": {},
+                "nvrs": {},
+                "viewers": {},
+                "chimes": {},
+            },
+        }
+
+        config_entry = MagicMock()
+        config_entry.runtime_data = MagicMock()
+        config_entry.runtime_data.mobility_coordinator = None
+        config_entry.runtime_data.coordinator = coordinator
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        await async_setup_entry(hass, config_entry, add_entities)
+
+        mic_sensors = [
+            e
+            for e in added_entities
+            if isinstance(e, UnifiProtectBinarySensor)
+            and e.entity_description.key == "camera_microphone"
+        ]
+        assert len(mic_sensors) == 2
 
 
 class TestUnifiPortBinarySensor:

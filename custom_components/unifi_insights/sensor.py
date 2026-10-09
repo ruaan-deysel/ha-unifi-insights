@@ -78,6 +78,7 @@ from .site_internet_activity_sensor import (
 from .site_internet_activity_sensor import (
     _discover_site_internet_activity_sensors,
 )
+from .storage_entity import discover_storage_sensors, is_storage_unique_id
 from .voucher_sensor import discover_voucher_sensors
 
 if TYPE_CHECKING:
@@ -1443,6 +1444,15 @@ async def async_setup_entry(
                         known_sensor_keys,
                         entities,
                     )
+                    entities.extend(
+                        discover_storage_sensors(
+                            coordinator,
+                            site_id,
+                            device_id,
+                            device_data,
+                            known_sensor_keys,
+                        )
+                    )
 
         # Add site-level client count sensors
         clients_by_site = coordinator.data.get("clients", {})
@@ -1522,6 +1532,7 @@ async def async_setup_entry(
         for entry in er.async_entries_for_config_entry(ent_reg, config_entry.entry_id)
         if entry.domain == "sensor"
         and "_port_" in entry.unique_id
+        and not is_storage_unique_id(entry.unique_id)
         and entry.unique_id not in created_uids
     ]
     for entry in stale:

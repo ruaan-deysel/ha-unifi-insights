@@ -30,6 +30,10 @@ from custom_components.unifi_insights.protect_security_entity import (
 from custom_components.unifi_insights.site_internet_activity_sensor import (
     SITE_INTERNET_ACTIVITY_SENSOR_TYPES,
 )
+from custom_components.unifi_insights.storage_entity import (
+    STORAGE_NEARLY_FULL_DESCRIPTION,
+    STORAGE_SENSOR_TYPES,
+)
 
 _INTEGRATION_DIR = Path(__file__).parent.parent / "custom_components" / "unifi_insights"
 _EN_JSON = _INTEGRATION_DIR / "translations" / "en.json"
@@ -320,3 +324,29 @@ def test_network_rule_switch_icons_defined() -> None:
             assert entry.get("state", {}).get("off", "").startswith("mdi:"), (
                 f"{key} state.off icon missing or not mdi:"
             )
+
+
+def test_storage_translations_and_icons_resolve_in_every_file() -> None:
+    """Storage entities have matching translations, valid placeholders, and icons."""
+    strings = json.loads(_STRINGS_JSON.read_text())["entity"]
+    en = json.loads(_EN_JSON.read_text())["entity"]
+    icons = json.loads(_ICONS_JSON.read_text())["entity"]
+
+    items = [("sensor", desc.translation_key) for desc in STORAGE_SENSOR_TYPES] + [
+        ("binary_sensor", STORAGE_NEARLY_FULL_DESCRIPTION.translation_key)
+    ]
+
+    for platform, key in items:
+        assert key is not None
+        assert key in strings[platform], f"{key} missing from strings.json"
+        assert key in en[platform], f"{key} missing from translations/en.json"
+        assert en[platform][key] == strings[platform][key], (
+            f"{key} differs between strings.json and translations/en.json"
+        )
+        name = strings[platform][key]["name"]
+        assert name
+        placeholders = {field for _, field, _, _ in Formatter().parse(name) if field}
+        assert placeholders <= {"mount_name"}, f"Unexpected placeholder in {name}"
+        icon = icons.get(platform, {}).get(key, {}).get("default")
+        assert icon is not None, f"{key} has no icon"
+        assert icon.startswith("mdi:"), f"{key} icon invalid: {icon}"

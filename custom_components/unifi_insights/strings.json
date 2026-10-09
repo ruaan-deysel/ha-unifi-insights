@@ -285,6 +285,15 @@
       "storage_used_percent": {
         "name": "Storage Used Percentage"
       },
+      "storage_mount_used_percent": {
+        "name": "Storage {mount_name} Used Percentage"
+      },
+      "storage_mount_used": {
+        "name": "Storage {mount_name} Used"
+      },
+      "storage_mount_total": {
+        "name": "Storage {mount_name} Total"
+      },
       "poe_total_power": {
         "name": "Total PoE Power"
       },
@@ -570,6 +579,9 @@
       },
       "site_to_site_vpn": {
         "name": "{tunnel_name} Site-to-Site VPN"
+      },
+      "storage_nearly_full": {
+        "name": "Storage Nearly Full"
       },
       "camera_motion": {
         "name": "Motion Detection"

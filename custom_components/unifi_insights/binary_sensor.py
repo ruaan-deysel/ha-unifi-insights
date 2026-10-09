@@ -50,6 +50,7 @@ from .entity import (
 from .helpers import is_doorbell_camera_model
 from .mobility_entity import async_setup_mobility_binary_sensors
 from .protect_security_entity import discover_protect_security_binary_sensors
+from .storage_entity import discover_storage_binary_sensors
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -520,6 +521,16 @@ async def async_setup_entry(
                                     wan_name=wan.get("name") or wan["key"].upper(),
                                 )
                             )
+
+                    entities.extend(
+                        discover_storage_binary_sensors(
+                            coordinator,
+                            site_id,
+                            device_id,
+                            device_data,
+                            known_sensor_keys,
+                        )
+                    )
 
                     # Site-to-site VPN tunnels, one sensor each, on the gateway.
                     # Devices reporting WAN links route traffic even when their

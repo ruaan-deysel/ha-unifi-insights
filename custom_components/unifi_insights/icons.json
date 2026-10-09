@@ -181,6 +181,15 @@
       },
       "active_vouchers": {
         "default": "mdi:ticket-confirmation-outline"
+      },
+      "storage_mount_used_percent": {
+        "default": "mdi:harddisk"
+      },
+      "storage_mount_used": {
+        "default": "mdi:harddisk"
+      },
+      "storage_mount_total": {
+        "default": "mdi:harddisk"
       }
     },
     "binary_sensor": {
@@ -266,6 +275,12 @@
         "default": "mdi:microphone",
         "state": {
           "off": "mdi:microphone-off"
+        }
+      },
+      "storage_nearly_full": {
+        "default": "mdi:harddisk",
+        "state": {
+          "on": "mdi:harddisk-remove"
         }
       }
     },

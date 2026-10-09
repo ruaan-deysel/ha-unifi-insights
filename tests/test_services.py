@@ -6385,9 +6385,7 @@ class TestRemoveClientsService:
                 }
             }
         }
-        mock_config_coordinator.get_site = lambda sid: mock_config_coordinator.data[
-            "sites"
-        ].get(sid)
+        mock_config_coordinator.get_site = mock_config_coordinator.data["sites"].get
 
         mock_device_coordinator = MagicMock()
         mock_device_coordinator.data = {}

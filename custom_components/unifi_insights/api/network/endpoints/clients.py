@@ -199,8 +199,6 @@ class ClientsEndpoint:
             return [item for item in data if isinstance(item, dict)]
         return []
 
-    get_all_legacy = get_historical_legacy
-
     async def get(self, site_id: str, client_id: str) -> Client:
         """
         Get a specific client.
@@ -379,8 +377,6 @@ class ClientsEndpoint:
 
         """
         return await self._stamgr_batch_command(site_name, "forget-sta", macs)
-
-    forget_macs = forget_batch
 
     async def execute_action(
         self,

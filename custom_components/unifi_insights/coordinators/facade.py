@@ -774,8 +774,6 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             macs,
         )
 
-    async_forget_clients = async_forget_clients_batch
-
     async def async_authorize_guest(self, site_id: str, client_id: str) -> None:
         """Authorize guest access for a network client."""
         await self._async_execute_api_action(

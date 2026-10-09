@@ -2,27 +2,34 @@
 
 import ast
 import inspect
+import json
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import voluptuous as vol
 import yaml
-from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.core import Context
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+    Unauthorized,
+)
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from yarl import URL
 
 from custom_components.unifi_insights import services
-from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
 from custom_components.unifi_insights.api.protect import UniFiProtectClient
-from custom_components.unifi_insights.coordinators import UnifiFacadeCoordinator
 from custom_components.unifi_insights.services import (
     SERVICE_AUTHORIZE_GUEST,
     SERVICE_PLAY_CHIME_RINGTONE,
     SERVICE_PTZ_MOVE,
     SERVICE_PTZ_PATROL,
+    SERVICE_RECONNECT_CLIENT,
+    SERVICE_REMOVE_CLIENTS,
     SERVICE_RESTART_DEVICE,
     SERVICE_SET_CHIME_REPEAT_TIMES,
     SERVICE_SET_CHIME_RINGTONE,
@@ -35,8 +42,10 @@ from custom_components.unifi_insights.services import (
     SERVICE_SET_RECORDING_MODE,
     SERVICE_SET_VIDEO_MODE,
     _extract_target_id,
+    _filter_clients_for_removal,
     _get_coordinator_for_network_resource,
     _get_coordinator_for_protect_resource,
+    _is_wireless_client,
     _resolve_network_client_id,
     _resolve_network_device_id,
     _resolve_protect_resource_id,
@@ -47,6 +56,7 @@ if TYPE_CHECKING:
 
 from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
 from custom_components.unifi_insights.api.network.client import UniFiNetworkClient
+from custom_components.unifi_insights.api.network.models.client import ClientType
 from custom_components.unifi_insights.const import DOMAIN, SERVICE_POWER_CYCLE_PORT
 from custom_components.unifi_insights.coordinators.carrier_fabric import (
     UnifiCarrierFabricCoordinator,
@@ -157,10 +167,14 @@ class TestAsyncUnloadServices:
         """Test that unload removes all services."""
         await async_setup_services(hass)
         assert hass.services.has_service(DOMAIN, SERVICE_REFRESH_DATA)
+        assert hass.services.has_service(DOMAIN, SERVICE_RECONNECT_CLIENT)
+        assert hass.services.has_service(DOMAIN, SERVICE_REMOVE_CLIENTS)
 
         await async_unload_services(hass)
         assert not hass.services.has_service(DOMAIN, SERVICE_REFRESH_DATA)
         assert not hass.services.has_service(DOMAIN, SERVICE_POWER_CYCLE_PORT)
+        assert not hass.services.has_service(DOMAIN, SERVICE_RECONNECT_CLIENT)
+        assert not hass.services.has_service(DOMAIN, SERVICE_REMOVE_CLIENTS)
 
 
 class TestRefreshDataService:
@@ -3362,6 +3376,81 @@ class TestConsoleOwnershipRouting:
                 hass, resource_type="camera", resource_id="cam_dup"
             )
 
+    async def test_reconnect_client_ambiguous_across_consoles(
+        self, hass: HomeAssistant, multi_console_setup
+    ):
+        """Test reconnect_client rejects ambiguous client across consoles."""
+        entry1, coord1, entry2, coord2 = multi_console_setup
+        coord1.data["sites"]["site_shared"] = {"id": "site_shared"}
+        coord2.data["sites"]["site_shared"] = {"id": "site_shared"}
+        coord1.data["clients"]["site_shared"] = {
+            "client_shared": {
+                "id": "client_shared",
+                "connected": True,
+                "type": "WIRELESS",
+            }
+        }
+        coord2.data["clients"]["site_shared"] = {
+            "client_shared": {
+                "id": "client_shared",
+                "connected": True,
+                "type": "WIRELESS",
+            }
+        }
+        await async_setup_services(hass)
+        with (
+            patch.object(
+                hass.config_entries, "async_entries", return_value=[entry1, entry2]
+            ),
+            pytest.raises(
+                ServiceValidationError,
+                match=(
+                    r"Multiple consoles contain client 'client_shared'; target is"
+                    r" ambiguous"
+                ),
+            ),
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site_shared", "client_id": "client_shared"},
+                blocking=True,
+            )
+        coord1.async_reconnect_client.assert_not_called()
+        coord2.async_reconnect_client.assert_not_called()
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_cross_console_ownership_violation(
+        self,
+        hass: HomeAssistant,
+        multi_console_setup,
+        device_registry: dr.DeviceRegistry,
+    ):
+        """Test reconnect_client rejects cross-console client ownership."""
+        entry1, _coord1, entry2, _coord2 = multi_console_setup
+        mock_entry2 = MockConfigEntry(
+            domain=DOMAIN, entry_id=entry2.entry_id, title="Console 2"
+        )
+        mock_entry2.add_to_hass(hass)
+        dev2 = device_registry.async_get_or_create(
+            config_entry_id=entry2.entry_id,
+            identifiers={(DOMAIN, "site2_client2")},
+        )
+        await async_setup_services(hass)
+        with (
+            patch.object(
+                hass.config_entries, "async_entries", return_value=[entry1, entry2]
+            ),
+            pytest.raises(ServiceValidationError, match="belongs to a different"),
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1", "client_id": dev2.id},
+                blocking=True,
+            )
+        await async_unload_services(hass)
+
 
 class TestServiceCoordinatorContract:
     """Guard the service layer against calling methods a coordinator lacks."""
@@ -5437,3 +5526,927 @@ def test_protect_ui_selectors_match_service_schemas(
     if service == "ptz_move":
         assert fields["preset"]["required"] is True
         assert "direction" not in fields
+
+
+class TestReconnectClientService:
+    """Tests for reconnect_client service."""
+
+    async def test_reconnect_client_success(self, hass: HomeAssistant):
+        """Test reconnect_client succeeds for a connected wireless client."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_reconnect_client = AsyncMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {}},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "mac": "aa:bb:cc:dd:ee:ff",
+                        "connected": True,
+                        "type": "WIRELESS",
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock(
+            entry_id="entry1",
+            title="Console 1",
+            runtime_data=MagicMock(coordinator=mock_coordinator),
+        )
+
+        await async_setup_services(hass)
+        with patch.object(
+            hass.config_entries, "async_entries", return_value=[mock_entry]
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1", "client_id": "client1"},
+                blocking=True,
+            )
+
+        mock_coordinator.async_reconnect_client.assert_awaited_once_with(
+            "site1", "client1"
+        )
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_by_mac_and_dotted_mac(self, hass: HomeAssistant):
+        """Test reconnect_client resolves standard and dotted MACs."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_reconnect_client = AsyncMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {}},
+            "clients": {
+                "site1": {
+                    "native1": {
+                        "id": "native1",
+                        "macAddress": "aa:bb:cc:dd:ee:ff",
+                        "connected": True,
+                        "type": "WIRELESS",
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock(
+            entry_id="entry1",
+            title="Console 1",
+            runtime_data=MagicMock(coordinator=mock_coordinator),
+        )
+
+        await async_setup_services(hass)
+        with patch.object(
+            hass.config_entries, "async_entries", return_value=[mock_entry]
+        ):
+            # Standard MAC
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1", "client_id": "aa:bb:cc:dd:ee:ff"},
+                blocking=True,
+            )
+            mock_coordinator.async_reconnect_client.assert_awaited_with(
+                "site1", "native1"
+            )
+
+            # Dotted MAC
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1", "client_id": "aabb.ccdd.eeff"},
+                blocking=True,
+            )
+            assert mock_coordinator.async_reconnect_client.call_count == 2
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_by_entity_and_device(self, hass: HomeAssistant):
+        """Test reconnect_client targeting entity and device."""
+        entry = MockConfigEntry(domain=DOMAIN)
+        entry.add_to_hass(hass)
+        coordinator = MagicMock()
+        coordinator.async_reconnect_client = AsyncMock()
+        coordinator.data = {
+            "sites": {"site1": {}},
+            "clients": {
+                "site1": {
+                    "native1": {
+                        "id": "native1",
+                        "macAddress": "aa:bb:cc:dd:ee:ff",
+                        "connected": True,
+                        "type": "WIRELESS",
+                    }
+                }
+            },
+        }
+        entry.runtime_data = MagicMock(coordinator=coordinator)
+        entity = er.async_get(hass).async_get_or_create(
+            "device_tracker",
+            DOMAIN,
+            "unifi_insights_aa:bb:cc:dd:ee:ff",
+            config_entry=entry,
+        )
+        device = dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, "client_aa:bb:cc:dd:ee:ff")},
+        )
+
+        await async_setup_services(hass)
+        # Entity target
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RECONNECT_CLIENT,
+            {"site_id": "site1", "entity_id": entity.entity_id},
+            blocking=True,
+        )
+        coordinator.async_reconnect_client.assert_awaited_with("site1", "native1")
+
+        # Device target
+        await hass.services.async_call(
+            DOMAIN,
+            SERVICE_RECONNECT_CLIENT,
+            {"site_id": "site1", "device_id": device.id},
+            blocking=True,
+        )
+        assert coordinator.async_reconnect_client.call_count == 2
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_missing_client_id(self, hass: HomeAssistant):
+        """Test reconnect_client raises when client_id / target is missing."""
+        mock_coordinator = MagicMock()
+        mock_entry = MagicMock(
+            entry_id="entry1",
+            runtime_data=MagicMock(coordinator=mock_coordinator),
+        )
+        await async_setup_services(hass)
+        with (
+            patch.object(
+                hass.config_entries, "async_entries", return_value=[mock_entry]
+            ),
+            pytest.raises(
+                ServiceValidationError, match="Client ID or target is required"
+            ) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1"},
+                blocking=True,
+            )
+        assert exc_info.value.translation_key == "client_target_required"
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_not_connected(self, hass: HomeAssistant):
+        """Test reconnect_client raises when client is disconnected or absent."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {}},
+            "clients": {
+                "site1": {
+                    "client1": {
+                        "id": "client1",
+                        "connected": False,
+                        "type": "WIRELESS",
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock(
+            entry_id="entry1",
+            runtime_data=MagicMock(coordinator=mock_coordinator),
+        )
+        await async_setup_services(hass)
+        with patch.object(
+            hass.config_entries, "async_entries", return_value=[mock_entry]
+        ):
+            # Connected is False
+            with pytest.raises(
+                ServiceValidationError, match="client is not currently connected"
+            ) as exc_info:
+                await hass.services.async_call(
+                    DOMAIN,
+                    SERVICE_RECONNECT_CLIENT,
+                    {"site_id": "site1", "client_id": "client1"},
+                    blocking=True,
+                )
+            assert exc_info.value.translation_key == "client_not_connected"
+
+            # Absent client
+            with pytest.raises(
+                ServiceValidationError, match="client is not currently connected"
+            ) as exc_info:
+                await hass.services.async_call(
+                    DOMAIN,
+                    SERVICE_RECONNECT_CLIENT,
+                    {"site_id": "site1", "client_id": "client_missing"},
+                    blocking=True,
+                )
+            assert exc_info.value.translation_key == "client_not_connected"
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_not_wireless(self, hass: HomeAssistant):
+        """Test reconnect_client raises when client is wired, vpn, or unknown type."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.data = {
+            "sites": {"site1": {}},
+            "clients": {
+                "site1": {
+                    "wired_client": {
+                        "id": "wired_client",
+                        "connected": True,
+                        "type": "WIRED",
+                    },
+                    "vpn_client": {
+                        "id": "vpn_client",
+                        "connected": True,
+                        "type": "VPN",
+                    },
+                    "unknown_wireless_client": {
+                        "id": "unknown_wireless_client",
+                        "connected": True,
+                        "type": "UNKNOWN_WIRELESS",
+                    },
+                }
+            },
+        }
+        mock_entry = MagicMock(
+            entry_id="entry1",
+            runtime_data=MagicMock(coordinator=mock_coordinator),
+        )
+        await async_setup_services(hass)
+        with patch.object(
+            hass.config_entries, "async_entries", return_value=[mock_entry]
+        ):
+            for client_id in ["wired_client", "vpn_client", "unknown_wireless_client"]:
+                with pytest.raises(
+                    ServiceValidationError, match="not a wireless client"
+                ) as exc_info:
+                    await hass.services.async_call(
+                        DOMAIN,
+                        SERVICE_RECONNECT_CLIENT,
+                        {"site_id": "site1", "client_id": client_id},
+                        blocking=True,
+                    )
+                assert exc_info.value.translation_key == "client_not_wireless"
+                assert exc_info.value.translation_placeholders == (
+                    {"client_id": client_id}
+                )
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_no_coordinator(self, hass: HomeAssistant):
+        """Test reconnect_client raises when no coordinator is loaded."""
+        await async_setup_services(hass)
+        with (
+            patch.object(hass.config_entries, "async_entries", return_value=[]),
+            pytest.raises(
+                ServiceValidationError, match="No UniFi Insights coordinator found"
+            ),
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1", "client_id": "c1"},
+                blocking=True,
+            )
+        await async_unload_services(hass)
+
+    async def test_reconnect_client_api_failure_propagates(self, hass: HomeAssistant):
+        """Test reconnect_client propagates coordinator HomeAssistantError."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_reconnect_client = AsyncMock(
+            side_effect=HomeAssistantError("Failed to kick client")
+        )
+        mock_coordinator.data = {
+            "sites": {"site1": {}},
+            "clients": {
+                "site1": {
+                    "c1": {
+                        "id": "c1",
+                        "connected": True,
+                        "type": "WIRELESS",
+                    }
+                }
+            },
+        }
+        mock_entry = MagicMock(
+            entry_id="entry1",
+            runtime_data=MagicMock(coordinator=mock_coordinator),
+        )
+        await async_setup_services(hass)
+        with (
+            patch.object(
+                hass.config_entries, "async_entries", return_value=[mock_entry]
+            ),
+            pytest.raises(HomeAssistantError, match="Failed to kick client"),
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_RECONNECT_CLIENT,
+                {"site_id": "site1", "client_id": "c1"},
+                blocking=True,
+            )
+        await async_unload_services(hass)
+
+
+class _Response:
+    """Minimal aiohttp response replacement for transport tests."""
+
+    def __init__(
+        self,
+        body: Any = None,
+        status: int = 200,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.status = status
+        self._body = body
+        self.headers = headers or {}
+        self.url = URL("https://192.168.1.1")
+        self.method = "GET"
+        self.history = ()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
+    async def text(self) -> str:
+        if isinstance(self._body, (dict, list)):
+            return json.dumps(self._body)
+        if self._body is None:
+            return ""
+        return str(self._body)
+
+    async def json(self) -> Any:
+        if self._body is None or isinstance(self._body, str):
+            msg = "No JSON body"
+            raise ValueError(msg)
+        return self._body
+
+
+class _Session:
+    """Mock session recording requests and returning queued responses."""
+
+    closed = False
+
+    def __init__(
+        self, responses: list[_Response | dict[str, Any] | list[Any] | None]
+    ) -> None:
+        self._responses = iter(
+            [r if isinstance(r, _Response) else _Response(r) for r in responses]
+        )
+        self.requests: list[dict[str, Any]] = []
+
+    def request(self, method: str, url: object, **kwargs: Any) -> _Response:
+        self.requests.append({"method": method, "url": str(url), **kwargs})
+        return next(self._responses)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+class TestRemoveClientsService:
+    """Tests for remove_clients service."""
+
+    def test_filter_clients_for_removal_matrix(self):
+        """Test pure selection helper _filter_clients_for_removal against core rules."""
+        records = [
+            # Eligible client: short-lived, unnamed, no fixed IP
+            {"mac": "AA:BB:CC:DD:EE:01", "first_seen": 100, "last_seen": 200},
+            # Eligible: exactly 900 seconds
+            {"mac": "AA:BB:CC:DD:EE:02", "first_seen": 100, "last_seen": 1000},
+            # Excluded: > 900 seconds (901s)
+            {"mac": "AA:BB:CC:DD:EE:03", "first_seen": 100, "last_seen": 1001},
+            # Eligible: missing first_seen
+            {"mac": "AA:BB:CC:DD:EE:04", "first_seen": None, "last_seen": 500},
+            # Eligible: missing last_seen
+            {"mac": "AA:BB:CC:DD:EE:05", "first_seen": 100, "last_seen": None},
+            # Excluded: has name
+            {
+                "mac": "AA:BB:CC:DD:EE:06",
+                "name": "Alice iPhone",
+                "first_seen": 100,
+                "last_seen": 200,
+            },
+            # Excluded: has hostname
+            {
+                "mac": "AA:BB:CC:DD:EE:07",
+                "hostname": "alices-phone",
+                "first_seen": 100,
+                "last_seen": 200,
+            },
+            # Excluded: has fixed_ip
+            {
+                "mac": "AA:BB:CC:DD:EE:08",
+                "fixed_ip": "192.168.1.50",
+                "first_seen": 100,
+                "last_seen": 200,
+            },
+            # Excluded: missing MAC
+            {"first_seen": 100, "last_seen": 200},
+            # Excluded: empty string MAC
+            {"mac": "   ", "first_seen": 100, "last_seen": 200},
+            # Duplicate of EE:01 with different casing
+            {"mac": "aa:bb:cc:dd:ee:01", "first_seen": 100, "last_seen": 200},
+            # Ineligible: invalid timestamp (malformed data kept)
+            {"mac": "AA:BB:CC:DD:EE:09", "first_seen": "invalid", "last_seen": 200},
+            # Ineligible: boolean timestamp (not a real number, kept)
+            {"mac": "AA:BB:CC:DD:EE:0A", "first_seen": True, "last_seen": 200},
+            # Ineligible: boolean last_seen (not a real number, kept)
+            {"mac": "AA:BB:CC:DD:EE:0B", "first_seen": 100, "last_seen": False},
+            # Ineligible: invalid first_seen with no last_seen (kept)
+            {"mac": "AA:BB:CC:DD:EE:0C", "first_seen": "invalid", "last_seen": None},
+            # Ineligible: falsy non-number first_seen (kept)
+            {"mac": "AA:BB:CC:DD:EE:0D", "first_seen": [], "last_seen": 200},
+            # Eligible: numeric zero first_seen skips the age check, as in core
+            {"mac": "AA:BB:CC:DD:EE:0E", "first_seen": 0, "last_seen": 5000},
+            # Excluded: unhashable name is still a name
+            {
+                "mac": "AA:BB:CC:DD:EE:0F",
+                "name": {"value": "protected"},
+                "first_seen": 100,
+                "last_seen": 200,
+            },
+            # Ineligible: NaN and infinite timestamps (kept)
+            {"mac": "AA:BB:CC:DD:EE:10", "first_seen": float("nan"), "last_seen": 200},
+            {"mac": "AA:BB:CC:DD:EE:11", "first_seen": 100, "last_seen": float("inf")},
+            # Ineligible: int too large to compare with a float time (kept)
+            {"mac": "AA:BB:CC:DD:EE:12", "first_seen": 10**309, "last_seen": 200.0},
+        ]
+
+        result = _filter_clients_for_removal(records)
+        assert result == [
+            "aa:bb:cc:dd:ee:01",
+            "aa:bb:cc:dd:ee:02",
+            "aa:bb:cc:dd:ee:04",
+            "aa:bb:cc:dd:ee:05",
+            "aa:bb:cc:dd:ee:0e",
+        ]
+
+    async def test_remove_clients_unreadable_timestamp_keeps_client_and_continues(
+        self, hass: HomeAssistant
+    ):
+        """Test an unreadable timestamp keeps the client and the next site runs."""
+        coordinator = MagicMock()
+        coordinator.is_network_usable = True
+        coordinator.data = {"sites": {"site1": {}, "site2": {}}}
+        coordinator.async_get_historical_clients = AsyncMock(
+            side_effect=[
+                [
+                    {
+                        "mac": "11:11:11:11:11:11",
+                        "first_seen": 10**309,
+                        "last_seen": 200.0,
+                    }
+                ],
+                [{"mac": "22:22:22:22:22:22", "first_seen": 100, "last_seen": 200}],
+            ]
+        )
+        coordinator.async_forget_clients_batch = AsyncMock(return_value=True)
+        entry = MagicMock(
+            entry_id="entry1",
+            title="Console 1",
+            runtime_data=MagicMock(coordinator=coordinator),
+        )
+
+        await async_setup_services(hass)
+        with patch.object(hass.config_entries, "async_entries", return_value=[entry]):
+            await hass.services.async_call(
+                DOMAIN, SERVICE_REMOVE_CLIENTS, {}, blocking=True
+            )
+        await async_unload_services(hass)
+
+        coordinator.async_forget_clients_batch.assert_awaited_once_with(
+            "site2", ["22:22:22:22:22:22"]
+        )
+
+    async def test_remove_clients_non_admin_raises_unauthorized(
+        self, hass: HomeAssistant
+    ):
+        """Test non-admin user call to remove_clients raises Unauthorized."""
+        await async_setup_services(hass)
+        user = await hass.auth.async_create_user("non_admin_user")
+        user.is_owner = False
+        user.groups = []  # Non-admin
+        user.invalidate_cache()
+        context = Context(user_id=user.id)
+
+        with pytest.raises(Unauthorized):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                context=context,
+                blocking=True,
+            )
+        await async_unload_services(hass)
+
+    async def test_remove_clients_success_multi_console(self, hass: HomeAssistant):
+        """Test remove_clients removes eligible clients across multiple consoles."""
+        coord1 = MagicMock()
+        coord1.is_network_usable = True
+        coord1.data = {"sites": {"site1": {}}}
+        coord1.async_get_historical_clients = AsyncMock(
+            return_value=[
+                {"mac": "11:22:33:44:55:66", "first_seen": 100, "last_seen": 200},
+                {"mac": "AA:BB:CC:DD:EE:FF", "name": "Named Device"},
+            ]
+        )
+        coord1.async_forget_clients_batch = AsyncMock(return_value=True)
+        entry1 = MagicMock(
+            entry_id="entry1",
+            title="Console 1",
+            runtime_data=MagicMock(coordinator=coord1),
+        )
+
+        coord2 = MagicMock()
+        coord2.is_network_usable = True
+        coord2.data = {"sites": {"site2": {}}}
+        coord2.async_get_historical_clients = AsyncMock(
+            return_value=[
+                {"mac": "99:88:77:66:55:44", "first_seen": 100, "last_seen": 300},
+            ]
+        )
+        coord2.async_forget_clients_batch = AsyncMock(return_value=True)
+        entry2 = MagicMock(
+            entry_id="entry2",
+            title="Console 2",
+            runtime_data=MagicMock(coordinator=coord2),
+        )
+
+        await async_setup_services(hass)
+        with patch.object(
+            hass.config_entries, "async_entries", return_value=[entry1, entry2]
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                blocking=True,
+            )
+
+        coord1.async_forget_clients_batch.assert_awaited_once_with(
+            "site1", ["11:22:33:44:55:66"]
+        )
+        coord2.async_forget_clients_batch.assert_awaited_once_with(
+            "site2", ["99:88:77:66:55:44"]
+        )
+        await async_unload_services(hass)
+
+    async def test_remove_clients_skips_console_without_network(
+        self, hass: HomeAssistant
+    ):
+        """Test remove_clients skips consoles where Network is not usable."""
+        coord_no_network = MagicMock()
+        coord_no_network.is_network_usable = False
+        coord_no_network.data = {"sites": {"site1": {}}}
+        coord_no_network.async_get_historical_clients = AsyncMock()
+        entry_no_net = MagicMock(
+            entry_id="entry1",
+            title="Protect Only",
+            runtime_data=MagicMock(coordinator=coord_no_network),
+        )
+
+        coord_with_net = MagicMock()
+        coord_with_net.is_network_usable = True
+        coord_with_net.data = {"sites": {"site2": {}}}
+        coord_with_net.async_get_historical_clients = AsyncMock(
+            return_value=[
+                {"mac": "11:22:33:44:55:66", "first_seen": 100, "last_seen": 200}
+            ]
+        )
+        coord_with_net.async_forget_clients_batch = AsyncMock(return_value=True)
+        entry_with_net = MagicMock(
+            entry_id="entry2",
+            title="Console Network",
+            runtime_data=MagicMock(coordinator=coord_with_net),
+        )
+
+        await async_setup_services(hass)
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[entry_no_net, entry_with_net],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                blocking=True,
+            )
+
+        coord_no_network.async_get_historical_clients.assert_not_called()
+        coord_with_net.async_forget_clients_batch.assert_awaited_once_with(
+            "site2", ["11:22:33:44:55:66"]
+        )
+        await async_unload_services(hass)
+
+    async def test_remove_clients_no_eligible_consoles_raises(
+        self, hass: HomeAssistant
+    ):
+        """Test remove_clients raises when no console has Network."""
+        coord_no_net = MagicMock()
+        coord_no_net.is_network_usable = False
+        entry = MagicMock(
+            entry_id="entry1",
+            title="Protect Only",
+            runtime_data=MagicMock(coordinator=coord_no_net),
+        )
+
+        await async_setup_services(hass)
+        with (
+            patch.object(hass.config_entries, "async_entries", return_value=[entry]),
+            pytest.raises(
+                ServiceValidationError,
+                match="No UniFi Insights console has Network available",
+            ) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                blocking=True,
+            )
+        assert exc_info.value.translation_key == "no_network_console"
+        await async_unload_services(hass)
+
+    async def test_remove_clients_continues_and_aggregates_failures(
+        self, hass: HomeAssistant
+    ):
+        """Test remove_clients continues past per-site failure and aggregates errors."""
+        coord1 = MagicMock()
+        coord1.is_network_usable = True
+        coord1.data = {"sites": {"site1": {}}}
+        coord1.async_get_historical_clients = AsyncMock(
+            side_effect=HomeAssistantError("Connection refused")
+        )
+        entry1 = MagicMock(
+            entry_id="entry1",
+            title="Console 1",
+            runtime_data=MagicMock(coordinator=coord1),
+        )
+
+        coord2 = MagicMock()
+        coord2.is_network_usable = True
+        coord2.data = {"sites": {"site2": {}}}
+        coord2.async_get_historical_clients = AsyncMock(
+            return_value=[
+                {"mac": "11:22:33:44:55:66", "first_seen": 100, "last_seen": 200}
+            ]
+        )
+        coord2.async_forget_clients_batch = AsyncMock(return_value=True)
+        entry2 = MagicMock(
+            entry_id="entry2",
+            title="Console 2",
+            runtime_data=MagicMock(coordinator=coord2),
+        )
+
+        await async_setup_services(hass)
+        with (
+            patch.object(
+                hass.config_entries, "async_entries", return_value=[entry1, entry2]
+            ),
+            pytest.raises(
+                HomeAssistantError,
+                match=r"Console 1 \(site site1\): Connection refused",
+            ) as exc_info,
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                blocking=True,
+            )
+        assert exc_info.value.translation_key == "remove_clients_failed"
+        assert exc_info.value.translation_placeholders == {
+            "failures": "Console 1 (site site1): Connection refused"
+        }
+
+        # Confirm console 2 was still processed
+        coord2.async_forget_clients_batch.assert_awaited_once_with(
+            "site2", ["11:22:33:44:55:66"]
+        )
+        await async_unload_services(hass)
+
+    async def test_remove_clients_no_eligible_macs_sends_no_post(
+        self, hass: HomeAssistant
+    ):
+        """Test remove_clients sends no forget request when no MACs are eligible."""
+        coord = MagicMock()
+        coord.is_network_usable = True
+        coord.data = {"sites": {"site1": {}}}
+        coord.async_get_historical_clients = AsyncMock(
+            return_value=[
+                {"mac": "11:22:33:44:55:66", "name": "Named"},
+                {"mac": "77:88:99:00:11:22", "first_seen": 100, "last_seen": 2000},
+            ]
+        )
+        coord.async_forget_clients_batch = AsyncMock()
+        entry = MagicMock(
+            entry_id="entry1",
+            title="Console 1",
+            runtime_data=MagicMock(coordinator=coord),
+        )
+
+        await async_setup_services(hass)
+        with patch.object(hass.config_entries, "async_entries", return_value=[entry]):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                blocking=True,
+            )
+
+        coord.async_forget_clients_batch.assert_not_called()
+        await async_unload_services(hass)
+
+    async def test_remove_clients_rejects_extra_fields(self, hass: HomeAssistant):
+        """Test remove_clients rejects unexpected arguments via schema."""
+        await async_setup_services(hass)
+        with pytest.raises(vol.MultipleInvalid):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {"unexpected_param": "value"},
+                blocking=True,
+            )
+        await async_unload_services(hass)
+
+    async def test_remove_clients_classic_error_envelope_failure(
+        self, hass: HomeAssistant
+    ):
+        """Test classic error response reports failure and forgets nothing."""
+        for error_type in ["error", "failed", "missing_meta"]:
+            coord = MagicMock()
+            coord.is_network_usable = True
+            coord.data = {"sites": {"site1": {}}}
+            coord.async_get_historical_clients = AsyncMock(
+                side_effect=HomeAssistantError(f"Classic API call failed: {error_type}")
+            )
+            coord.async_forget_clients_batch = AsyncMock()
+            entry = MagicMock(
+                entry_id="entry1",
+                title="Console 1",
+                runtime_data=MagicMock(coordinator=coord),
+            )
+
+            await async_setup_services(hass)
+            with (
+                patch.object(
+                    hass.config_entries, "async_entries", return_value=[entry]
+                ),
+                pytest.raises(HomeAssistantError) as exc_info,
+            ):
+                await hass.services.async_call(
+                    DOMAIN,
+                    SERVICE_REMOVE_CLIENTS,
+                    {},
+                    blocking=True,
+                )
+
+            assert exc_info.value.translation_key == "remove_clients_failed"
+            assert f"Classic API call failed: {error_type}" in str(exc_info.value)
+            coord.async_forget_clients_batch.assert_not_called()
+            await async_unload_services(hass)
+
+    async def test_remove_clients_end_to_end_http_boundary(self, hass: HomeAssistant):
+        """End-to-end service test mocking only the HTTP boundary."""
+        session = _Session(
+            [
+                # 1. GET /api/s/alpha/stat/alluser
+                {
+                    "meta": {"rc": "ok"},
+                    "data": [
+                        # Candidate 1: anonymous seen for 300s
+                        {
+                            "mac": "11:22:33:44:55:01",
+                            "first_seen": 100,
+                            "last_seen": 400,
+                        },
+                        # Candidate 2: missing first_seen
+                        {
+                            "mac": "11:22:33:44:55:02",
+                            "first_seen": None,
+                            "last_seen": 400,
+                        },
+                        # Excluded: named client
+                        {
+                            "mac": "11:22:33:44:55:03",
+                            "name": "Alice iPhone",
+                            "first_seen": 100,
+                            "last_seen": 400,
+                        },
+                        # Excluded: client with hostname
+                        {
+                            "mac": "11:22:33:44:55:04",
+                            "hostname": "printer",
+                            "first_seen": 100,
+                            "last_seen": 400,
+                        },
+                        # Excluded: client with fixed IP
+                        {
+                            "mac": "11:22:33:44:55:05",
+                            "fixed_ip": "10.0.0.1",
+                            "first_seen": 100,
+                            "last_seen": 400,
+                        },
+                        # Excluded: client seen for more than 900s
+                        {
+                            "mac": "11:22:33:44:55:06",
+                            "first_seen": 100,
+                            "last_seen": 1200,
+                        },
+                        # Excluded: malformed timestamp kept
+                        {
+                            "mac": "11:22:33:44:55:07",
+                            "first_seen": "invalid",
+                            "last_seen": 400,
+                        },
+                    ],
+                },
+                # 2. POST /api/s/alpha/cmd/stamgr
+                {"meta": {"rc": "ok"}},
+            ]
+        )
+
+        network_client = UniFiNetworkClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+            session=session,  # type: ignore[arg-type]
+        )
+
+        mock_config_coordinator = MagicMock()
+        mock_config_coordinator.network_available = True
+        mock_config_coordinator.data = {
+            "sites": {
+                "site1": {
+                    "id": "site1",
+                    "name": "Office",
+                    "internalReference": "alpha",
+                }
+            }
+        }
+        mock_config_coordinator.get_site = lambda sid: mock_config_coordinator.data[
+            "sites"
+        ].get(sid)
+
+        mock_device_coordinator = MagicMock()
+        mock_device_coordinator.data = {}
+        # Device coordinator fuzzy mapping points elsewhere ("beta") and must be ignored
+        mock_device_coordinator.get_legacy_site_name = MagicMock(return_value="beta")
+
+        entry = MagicMock()
+        entry.entry_id = "test_entry"
+        entry.title = "UDM Pro"
+        entry.data = {}
+
+        facade = UnifiFacadeCoordinator(
+            hass=hass,
+            network_client=network_client,
+            protect_client=None,
+            entry=entry,
+            config_coordinator=mock_config_coordinator,
+            device_coordinator=mock_device_coordinator,
+            protect_coordinator=None,
+        )
+
+        entry.runtime_data = MagicMock(coordinator=facade)
+
+        await async_setup_services(hass)
+        with patch.object(hass.config_entries, "async_entries", return_value=[entry]):
+            await hass.services.async_call(
+                DOMAIN,
+                SERVICE_REMOVE_CLIENTS,
+                {},
+                blocking=True,
+            )
+
+        assert len(session.requests) == 2
+        req1 = session.requests[0]
+        assert req1["method"] == "GET"
+        assert (
+            req1["url"] == "https://192.168.1.1/proxy/network/api/s/alpha/stat/alluser"
+        )
+
+        req2 = session.requests[1]
+        assert req2["method"] == "POST"
+        assert req2["url"] == "https://192.168.1.1/proxy/network/api/s/alpha/cmd/stamgr"
+        assert req2["json"] == {
+            "cmd": "forget-sta",
+            "macs": ["11:22:33:44:55:01", "11:22:33:44:55:02"],
+        }
+        await async_unload_services(hass)
+
+
+def test_is_wireless_client_helper():
+    """Test all branches of _is_wireless_client helper."""
+    assert _is_wireless_client({"type": ClientType.WIRELESS}) is True
+    assert _is_wireless_client({"type": ClientType.WIRED}) is False
+    assert _is_wireless_client({"type": "WIRELESS"}) is True
+    assert _is_wireless_client({"type": "CLIENTTYPE.WIRELESS"}) is True
+    assert _is_wireless_client({"type": " wireless "}) is True
+    assert _is_wireless_client({"type": "UNKNOWN_WIRELESS"}) is False
+    assert _is_wireless_client({"type": "WIRED"}) is False
+    assert _is_wireless_client({"connection_type": "WIRELESS"}) is True
+    assert _is_wireless_client({"connection_type": "WIRED"}) is False
+    assert _is_wireless_client({"type": 123}) is False
+    assert _is_wireless_client({}) is False

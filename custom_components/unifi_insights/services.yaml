@@ -455,6 +455,22 @@ set_chime_paired_doorbells:
             device_class: occupancy
 
 # UniFi Network services
+reconnect_client:
+  target:
+    entity:
+      integration: unifi_insights
+  fields:
+    site_id:
+      required: true
+      selector:
+        text:
+    client_id:
+      required: false
+      selector:
+        text:
+
+remove_clients:
+
 authorize_guest:
   name: Authorize Guest
   description: Authorize guest access for a client on the UniFi Network.

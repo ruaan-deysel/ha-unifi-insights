@@ -404,6 +404,16 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return True
         return self._innerspace_coordinator.last_update_success
 
+    @property
+    def network_available(self) -> bool:
+        """Return True if the Network application is available on the console."""
+        return getattr(self._config_coordinator, "network_available", True)
+
+    @property
+    def is_network_usable(self) -> bool:
+        """Return True if Network is configured and usable."""
+        return self.network_available and self.network_client is not None
+
     async def _async_update_data(self) -> dict[str, Any]:
         """
         Update aggregated data.
@@ -657,6 +667,26 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Update camera settings (alias for async_update_camera)."""
         await self.async_update_camera(camera_id, **kwargs)
 
+    def _require_verified_legacy_site_name(self, site_id: str) -> str:
+        """
+        Resolve the verified classic site name for an integration site ID.
+
+        Must resolve ONLY from the integration site's internalReference
+        in the config coordinator. Raises HomeAssistantError if missing or blank.
+        Never falls back to "default" or single-site mapping.
+        """
+        site = self._config_coordinator.get_site(site_id)
+        internal_ref = site.get("internalReference") if isinstance(site, dict) else None
+        if not isinstance(internal_ref, str) or not internal_ref.strip():
+            msg = f"No verified classic site name found for site {site_id}"
+            raise HomeAssistantError(
+                msg,
+                translation_domain=DOMAIN,
+                translation_key="legacy_site_not_found",
+                translation_placeholders={"site_id": site_id},
+            )
+        return internal_ref.strip()
+
     def _resolve_client_action_target(
         self, site_id: str, client_id: str
     ) -> tuple[str, str]:
@@ -723,6 +753,28 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             site_name,
             mac,
         )
+
+    async def async_get_historical_clients(self, site_id: str) -> list[dict[str, Any]]:
+        """Read historical client records for a site from the classic API."""
+        site_name = self._require_verified_legacy_site_name(site_id)
+        result = await self._async_execute_api_action(
+            f"Unable to read historical clients for site {site_id}",
+            self.network_client.clients.get_historical_legacy,
+            site_name,
+        )
+        return result if isinstance(result, list) else []
+
+    async def async_forget_clients_batch(self, site_id: str, macs: list[str]) -> bool:
+        """Forget/remove a list of client MACs for a site."""
+        site_name = self._require_verified_legacy_site_name(site_id)
+        return await self._async_execute_api_action(
+            f"Unable to forget clients for site {site_id}",
+            self.network_client.clients.forget_batch,
+            site_name,
+            macs,
+        )
+
+    async_forget_clients = async_forget_clients_batch
 
     async def async_authorize_guest(self, site_id: str, client_id: str) -> None:
         """Authorize guest access for a network client."""

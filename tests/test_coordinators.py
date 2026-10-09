@@ -6118,6 +6118,193 @@ class TestUnifiFacadeCoordinator:
         )
 
     @pytest.mark.asyncio
+    async def test_async_get_historical_clients_verified_site(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_get_historical_clients uses verified site mapping."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "branch"}}
+        }
+        facade_coordinator.network_client.clients.get_historical_legacy = AsyncMock(
+            return_value=[{"mac": "aa:bb"}]
+        )
+        result = await facade_coordinator.async_get_historical_clients("site1")
+        assert result == [{"mac": "aa:bb"}]
+        facade_coordinator.network_client.clients.get_historical_legacy.assert_called_once_with(
+            "branch"
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_get_historical_clients_unmapped_site_raises(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Unmapped site raises HomeAssistantError and does NOT fall back to default."""
+        facade_coordinator._config_coordinator.data = {"sites": {}}
+        facade_coordinator.network_client.clients.get_historical_legacy = AsyncMock()
+        with pytest.raises(
+            HomeAssistantError, match="No verified classic site name found"
+        ) as excinfo:
+            await facade_coordinator.async_get_historical_clients("site1")
+        assert excinfo.value.translation_key == "legacy_site_not_found"
+        assert excinfo.value.translation_placeholders == {"site_id": "site1"}
+        facade_coordinator.network_client.clients.get_historical_legacy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_get_historical_clients_api_error_wrapped(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """API error in async_get_historical_clients is wrapped."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "branch"}}
+        }
+        facade_coordinator.network_client.clients.get_historical_legacy = AsyncMock(
+            side_effect=RuntimeError("connection dropped")
+        )
+        with pytest.raises(
+            HomeAssistantError,
+            match="Unable to read historical clients for site site1",
+        ):
+            await facade_coordinator.async_get_historical_clients("site1")
+
+    @pytest.mark.asyncio
+    async def test_async_forget_clients_batch_verified_site(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test async_forget_clients_batch uses verified site mapping."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "branch"}}
+        }
+        facade_coordinator.network_client.clients.forget_batch = AsyncMock(
+            return_value=True
+        )
+        result = await facade_coordinator.async_forget_clients_batch(
+            "site1", ["aa:bb:cc:dd:ee:ff"]
+        )
+        assert result is True
+        facade_coordinator.network_client.clients.forget_batch.assert_called_once_with(
+            "branch", ["aa:bb:cc:dd:ee:ff"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_async_forget_clients_batch_unmapped_site_raises(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Unmapped site in batch forget raises error without fallback."""
+        facade_coordinator._config_coordinator.data = {"sites": {}}
+        facade_coordinator.network_client.clients.forget_batch = AsyncMock()
+        with pytest.raises(
+            HomeAssistantError, match="No verified classic site name found"
+        ) as excinfo:
+            await facade_coordinator.async_forget_clients_batch(
+                "site1", ["aa:bb:cc:dd:ee:ff"]
+            )
+        assert excinfo.value.translation_key == "legacy_site_not_found"
+        facade_coordinator.network_client.clients.forget_batch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_forget_clients_batch_api_error_wrapped(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """API error in async_forget_clients_batch is wrapped in HomeAssistantError."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {"site1": {"id": "site1", "internalReference": "branch"}}
+        }
+        facade_coordinator.network_client.clients.forget_batch = AsyncMock(
+            side_effect=RuntimeError("connection dropped")
+        )
+        with pytest.raises(
+            HomeAssistantError, match="Unable to forget clients for site site1"
+        ):
+            await facade_coordinator.async_forget_clients_batch(
+                "site1", ["aa:bb:cc:dd:ee:ff"]
+            )
+
+    @pytest.mark.asyncio
+    async def test_classic_site_two_sites_same_description_uses_internal_reference(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Resolve requests ONLY via internalReference for two sites named Office."""
+        facade_coordinator._config_coordinator.data = {
+            "sites": {
+                "site_alpha": {
+                    "id": "site_alpha",
+                    "name": "Office",
+                    "internalReference": "alpha",
+                },
+                "site_beta": {
+                    "id": "site_beta",
+                    "name": "Office",
+                    "internalReference": "beta",
+                },
+            }
+        }
+        # Simulate device coordinator fuzzy mapping returning beta for both
+        facade_coordinator._device_coordinator._legacy_site_names = {
+            "site_alpha": "beta",
+            "site_beta": "beta",
+        }
+        facade_coordinator.network_client.clients.get_historical_legacy = AsyncMock(
+            return_value=[{"mac": "aa:bb:cc:dd:ee:ff"}]
+        )
+        facade_coordinator.network_client.clients.forget_batch = AsyncMock(
+            return_value=True
+        )
+
+        clients = await facade_coordinator.async_get_historical_clients("site_alpha")
+        assert clients == [{"mac": "aa:bb:cc:dd:ee:ff"}]
+        clients_api = facade_coordinator.network_client.clients
+        clients_api.get_historical_legacy.assert_called_once_with("alpha")
+
+        result = await facade_coordinator.async_forget_clients_batch(
+            "site_alpha", ["aa:bb:cc:dd:ee:ff"]
+        )
+        assert result is True
+        facade_coordinator.network_client.clients.forget_batch.assert_called_once_with(
+            "alpha", ["aa:bb:cc:dd:ee:ff"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_classic_site_blank_internal_reference_sends_nothing(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Missing or blank internalReference raises and sends no requests."""
+        facade_coordinator.network_client.clients.get_historical_legacy = AsyncMock()
+        facade_coordinator.network_client.clients.forget_batch = AsyncMock()
+
+        for blank_ref in [None, "", "   "]:
+            facade_coordinator._config_coordinator.data = {
+                "sites": {"site1": {"id": "site1", "internalReference": blank_ref}}
+            }
+            with pytest.raises(HomeAssistantError) as exc_info:
+                await facade_coordinator.async_get_historical_clients("site1")
+            assert exc_info.value.translation_key == "legacy_site_not_found"
+
+            with pytest.raises(HomeAssistantError) as exc_info:
+                await facade_coordinator.async_forget_clients_batch(
+                    "site1", ["aa:bb:cc:dd:ee:ff"]
+                )
+            assert exc_info.value.translation_key == "legacy_site_not_found"
+
+        facade_coordinator.network_client.clients.get_historical_legacy.assert_not_called()
+        facade_coordinator.network_client.clients.forget_batch.assert_not_called()
+
+    def test_facade_network_usability_accessors(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ):
+        """Test network_available and is_network_usable accessors on facade."""
+        assert facade_coordinator.network_available is True
+        assert facade_coordinator.is_network_usable is True
+
+        facade_coordinator._config_coordinator._network_available = False
+        assert facade_coordinator._config_coordinator.network_available is False
+        assert facade_coordinator.network_available is False
+        assert facade_coordinator.is_network_usable is False
+
+        facade_coordinator._config_coordinator._network_available = True
+        facade_coordinator.network_client = None  # type: ignore[assignment]
+        assert facade_coordinator.is_network_usable is False
+
+    @pytest.mark.asyncio
     async def test_async_set_outlet_state(
         self, facade_coordinator: UnifiFacadeCoordinator
     ):

@@ -213,6 +213,24 @@
           "description": "The 1-based port index to power-cycle."
         }
       }
+    },
+    "reconnect_client": {
+      "name": "Reconnect Client",
+      "description": "Reconnect a connected wireless client to Wi-Fi. Accepts only clients that are currently connected and wireless.",
+      "fields": {
+        "site_id": {
+          "name": "Site ID",
+          "description": "The site ID where the client is located."
+        },
+        "client_id": {
+          "name": "Client ID",
+          "description": "The client ID or MAC address of the connected wireless client to reconnect."
+        }
+      }
+    },
+    "remove_clients": {
+      "name": "Remove Clients",
+      "description": "Remove short-lived, unnamed historical clients from the UniFi Network. Forgets clients that have no name, hostname, or fixed IP and that were seen for 15 minutes or less. If a timestamp is missing, the client is not excluded by the age check. Processes the sites selected in the integration's settings, on consoles that have Network available. Clients with a timestamp that isn't a number are kept. Requires an admin user. Does not remove Home Assistant devices or entities."
     }
   },
   "entity": {
@@ -824,6 +842,24 @@
     },
     "port_not_poe": {
       "message": "Port {port_idx} on device {device_id} is not PoE-enabled."
+    },
+    "client_target_required": {
+      "message": "Client ID or target is required."
+    },
+    "client_not_connected": {
+      "message": "Client is not currently connected."
+    },
+    "client_not_wireless": {
+      "message": "Client {client_id} is not a wireless client."
+    },
+    "no_network_console": {
+      "message": "No UniFi Insights console has Network available."
+    },
+    "remove_clients_failed": {
+      "message": "Failed to remove clients: {failures}."
+    },
+    "legacy_site_not_found": {
+      "message": "No verified classic site name found for site {site_id}."
     }
   }
 }

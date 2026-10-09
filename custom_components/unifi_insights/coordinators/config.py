@@ -111,6 +111,11 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             self._failed_sections
         )
 
+    @property
+    def network_available(self) -> bool:
+        """Return True if the Network application is available on the console."""
+        return self._network_available
+
     def wifi_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched WiFi networks for a site."""
         return self._section_available("wifi", site_id)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import uuid
 from http import HTTPStatus
@@ -20,12 +21,14 @@ from homeassistant.helpers import (
 from homeassistant.helpers import (
     entity_registry as er,
 )
+from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.target import (
     TargetSelection,
     async_extract_referenced_entity_ids,
 )
 
 from .api import UniFiAuthenticationError, UniFiError
+from .api.network.models.client import ClientType
 from .button import get_device_port, port_can_be_power_cycled
 from .carrier_fabric_data import CarrierFabricData
 from .const import (
@@ -59,6 +62,8 @@ from .const import (
     SERVICE_POWER_CYCLE_PORT,
     SERVICE_PTZ_MOVE,
     SERVICE_PTZ_PATROL,
+    SERVICE_RECONNECT_CLIENT,
+    SERVICE_REMOVE_CLIENTS,
     SERVICE_SET_CHIME_PAIRED_DOORBELLS,
     SERVICE_SET_CHIME_REPEAT_TIMES,
     SERVICE_SET_CHIME_RINGTONE,
@@ -243,6 +248,89 @@ def _mac_key(value: Any) -> str | None:
         return None
     key = value.strip().lower().replace(":", "").replace("-", "").replace(".", "")
     return key or None
+
+
+def _resolve_native_client_id(
+    coordinator: Any, site_id: str, client_id: str | None
+) -> str | None:
+    """Resolve a target client ID or MAC to the native cached client ID."""
+    data = coordinator.data
+    if isinstance(data, dict):
+        clients = data.get("clients", {})
+        site_clients = clients.get(site_id, {}) if isinstance(clients, dict) else {}
+        if (
+            isinstance(site_clients, dict)
+            and client_id is not None
+            and client_id not in site_clients
+        ):
+            for native_id, record in site_clients.items():
+                if _client_records_match({native_id: record}, client_id):
+                    return str(native_id)
+    return client_id
+
+
+CLIENT_REMOVAL_MAX_SEEN_SECONDS: Final = 900
+
+
+def _is_removal_timestamp(value: Any) -> bool:
+    """Return True if a first_seen/last_seen value is missing or a finite number."""
+    if value is None:
+        return True
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        # An int too large for a float can't be compared with a float time.
+        return False
+
+
+def _filter_clients_for_removal(
+    clients: list[dict[str, Any]],
+) -> list[str]:
+    """
+    Select historical client MACs eligible for removal.
+
+    A client is eligible if:
+    - It has a non-empty MAC address.
+    - None of fixed_ip, hostname, or name is truthy.
+    - If both first_seen and last_seen timestamps are present,
+      last_seen - first_seen <= 900 seconds. If either timestamp
+      is missing, the age check does not exclude the client.
+
+    A client with a timestamp that is present but not a finite number is
+    kept, so a record the filter can't read is never forgotten.
+    """
+    eligible_macs: list[str] = []
+    seen_macs: set[str] = set()
+
+    for client in clients:
+        raw_mac = (
+            client.get("mac") or client.get("macAddress") or client.get("mac_address")
+        )
+        if not raw_mac or not isinstance(raw_mac, str) or not raw_mac.strip():
+            continue
+
+        if any((client.get("fixed_ip"), client.get("hostname"), client.get("name"))):
+            continue
+
+        first_seen = client.get("first_seen")
+        last_seen = client.get("last_seen")
+        if not (_is_removal_timestamp(first_seen) and _is_removal_timestamp(last_seen)):
+            continue
+        if (
+            first_seen
+            and last_seen
+            and last_seen - first_seen > CLIENT_REMOVAL_MAX_SEEN_SECONDS
+        ):
+            continue
+
+        mac = raw_mac.strip().lower()
+        if mac not in seen_macs:
+            seen_macs.add(mac)
+            eligible_macs.append(mac)
+
+    return eligible_macs
 
 
 def _client_records_match(records: dict[str, Any], client_id: str) -> bool:
@@ -1366,6 +1454,20 @@ SET_CHIME_PAIRED_DOORBELLS_SCHEMA = vol.Schema(
     }
 )
 
+# Schema for reconnect_client service
+RECONNECT_CLIENT_SCHEMA = vol.Schema(
+    {
+        vol.Required("site_id"): cv.string,
+        vol.Optional("client_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("device_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("entity_id"): TARGET_SELECTOR_SCHEMA,
+        vol.Optional("target"): TARGET_DICT_SCHEMA,
+    }
+)
+
+# Schema for remove_clients service
+REMOVE_CLIENTS_SCHEMA = vol.Schema({})
+
 # Schema for authorize_guest service
 AUTHORIZE_GUEST_SCHEMA = vol.Schema(
     {
@@ -1800,6 +1902,119 @@ async def _async_handle_power_cycle_port(
         site_id,
     )
     await coordinator.async_power_cycle_port(site_id, device_id, port_idx)
+
+
+def _is_wireless_client(client_record: dict[str, Any]) -> bool:
+    """Check if client record represents an exact recognized wireless client."""
+    raw_type = client_record.get("type") or client_record.get("connection_type")
+    if isinstance(raw_type, ClientType):
+        return raw_type == ClientType.WIRELESS
+    if isinstance(raw_type, str):
+        normalized = raw_type.strip().upper()
+        return normalized in {"WIRELESS", "CLIENTTYPE.WIRELESS"}
+    return False
+
+
+async def _async_handle_reconnect_client(
+    hass: HomeAssistant, call: ServiceCall
+) -> None:
+    """Handle reconnect_client service call."""
+    site_id = call.data["site_id"]
+    raw_client_id = _extract_target_id(call, "client_id")
+    if not raw_client_id:
+        msg = "Client ID or target is required"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="client_target_required",
+        )
+
+    coordinator, client_id = _get_coordinator_for_network_resource(
+        hass, site_id=site_id, client_id=raw_client_id
+    )
+
+    client_id = _resolve_native_client_id(coordinator, site_id, client_id)
+
+    data = coordinator.data
+    clients = data.get("clients", {}) if isinstance(data, dict) else {}
+    site_clients = clients.get(site_id, {}) if isinstance(clients, dict) else {}
+    client_record = (
+        site_clients.get(client_id)
+        if isinstance(site_clients, dict) and client_id
+        else None
+    )
+
+    if not isinstance(client_record, dict) or not client_record.get("connected"):
+        msg = "client is not currently connected"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="client_not_connected",
+        )
+
+    if not _is_wireless_client(client_record):
+        msg = f"Client '{client_id}' is not a wireless client"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="client_not_wireless",
+            translation_placeholders={"client_id": str(client_id)},
+        )
+
+    await coordinator.async_reconnect_client(site_id, client_id)
+
+
+async def _async_handle_remove_clients(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Handle remove_clients service call."""
+    _ = call
+    failures: list[str] = []
+    network_consoles = 0
+
+    for title, coordinator in _get_titled_coordinators(hass):
+        if not getattr(coordinator, "is_network_usable", True):
+            continue
+        network_consoles += 1
+
+        sites = (coordinator.data or {}).get("sites") or {}
+        site_ids = list(sites.keys())
+
+        total_removed_console = 0
+        for site_id in site_ids:
+            try:
+                historical_clients = await coordinator.async_get_historical_clients(
+                    site_id
+                )
+                eligible_macs = _filter_clients_for_removal(historical_clients)
+                if eligible_macs:
+                    await coordinator.async_forget_clients_batch(site_id, eligible_macs)
+                    total_removed_console += len(eligible_macs)
+            except HomeAssistantError as err:
+                _LOGGER.debug(
+                    "Error removing clients from %s (site %s): %s",
+                    title,
+                    site_id,
+                    err,
+                )
+                failures.append(f"{title} (site {site_id}): {err}")
+
+        _LOGGER.debug("Removed %d clients for console %s", total_removed_console, title)
+
+    if not network_consoles:
+        msg = "No UniFi Insights console has Network available"
+        raise ServiceValidationError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="no_network_console",
+        )
+
+    if failures:
+        msg = "; ".join(failures)
+        raise HomeAssistantError(
+            msg,
+            translation_domain=DOMAIN,
+            translation_key="remove_clients_failed",
+            translation_placeholders={"failures": msg},
+        )
 
 
 async def async_setup_services(hass: HomeAssistant) -> None:
@@ -2265,21 +2480,17 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
         # Trackers identify clients by MAC; the Integration API needs the
         # native client ID from the selected site's cached client records.
-        data = coordinator.data
-        if isinstance(data, dict):
-            clients = data.get("clients", {})
-            site_clients = clients.get(site_id, {}) if isinstance(clients, dict) else {}
-            if (
-                isinstance(site_clients, dict)
-                and client_id is not None
-                and client_id not in site_clients
-            ):
-                for native_id, record in site_clients.items():
-                    if _client_records_match({native_id: record}, client_id):
-                        client_id = native_id
-                        break
+        client_id = _resolve_native_client_id(coordinator, site_id, client_id)
 
         await coordinator.async_authorize_guest(site_id, client_id)
+
+    async def async_handle_reconnect_client(call: ServiceCall) -> None:
+        """Handle the reconnect_client service call."""
+        await _async_handle_reconnect_client(hass, call)
+
+    async def async_handle_remove_clients(call: ServiceCall) -> None:
+        """Handle the remove_clients service call."""
+        await _async_handle_remove_clients(hass, call)
 
     async def async_handle_generate_voucher(call: ServiceCall) -> None:
         """Handle the generate_voucher service call."""
@@ -2403,6 +2614,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(
         DOMAIN,
+        SERVICE_RECONNECT_CLIENT,
+        async_handle_reconnect_client,
+        schema=RECONNECT_CLIENT_SCHEMA,  # type: ignore[arg-type]
+    )
+
+    async_register_admin_service(
+        hass,
+        DOMAIN,
+        SERVICE_REMOVE_CLIENTS,
+        async_handle_remove_clients,
+        schema=REMOVE_CLIENTS_SCHEMA,  # type: ignore[arg-type]
+    )
+
+    hass.services.async_register(
+        DOMAIN,
         SERVICE_GENERATE_VOUCHER,
         async_handle_generate_voucher,
         schema=GENERATE_VOUCHER_SCHEMA,
@@ -2518,6 +2744,12 @@ async def async_unload_services(hass: HomeAssistant) -> None:
     # Unload UniFi Network services
     if hass.services.has_service(DOMAIN, SERVICE_AUTHORIZE_GUEST):
         hass.services.async_remove(DOMAIN, SERVICE_AUTHORIZE_GUEST)
+
+    if hass.services.has_service(DOMAIN, SERVICE_RECONNECT_CLIENT):
+        hass.services.async_remove(DOMAIN, SERVICE_RECONNECT_CLIENT)
+
+    if hass.services.has_service(DOMAIN, SERVICE_REMOVE_CLIENTS):
+        hass.services.async_remove(DOMAIN, SERVICE_REMOVE_CLIENTS)
 
     if hass.services.has_service(DOMAIN, SERVICE_GENERATE_VOUCHER):
         hass.services.async_remove(DOMAIN, SERVICE_GENERATE_VOUCHER)

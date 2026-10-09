@@ -468,6 +468,8 @@ API_PATH_LINK_STATION: Final = "/proxy/protect/integration/v1/link-stations/{id}
 # UniFi Network Services
 SERVICE_POWER_CYCLE_PORT: Final = "power_cycle_port"
 SERVICE_AUTHORIZE_GUEST: Final = "authorize_guest"
+SERVICE_RECONNECT_CLIENT: Final = "reconnect_client"
+SERVICE_REMOVE_CLIENTS: Final = "remove_clients"
 SERVICE_GENERATE_VOUCHER: Final = "generate_voucher"
 SERVICE_DELETE_VOUCHER: Final = "delete_voucher"
 SERVICE_LIST_VOUCHERS: Final = "list_vouchers"

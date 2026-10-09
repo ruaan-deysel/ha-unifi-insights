@@ -158,6 +158,8 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 | --------------------------------- | --------------------------------------------- |
 | `unifi_insights.restart_device`   | Restart a network device                      |
 | `unifi_insights.authorize_guest`  | Authorize a guest client on a hotspot network |
+| `unifi_insights.reconnect_client` | Reconnect a wireless client to Wi-Fi          |
+| `unifi_insights.remove_clients`   | Remove short-lived unnamed clients from sites |
 | `unifi_insights.generate_voucher` | Create one or more hotspot vouchers           |
 | `unifi_insights.delete_voucher`   | Delete a hotspot voucher                      |
 | `unifi_insights.power_cycle_port` | Power cycle a switch port with PoE enabled    |

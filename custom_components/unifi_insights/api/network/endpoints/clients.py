@@ -162,6 +162,45 @@ class ClientsEndpoint:
             return [item for item in data if isinstance(item, dict)]
         return []
 
+    async def get_historical_legacy(self, site_name: str) -> list[dict[str, Any]]:
+        """
+        List historical clients from the classic API (/stat/alluser).
+
+        Args:
+            site_name: The classic site name (for example default).
+
+        Returns:
+            List of raw historical client dictionaries.
+
+        """
+        path = self._client.build_legacy_api_path(site_name, "/stat/alluser")
+        response = await self._client._get(path)
+
+        meta = response.get("meta") if isinstance(response, dict) else None
+        if (
+            not isinstance(response, dict)
+            or not isinstance(meta, dict)
+            or meta.get("rc") != "ok"
+        ):
+            msg = (
+                meta.get("msg") or meta.get("rc") or "unknown error"
+                if isinstance(meta, dict)
+                else "missing meta envelope"
+            )
+            err_msg = f"Classic API call failed: {msg}"
+            raise UniFiResponseError(
+                err_msg,
+                status_code=200,
+                response_body=str(meta if meta is not None else response),
+            )
+
+        data = response.get("data")
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        return []
+
+    get_all_legacy = get_historical_legacy
+
     async def get(self, site_id: str, client_id: str) -> Client:
         """
         Get a specific client.
@@ -219,8 +258,9 @@ class ClientsEndpoint:
             meta = response.get("meta")
             if isinstance(meta, dict) and meta.get("rc") == "error":
                 msg = meta.get("msg", "unknown error")
+                err_msg = f"Classic API command '{command}' failed: {msg}"
                 raise UniFiResponseError(
-                    f"Classic API command '{command}' failed: {msg}",
+                    err_msg,
                     status_code=200,
                     response_body=str(meta),
                 )
@@ -281,6 +321,66 @@ class ClientsEndpoint:
 
         """
         return await self._stamgr_command(site_name, "forget-sta", mac)
+
+    async def _stamgr_batch_command(
+        self,
+        site_name: str,
+        command: str,
+        macs: list[str],
+    ) -> bool:
+        """
+        Run a classic station-manager batch command for multiple clients.
+
+        Args:
+            site_name: The classic site name (for example default).
+            command: The stamgr command (forget-sta).
+            macs: The client MAC addresses.
+
+        Returns:
+            True if successful.
+
+        """
+        if not macs:
+            return True
+
+        path = self._client.build_legacy_api_path(site_name, "/cmd/stamgr")
+        response = await self._client._post(
+            path, json_data={"cmd": command, "macs": macs}
+        )
+        meta = response.get("meta") if isinstance(response, dict) else None
+        if (
+            not isinstance(response, dict)
+            or not isinstance(meta, dict)
+            or meta.get("rc") != "ok"
+        ):
+            msg = (
+                meta.get("msg") or meta.get("rc") or "unknown error"
+                if isinstance(meta, dict)
+                else "missing meta envelope"
+            )
+            err_msg = f"Classic API command '{command}' failed: {msg}"
+            raise UniFiResponseError(
+                err_msg,
+                status_code=200,
+                response_body=str(meta if meta is not None else response),
+            )
+        return True
+
+    async def forget_batch(self, site_name: str, macs: list[str]) -> bool:
+        """
+        Forget/remove multiple clients from the network (classic API forget-sta).
+
+        Args:
+            site_name: The classic site name (for example default).
+            macs: The client MAC addresses.
+
+        Returns:
+            True if successful.
+
+        """
+        return await self._stamgr_batch_command(site_name, "forget-sta", macs)
+
+    forget_macs = forget_batch
 
     async def execute_action(
         self,

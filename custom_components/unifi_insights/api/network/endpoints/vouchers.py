@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import logging
+from typing import TYPE_CHECKING, Any, Final
 
 from ..models.voucher import Voucher
+
+_LOGGER = logging.getLogger(__name__)
+
+VOUCHER_PAGE_SIZE: Final = 1000
+VOUCHER_MAX_PAGES: Final = 50
 
 if TYPE_CHECKING:
     from ..client import UniFiNetworkClient
@@ -22,6 +28,39 @@ class VouchersEndpoint:
 
         """
         self._client = client
+
+    async def get_all_pages(self, site_id: str) -> list[Voucher]:
+        """List every voucher of a site, following offset/limit paging."""
+        path = self._client.build_api_path(f"/sites/{site_id}/hotspot/vouchers")
+        vouchers: list[Voucher] = []
+        offset = 0
+        for _ in range(VOUCHER_MAX_PAGES):
+            response = await self._client._get(
+                path, params={"offset": offset, "limit": VOUCHER_PAGE_SIZE}
+            )
+            data = (
+                response.get("data", response)
+                if isinstance(response, dict)
+                else response
+            )
+            items = data if isinstance(data, list) else []
+            if not items:
+                break
+            vouchers.extend(Voucher.model_validate(item) for item in items)
+            offset += len(items)
+            total = response.get("totalCount") if isinstance(response, dict) else None
+            if isinstance(total, int) and not isinstance(total, bool):
+                if offset >= total:
+                    break
+            elif len(items) < VOUCHER_PAGE_SIZE:
+                break
+        else:
+            _LOGGER.warning(
+                "Stopped listing vouchers of site %s after %d pages",
+                site_id,
+                VOUCHER_MAX_PAGES,
+            )
+        return vouchers
 
     async def get_all(
         self,

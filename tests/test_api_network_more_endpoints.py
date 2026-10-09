@@ -1210,6 +1210,131 @@ async def test_vouchers_delete_methods_pin_spec_requests_and_branches() -> None:
         )
 
 
+async def test_vouchers_get_all_pages_walks_total_count_and_pins_spec_requests() -> None:
+    """get_all_pages walks pages using totalCount and pins spec requests."""
+    page1_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
+    page2_items = [{"id": "v-1000", "code": "1234501000"}]
+    session = _Session(
+        [
+            {"data": page1_items, "totalCount": 1001},
+            {"data": page2_items, "totalCount": 1001},
+        ]
+    )
+    client = _client(session)
+
+    vouchers = await client.vouchers.get_all_pages("default")
+    assert len(vouchers) == 1001
+    assert all(isinstance(v, Voucher) for v in vouchers)
+    assert len(session.requests) == 2
+
+    assert (
+        session.requests[0]["url"]
+        == "https://192.168.1.1/proxy/network/integration/v1/sites/default/hotspot/vouchers"
+    )
+    assert session.requests[0]["params"] == {"offset": 0, "limit": 1000}
+    assert (
+        session.requests[1]["url"]
+        == "https://192.168.1.1/proxy/network/integration/v1/sites/default/hotspot/vouchers"
+    )
+    assert session.requests[1]["params"] == {"offset": 1000, "limit": 1000}
+
+
+async def test_vouchers_get_all_pages_without_total_count_stops_on_short_page() -> None:
+    """get_all_pages stops when returned page is shorter than page size without totalCount."""
+    raw_voucher = {"id": "v-1", "code": "1234567890"}
+    session = _Session(
+        [
+            {"data": [raw_voucher]},
+        ]
+    )
+    client = _client(session)
+
+    vouchers = await client.vouchers.get_all_pages("default")
+    assert len(vouchers) == 1
+    assert isinstance(vouchers[0], Voucher)
+    assert len(session.requests) == 1
+    assert session.requests[0]["params"] == {"offset": 0, "limit": 1000}
+
+
+async def test_vouchers_get_all_pages_without_total_count_continues_on_full_page() -> None:
+    """get_all_pages continues to next page when page is full and totalCount is absent."""
+    page1_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
+    session = _Session(
+        [
+            {"data": page1_items},
+            {"data": []},
+        ]
+    )
+    client = _client(session)
+
+    vouchers = await client.vouchers.get_all_pages("default")
+    assert len(vouchers) == 1000
+    assert len(session.requests) == 2
+    assert session.requests[0]["params"] == {"offset": 0, "limit": 1000}
+    assert session.requests[1]["params"] == {"offset": 1000, "limit": 1000}
+
+
+async def test_vouchers_get_all_pages_empty_and_malformed_responses() -> None:
+    """get_all_pages handles None, non-list data, empty list, and bare list responses."""
+    raw_voucher = {"id": "v-1", "code": "1234567890"}
+
+    # None
+    session_none = _Session([None])
+    client_none = _client(session_none)
+    assert await client_none.vouchers.get_all_pages("default") == []
+
+    # Non-list data
+    session_str = _Session([{"data": "x"}])
+    client_str = _client(session_str)
+    assert await client_str.vouchers.get_all_pages("default") == []
+
+    # Empty list with totalCount 0
+    session_empty = _Session([{"data": [], "totalCount": 0}])
+    client_empty = _client(session_empty)
+    assert await client_empty.vouchers.get_all_pages("default") == []
+
+    # Bare list
+    session_bare = _Session([[raw_voucher]])
+    client_bare = _client(session_bare)
+    vouchers = await client_bare.vouchers.get_all_pages("default")
+    assert len(vouchers) == 1
+    assert isinstance(vouchers[0], Voucher)
+
+
+async def test_vouchers_get_all_pages_stops_at_page_cap(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """get_all_pages stops at page cap and logs warning."""
+    page_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
+    monkeypatch.setattr(
+        "custom_components.unifi_insights.api.network.endpoints.vouchers.VOUCHER_MAX_PAGES",
+        2,
+    )
+    session = _Session(
+        [
+            {"data": page_items, "totalCount": 99999},
+            {"data": page_items, "totalCount": 99999},
+        ]
+    )
+    client = _client(session)
+
+    with caplog.at_level("WARNING"):
+        vouchers = await client.vouchers.get_all_pages("default")
+
+    assert len(vouchers) == 2000
+    assert len(session.requests) == 2
+    assert "Stopped listing vouchers of site default after 2 pages" in caplog.text
+
+
+async def test_vouchers_get_all_pages_propagates_http_errors() -> None:
+    """get_all_pages propagates HTTP errors from _get."""
+    session = _Session([_Response("Not found", status=404)])
+    client = _client(session)
+
+    with pytest.raises(UniFiNotFoundError):
+        await client.vouchers.get_all_pages("default")
+
+
 # =============================================================================
 # 8. vpn_clients.py
 # =============================================================================

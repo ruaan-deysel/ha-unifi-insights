@@ -765,6 +765,43 @@ async def test_vouchers_create_pins_spec_request_and_models() -> None:
     }
 
 
+async def test_vouchers_create_minimal_body_has_only_required_and_set_fields() -> None:
+    """vouchers.create serializes only required and explicitly set fields."""
+    session = _Session(
+        [
+            {"data": {"vouchers": [{"id": "v-1", "code": "1234567890"}]}},
+            {"data": {"vouchers": [{"id": "v-2", "code": "2345678901"}]}},
+        ]
+    )
+    client = _client(session)
+
+    await client.vouchers.create(
+        "default",
+        name="Home Assistant",
+        time_limit_minutes=480,
+        count=1,
+        authorized_guest_limit=1,
+    )
+    assert session.requests[0]["json"] == {
+        "count": 1,
+        "name": "Home Assistant",
+        "timeLimitMinutes": 480,
+        "authorizedGuestLimit": 1,
+    }
+
+    await client.vouchers.create(
+        "default",
+        name="Home Assistant",
+        time_limit_minutes=480,
+        count=1,
+    )
+    assert session.requests[1]["json"] == {
+        "count": 1,
+        "name": "Home Assistant",
+        "timeLimitMinutes": 480,
+    }
+
+
 async def test_vouchers_create_failure_raises() -> None:
     """vouchers.create raises ValueError when creation response is empty."""
     session = _Session([{"data": []}])

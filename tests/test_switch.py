@@ -31,7 +31,6 @@ from custom_components.unifi_insights.const import (
     ATTR_CAMERA_ID,
     ATTR_CAMERA_NAME,
     ATTR_HIGH_FPS_MODE,
-    ATTR_PRIVACY_MODE,
     ATTR_STATUS_LIGHT,
     CONF_CLIENT_CONTROL,
     DEVICE_TYPE_CAMERA,
@@ -48,7 +47,6 @@ from custom_components.unifi_insights.switch import (
     UnifiOutletSwitch,
     UnifiPolicyBasedRouteSwitch,
     UnifiProtectHighFPSSwitch,
-    UnifiProtectPrivacySwitch,
     UnifiProtectStatusLightSwitch,
     UnifiVpnClientSwitch,
     UnifiWifiSwitch,
@@ -138,13 +136,12 @@ class TestAsyncSetupEntry:
 
         await async_setup_entry(hass, mock_entry, async_add_entities)
 
-        # Should add 2 switch entities per camera (privacy, status light)
+        # Should add 1 switch entity per camera (status light)
         # High FPS only added if hasHighFpsCapability is True
         async_add_entities.assert_called_once()
         entities = async_add_entities.call_args[0][0]
-        assert len(entities) == 2
-        assert isinstance(entities[0], UnifiProtectPrivacySwitch)
-        assert isinstance(entities[1], UnifiProtectStatusLightSwitch)
+        assert len(entities) == 1
+        assert isinstance(entities[0], UnifiProtectStatusLightSwitch)
 
     @pytest.mark.asyncio
     async def test_setup_entry_with_multiple_cameras(
@@ -170,8 +167,8 @@ class TestAsyncSetupEntry:
         await async_setup_entry(hass, mock_entry, async_add_entities)
 
         entities = async_add_entities.call_args[0][0]
-        # 3 cameras x 2 switches each = 6 switches
-        assert len(entities) == 6
+        # 3 cameras x 1 switch each = 3 switches
+        assert len(entities) == 3
 
     @pytest.mark.asyncio
     async def test_setup_entry_top_level_collections_not_dicts_are_skipped(
@@ -2329,185 +2326,78 @@ class TestAsyncSetupEntryVpnClients:
         assert async_add_entities.call_count == 1
 
 
-class TestUnifiProtectPrivacySwitch:
-    """Tests for UnifiProtectPrivacySwitch entity."""
+class TestObsoletePrivacySwitchCleanup:
+    """Tests for privacy mode switch removal and entity registry cleanup."""
 
-    @pytest.fixture
-    def mock_coordinator(self) -> MagicMock:
-        """Create mock coordinator."""
-        coordinator = MagicMock()
-        coordinator.protect_client = MagicMock()
-        coordinator.protect_client.base_url = "https://192.168.1.1"
-        coordinator.protect_client.cameras = MagicMock()
-        coordinator.protect_client.cameras.update = AsyncMock()
-        coordinator.network_client = MagicMock()
-        coordinator.network_client.base_url = "https://192.168.1.1"
-        coordinator.data = {
-            "sites": {},
-            "devices": {},
-            "protect": {
-                "cameras": {
-                    "camera1": {
-                        "id": "camera1",
-                        "name": "Test Camera",
-                        "state": "CONNECTED",
-                        "mac": "AA:BB:CC:DD:EE:FF",
-                        "type": "UVC-G4-Pro",
-                        "firmwareVersion": "1.0.0",
-                        "isPrivacyModeEnabled": False,
-                        "privacyZones": [],
-                    }
-                },
-                "lights": {},
-                "sensors": {},
-                "nvrs": {},
-                "viewers": {},
-                "chimes": {},
-                "liveviews": {},
-            },
+    @pytest.mark.asyncio
+    async def test_camera_discovery_does_not_create_privacy_switch(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Assert that camera discovery does not create a privacy mode switch."""
+        mock_coordinator.data["protect"]["cameras"] = {
+            "camera1": {
+                "id": "camera1",
+                "name": "Front Camera",
+                "state": "CONNECTED",
+            }
         }
-        return coordinator
+        mock_entry = MagicMock()
+        mock_entry.entry_id = "test_entry"
+        mock_entry.options = {CONF_CLIENT_CONTROL: False}
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
-    def test_initialization(self, mock_coordinator) -> None:
-        """Test switch entity initialization."""
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
+        async_add_entities = MagicMock()
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        entities = async_add_entities.call_args[0][0]
+        assert not any(e.unique_id.endswith("_privacy_mode") for e in entities)
+        assert not any(
+            getattr(e, "_attr_translation_key", None) == "privacy_mode"
+            for e in entities
         )
-
-        assert switch._device_id == "camera1"
-        assert switch._device_type == DEVICE_TYPE_CAMERA
-        assert switch._attr_has_entity_name is True
-        assert switch._attr_translation_key == "privacy_mode"
-        assert switch._attr_entity_category == EntityCategory.CONFIG
-        assert switch._attr_icon == "mdi:eye-off"
-
-    def test_update_from_data_privacy_disabled(self, mock_coordinator) -> None:
-        """Test _update_from_data with privacy mode disabled."""
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is False
-
-    def test_update_from_data_privacy_enabled_via_flag(self, mock_coordinator) -> None:
-        """Test _update_from_data with privacy mode enabled via flag."""
-        mock_coordinator.data["protect"]["cameras"]["camera1"][
-            "isPrivacyModeEnabled"
-        ] = True
-
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is True
-
-    def test_update_from_data_privacy_enabled_via_zones(self, mock_coordinator) -> None:
-        """Test _update_from_data with privacy zones configured."""
-        mock_coordinator.data["protect"]["cameras"]["camera1"]["privacyZones"] = [
-            {"points": [[0, 0], [100, 0], [100, 100], [0, 100]]}
-        ]
-
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        assert switch._attr_is_on is True
-
-    def test_extra_state_attributes(self, mock_coordinator) -> None:
-        """Test extra state attributes."""
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-
-        attrs = switch._attr_extra_state_attributes
-        assert attrs[ATTR_CAMERA_ID] == "camera1"
-        assert attrs[ATTR_CAMERA_NAME] == "Test Camera"
-        assert attrs[ATTR_PRIVACY_MODE] is False
 
     @pytest.mark.asyncio
-    async def test_async_turn_on_success(self, mock_coordinator) -> None:
-        """Test turning privacy mode on successfully."""
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
+    async def test_setup_removes_obsolete_privacy_switch_registry_entry(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Assert that setup removes obsolete privacy mode switch entries
+        and preserves other switches.
+        """
+        mock_coordinator.data["protect"]["cameras"] = {}
+        mock_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="UniFi Protect Test",
+            data={},
+            entry_id="test_cleanup_entry",
+            options={CONF_CLIENT_CONTROL: True},
         )
-        switch.async_write_ha_state = MagicMock()
+        mock_entry.add_to_hass(hass)
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
 
-        await switch.async_turn_on()
-
-        mock_coordinator.protect_client.cameras.update.assert_called_once_with(
-            "camera1",
-            is_privacy_mode_enabled=True,
+        registry: EntityRegistry = async_get_entity_registry(hass)
+        stale_privacy_mode_entry = registry.async_get_or_create(
+            "switch",
+            DOMAIN,
+            f"{DOMAIN}_camera_camera1_privacy_mode",
+            config_entry=mock_entry,
         )
-        assert switch._attr_is_on is True
-        switch.async_write_ha_state.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_on_error(self, mock_coordinator) -> None:
-        """Test turning privacy mode on with error."""
-        mock_coordinator.protect_client.cameras.update.side_effect = Exception(
-            "API error"
+        preserved_light_entry = registry.async_get_or_create(
+            "switch",
+            DOMAIN,
+            f"{DOMAIN}_camera_camera1_status_light",
+            config_entry=mock_entry,
         )
 
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch._attr_is_on = False
-        switch.async_write_ha_state = MagicMock()
+        assert registry.async_get(stale_privacy_mode_entry.entity_id) is not None
+        assert registry.async_get(preserved_light_entry.entity_id) is not None
 
-        with pytest.raises(HomeAssistantError, match="Unable to enable privacy mode"):
-            await switch.async_turn_on()
+        async_add_entities = MagicMock()
+        await async_setup_entry(hass, mock_entry, async_add_entities)
 
-        switch.async_write_ha_state.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_off_success(self, mock_coordinator) -> None:
-        """Test turning privacy mode off successfully."""
-        mock_coordinator.data["protect"]["cameras"]["camera1"][
-            "isPrivacyModeEnabled"
-        ] = True
-
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch.async_write_ha_state = MagicMock()
-
-        await switch.async_turn_off()
-
-        mock_coordinator.protect_client.cameras.update.assert_called_once_with(
-            "camera1",
-            is_privacy_mode_enabled=False,
-        )
-        assert switch._attr_is_on is False
-        switch.async_write_ha_state.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_async_turn_off_error(self, mock_coordinator) -> None:
-        """Test turning privacy mode off with error."""
-        mock_coordinator.protect_client.cameras.update.side_effect = Exception(
-            "API error"
-        )
-        mock_coordinator.data["protect"]["cameras"]["camera1"][
-            "isPrivacyModeEnabled"
-        ] = True
-
-        switch = UnifiProtectPrivacySwitch(
-            coordinator=mock_coordinator,
-            camera_id="camera1",
-        )
-        switch.async_write_ha_state = MagicMock()
-
-        with pytest.raises(HomeAssistantError, match="Unable to disable privacy mode"):
-            await switch.async_turn_off()
-
-        switch.async_write_ha_state.assert_not_called()
+        assert registry.async_get(stale_privacy_mode_entry.entity_id) is None
+        assert registry.async_get(preserved_light_entry.entity_id) is not None
 
 
 class TestUnifiProtectStatusLightSwitch:
@@ -2922,15 +2812,15 @@ class TestAsyncSetupEntryWithNewSwitches:
 
         entities = async_add_entities.call_args[0][0]
 
-        # Camera 1 gets 3 switches (privacy, status light, high FPS)
-        # Camera 2 gets 2 switches (privacy, status light - no high FPS)
-        # Total: 5 switches
-        assert len(entities) == 5
+        # Camera 1 gets 2 switches (status light, high FPS)
+        # Camera 2 gets 1 switch (status light - no high FPS)
+        # Total: 3 switches
+        assert len(entities) == 3
 
         # Check types
         entity_types = [type(e).__name__ for e in entities]
         assert "UnifiProtectMicrophoneSwitch" not in entity_types
-        assert entity_types.count("UnifiProtectPrivacySwitch") == 2
+        assert "UnifiProtectPrivacySwitch" not in entity_types
         assert entity_types.count("UnifiProtectStatusLightSwitch") == 2
         assert entity_types.count("UnifiProtectHighFPSSwitch") == 1
 

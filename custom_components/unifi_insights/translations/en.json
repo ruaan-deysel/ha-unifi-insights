@@ -621,9 +621,6 @@
       }
     },
     "switch": {
-      "privacy_mode": {
-        "name": "Privacy Mode"
-      },
       "status_light": {
         "name": "Status Light"
       },

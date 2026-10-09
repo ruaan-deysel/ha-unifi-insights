@@ -200,7 +200,7 @@ data:
 
 ## UniFi Protect
 
-- **Cameras:** live view, snapshots and RTSPS streams, with switches and selects for the privacy mode, status light, HDR and video mode.
+- **Cameras:** live view, snapshots and RTSPS streams, with switches and selects for the status light, HDR and video mode.
 - **Detection:** motion, person, vehicle, animal and package binary sensors, and smart detection and doorbell event entities.
 - **Lights:** floodlight on/off and brightness, and a light mode action.
 - **Chimes:** play button, volume, repeat count and ringtone, and which doorbells ring the chime.
@@ -220,7 +220,7 @@ data:
 | Motion Detection, Person Detection, Vehicle Detection, Animal Detection, Package Detection, Microphone | Binary sensor         | Cameras (Microphone is read-only; skipped if the camera reports no mic)         |
 | Ring                                                                                                   | Binary sensor         | Doorbells                                                                       |
 | Doorbell, Smart Detection, Door/Window                                                                 | Event                 | Doorbell rings, smart detections, and sensor open/close events                  |
-| Privacy Mode, Status Light, High FPS Mode                                                              | Switch                | Camera settings                                                                 |
+| Status Light, High FPS Mode                                                                            | Switch                | Camera settings                                                                 |
 | HDR Mode, Video Mode, PTZ Preset                                                                       | Select                | Camera settings                                                                 |
 | Microphone Volume                                                                                      | Number                | Camera microphone volume                                                        |
 | Start PTZ Patrol, Stop PTZ Patrol                                                                      | Button                | PTZ cameras                                                                     |

@@ -163,7 +163,6 @@ ATTR_HDR_MODE: Final = "hdr_mode"
 ATTR_VIDEO_MODE: Final = "video_mode"
 ATTR_LAST_MOTION: Final = "last_motion"
 ATTR_SMART_DETECT_TYPES: Final = "smart_detect_types"
-ATTR_PRIVACY_MODE: Final = "privacy_mode"
 ATTR_STATUS_LIGHT: Final = "status_light"
 ATTR_HIGH_FPS_MODE: Final = "high_fps_mode"
 

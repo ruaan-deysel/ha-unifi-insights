@@ -351,6 +351,10 @@ ATTR_NVR_STORAGE_TOTAL: Final = "storage_total"
 ATTR_NVR_STORAGE_AVAILABLE: Final = "storage_available"
 ATTR_NVR_STORAGE_USED_PERCENT: Final = "storage_used_percent"
 
+# Fill level, in percent of the 1-decimal value shown, at which a console's
+# persistent storage counts as nearly full (Storage Nearly Full binary sensor).
+STORAGE_NEARLY_FULL_PERCENT: Final = 90
+
 # Chime attributes
 ATTR_CHIME_ID: Final = "chime_id"
 ATTR_CHIME_NAME: Final = "chime_name"

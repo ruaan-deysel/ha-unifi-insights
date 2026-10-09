@@ -3066,6 +3066,195 @@ class TestUnifiDeviceCoordinator:
 
         assert "gone" not in coordinator._legacy_wan_failures
 
+    def test_merge_legacy_storage_data(
+        self, coordinator: UnifiDeviceCoordinator
+    ) -> None:
+        """The console's per-mount storage data is merged by MAC."""
+        device_dict: dict[str, Any] = {"macAddress": "AA:BB:CC:DD:EE:FF"}
+        legacy_devices_by_mac: dict[str, dict[str, Any]] = {
+            "aa:bb:cc:dd:ee:ff": {
+                "storage": [
+                    {
+                        "mount_point": "/data",
+                        "name": "eMMC",
+                        "type": "eMMC",
+                        "size": 4143677440,
+                        "used": 1700257792,
+                    }
+                ]
+            }
+        }
+
+        UnifiDeviceCoordinator._merge_legacy_storage_data(
+            device_dict, legacy_devices_by_mac
+        )
+
+        assert device_dict["storage_mounts"] == [
+            {
+                "mount_point": "/data",
+                "name": "eMMC",
+                "type": "eMMC",
+                "size": 4143677440,
+                "used": 1700257792,
+            }
+        ]
+
+    def test_merge_legacy_storage_data_leaves_other_devices_untouched(
+        self, coordinator: UnifiDeviceCoordinator
+    ) -> None:
+        """Devices without storage, or without legacy data, are untouched."""
+        switch: dict[str, Any] = {"macAddress": "AA:BB:CC:DD:EE:FF"}
+        empty_storage: dict[str, Any] = {"macAddress": "AA:BB:CC:DD:EE:FF"}
+        unmatched: dict[str, Any] = {"macAddress": "11:22:33:44:55:66"}
+        no_mac: dict[str, Any] = {}
+        legacy_devices_by_mac: dict[str, dict[str, Any]] = {
+            "aa:bb:cc:dd:ee:ff": {"port_table": []}
+        }
+
+        UnifiDeviceCoordinator._merge_legacy_storage_data(switch, legacy_devices_by_mac)
+        assert "storage_mounts" not in switch
+
+        legacy_devices_by_mac_empty: dict[str, dict[str, Any]] = {
+            "aa:bb:cc:dd:ee:ff": {"storage": []}
+        }
+        UnifiDeviceCoordinator._merge_legacy_storage_data(
+            empty_storage, legacy_devices_by_mac_empty
+        )
+        assert "storage_mounts" not in empty_storage
+
+        for device_dict in (unmatched, no_mac):
+            UnifiDeviceCoordinator._merge_legacy_storage_data(
+                device_dict, legacy_devices_by_mac
+            )
+            assert "storage_mounts" not in device_dict
+
+    @pytest.mark.asyncio
+    async def test_async_update_data_merges_legacy_storage(
+        self, coordinator: UnifiDeviceCoordinator
+    ) -> None:
+        """Legacy storage reaches console through refresh with zero extra requests."""
+        udm_storage = [
+            {
+                "mount_point": "/data",
+                "name": "eMMC",
+                "type": "eMMC",
+                "size": 4143677440,
+                "used": 1700257792,
+            },
+            {
+                "mount_point": "/persistent",
+                "name": "Backup",
+                "type": "eMMC",
+                "size": 2046640128,
+                "used": 318767104,
+            },
+            {
+                "mount_point": "/" + "tmp",
+                "name": "Temporary",
+                "type": "other",
+                "size": 1073741824,
+                "used": 1748992,
+            },
+        ]
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            return_value=[
+                {
+                    "mac": "AA:BB:CC:DD:EE:FF",
+                    "storage": udm_storage,
+                }
+            ]
+        )
+
+        result = await coordinator._async_update_data()
+
+        mounts = result["devices"]["default"]["device1"]["storage_mounts"]
+        assert mounts == udm_storage
+        assert (
+            coordinator.network_client.devices.get_legacy_site_devices.await_count == 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_legacy_primary_devices_still_get_storage_mounts(
+        self, coordinator: UnifiDeviceCoordinator
+    ) -> None:
+        """Storage mounts are merged when legacy devices replace a failing v1 list."""
+        coordinator.network_client.devices.get_all = AsyncMock(
+            side_effect=UniFiResponseError("Internal Server Error", status_code=500)
+        )
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            return_value=[
+                {
+                    "_id": "60a1b2c3d4e5f67890123456",
+                    "mac": "AA:BB:CC:DD:EE:FF",
+                    "name": "Legacy Gateway",
+                    "model": "UDMPROSE",
+                    "type": "udm",
+                    "up": True,
+                    "storage": [
+                        {
+                            "mount_point": "/data",
+                            "name": "eMMC",
+                            "type": "eMMC",
+                            "size": 4143677440,
+                            "used": 1700257792,
+                        }
+                    ],
+                }
+            ]
+        )
+
+        result = await coordinator._async_update_data()
+
+        (device,) = result["devices"]["default"].values()
+        assert "storage_mounts" in device
+        assert device["storage_mounts"][0]["mount_point"] == "/data"
+
+    @pytest.mark.asyncio
+    async def test_storage_mounts_reused_for_bounded_polls_then_dropped(
+        self, coordinator: UnifiDeviceCoordinator
+    ) -> None:
+        """A failing legacy call keeps the last storage mounts for a few polls."""
+        for model in coordinator.network_client.devices.get_all.return_value:
+            dumped = model.model_dump.return_value
+            model.model_dump = MagicMock(
+                side_effect=lambda *_a, d=dumped, **_k: dict(d)
+            )
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            return_value=[
+                {
+                    "mac": "AA:BB:CC:DD:EE:FF",
+                    "storage": [
+                        {
+                            "mount_point": "/data",
+                            "name": "eMMC",
+                            "type": "eMMC",
+                            "size": 4143677440,
+                            "used": 1700257792,
+                        }
+                    ],
+                }
+            ]
+        )
+        result = await coordinator._async_update_data()
+        good = result["devices"]["default"]["device1"]["storage_mounts"]
+
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+        for _ in range(MAX_STATS_REUSE_POLLS):
+            result = await coordinator._async_update_data()
+            assert result["devices"]["default"]["device1"]["storage_mounts"] == good
+
+        result = await coordinator._async_update_data()
+        assert "storage_mounts" not in result["devices"]["default"]["device1"]
+
+        # A success resets the failure count.
+        coordinator.network_client.devices.get_legacy_site_devices = AsyncMock(
+            return_value=[]
+        )
+        await coordinator._async_update_data()
+        assert coordinator._legacy_wan_failures == {}
+
     def test_merge_legacy_port_data_includes_poe_good(
         self, coordinator: UnifiDeviceCoordinator
     ):

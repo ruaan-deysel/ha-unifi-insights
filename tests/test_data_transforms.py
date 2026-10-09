@@ -1,10 +1,17 @@
 """Tests for data transformation functions."""
 
+from typing import Any
+
+import pytest
+
 from custom_components.unifi_insights.data_transforms import (
+    is_volatile_storage_mount,
     map_device_status,
     normalize_innerspace_snapshot,
+    normalize_legacy_storage,
     normalize_legacy_wans,
     parse_floor_plan_asset_path,
+    storage_used_percent,
     transform_network_device,
     transform_protect_camera,
     transform_protect_chime,
@@ -352,3 +359,174 @@ def test_parse_floor_plan_asset_path_reexport() -> None:
     """Test parse_floor_plan_asset_path is exported from data_transforms."""
     url = "/proxy/innerspace/integration/v1/assets/fp-1/floor.png"
     assert parse_floor_plan_asset_path(url) == ("fp-1", "floor.png")
+
+
+UDM_STORAGE = [
+    {
+        "mount_point": "/data",
+        "name": "eMMC",
+        "type": "eMMC",
+        "size": 4143677440,
+        "used": 1700257792,
+    },
+    {
+        "mount_point": "/persistent",
+        "name": "Backup",
+        "type": "eMMC",
+        "size": 2046640128,
+        "used": 318767104,
+    },
+    {
+        "mount_point": "/" + "tmp",
+        "name": "Temporary",
+        "type": "other",
+        "size": 1073741824,
+        "used": 1748992,
+    },
+]
+
+
+def test_normalize_legacy_storage_live_shape() -> None:
+    """Test normalizing storage from the live UDM record shape."""
+    result = normalize_legacy_storage({"storage": UDM_STORAGE})
+    assert len(result) == 3
+    for entry, expected in zip(result, UDM_STORAGE, strict=True):
+        assert set(entry.keys()) == {"mount_point", "name", "type", "size", "used"}
+        assert entry == expected
+
+
+@pytest.mark.parametrize(
+    "raw_device",
+    [
+        {},
+        {"storage": None},
+        {"storage": {"mount_point": "/data"}},
+        {"storage": "not a list"},
+    ],
+)
+def test_normalize_legacy_storage_without_storage(raw_device: dict[str, Any]) -> None:
+    """Test devices reporting no storage or non-list storage produce empty list."""
+    assert normalize_legacy_storage(raw_device) == []
+
+
+def test_normalize_legacy_storage_skips_unusable_entries() -> None:
+    """Test skipping non-dicts, blank mount points, and duplicates."""
+    raw = {
+        "storage": [
+            "not a dict",
+            {"name": "no mount point"},
+            {"mount_point": None, "name": "none mount point"},
+            {"mount_point": "", "name": "empty mount point"},
+            {"mount_point": "   ", "name": "whitespace mount point"},
+            {"mount_point": 123, "name": "non-str mount point"},
+            {"mount_point": " / ", "name": "root", "size": 100, "used": 50},
+            {"mount_point": "/", "name": "duplicate root", "size": 200, "used": 100},
+        ]
+    }
+    result = normalize_legacy_storage(raw)
+    assert len(result) == 1
+    assert result[0] == {
+        "mount_point": "/",
+        "name": "root",
+        "type": None,
+        "size": 100,
+        "used": 50,
+    }
+
+
+@pytest.mark.parametrize(
+    "bad_val",
+    [
+        True,
+        "100",
+        -1,
+        float("nan"),
+        float("inf"),
+        None,
+    ],
+)
+def test_normalize_legacy_storage_invalid_numbers_become_none(
+    bad_val: Any,
+) -> None:
+    """Test invalid size/used values become None; 0 and floats convert properly."""
+    raw = {
+        "storage": [
+            {"mount_point": "/bad", "size": bad_val, "used": bad_val},
+            {"mount_point": "/missing"},
+            {"mount_point": "/zero", "size": 0, "used": 0},
+            {"mount_point": "/float", "size": 1.5e9, "used": 1.5e9},
+        ]
+    }
+    result = normalize_legacy_storage(raw)
+    assert result[0]["size"] is None
+    assert result[0]["used"] is None
+    assert result[1]["size"] is None
+    assert result[1]["used"] is None
+    assert result[2]["size"] == 0
+    assert result[2]["used"] == 0
+    assert result[3]["size"] == 1500000000
+    assert result[3]["used"] == 1500000000
+
+
+def test_normalize_legacy_storage_blank_name_and_type_become_none() -> None:
+    """Test empty/whitespace name and type become None."""
+    raw = {
+        "storage": [
+            {
+                "mount_point": "/data",
+                "name": "  ",
+                "type": "",
+                "size": 1000,
+                "used": 500,
+            }
+        ]
+    }
+    result = normalize_legacy_storage(raw)
+    assert result[0]["name"] is None
+    assert result[0]["type"] is None
+
+
+@pytest.mark.parametrize(
+    ("mount", "expected_percent"),
+    [
+        (UDM_STORAGE[0], 41.0),
+        (UDM_STORAGE[1], 15.6),
+        (UDM_STORAGE[2], 0.2),
+        ({"size": 0, "used": 0}, None),
+        ({"size": None, "used": 100}, None),
+        ({"size": 100, "used": None}, None),
+        ({"size": 100, "used": 150}, 100.0),
+        ({"size": 1000, "used": 899.6}, 90.0),
+    ],
+)
+def test_storage_used_percent(
+    mount: dict[str, Any], expected_percent: float | None
+) -> None:
+    """Test percentage calculation, rounding, capping and null handling."""
+    assert storage_used_percent(mount) == expected_percent
+
+
+@pytest.mark.parametrize(
+    ("mount", "expected_volatile"),
+    [
+        ({"mount_point": "/" + "tmp"}, True),
+        ({"mount_point": "/" + "tmp/x"}, True),
+        ({"mount_point": "/RUN"}, True),
+        ({"mount_point": "/var/run"}, True),
+        ({"mount_point": "/" + "var/tmp"}, True),
+        ({"mount_point": "/" + "dev/shm"}, True),
+        ({"mount_point": "/custom", "type": "tmpfs"}, True),
+        ({"mount_point": "/custom", "type": "RAMFS"}, True),
+        ({"mount_point": "/data"}, False),
+        ({"mount_point": "/persistent"}, False),
+        ({"mount_point": "/" + "tmpfoo"}, False),
+        ({"mount_point": "/volume1"}, False),
+        ({"mount_point": "/", "type": "other"}, False),
+        ({}, False),
+    ],
+)
+def test_is_volatile_storage_mount(
+    mount: dict[str, Any], *, expected_volatile: bool
+) -> None:
+    """Test detecting volatile (RAM or boot-recreated) filesystems."""
+    assert is_volatile_storage_mount(mount) is expected_volatile

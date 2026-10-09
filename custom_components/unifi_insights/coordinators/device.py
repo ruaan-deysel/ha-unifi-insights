@@ -24,7 +24,10 @@ from custom_components.unifi_insights.api.network.models import (
     parse_outlet_metrics,
 )
 from custom_components.unifi_insights.const import DOMAIN, SCAN_INTERVAL_DEVICE
-from custom_components.unifi_insights.data_transforms import normalize_legacy_wans
+from custom_components.unifi_insights.data_transforms import (
+    normalize_legacy_storage,
+    normalize_legacy_wans,
+)
 from custom_components.unifi_insights.helpers import async_get_device_entry
 
 from .base import UnifiBaseCoordinator
@@ -553,6 +556,25 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
         if wans:
             device_dict["wans"] = wans
 
+    @classmethod
+    def _merge_legacy_storage_data(
+        cls,
+        device_dict: dict[str, Any],
+        legacy_devices_by_mac: dict[str, dict[str, Any]],
+    ) -> None:
+        """Merge the console's per-mount storage from legacy data (no extra request)."""
+        mac_address = cls._normalize_mac(
+            device_dict.get("macAddress") or device_dict.get("mac")
+        )
+        if mac_address is None:
+            return
+        legacy_device = legacy_devices_by_mac.get(mac_address)
+        if legacy_device is None:
+            return
+        mounts = normalize_legacy_storage(legacy_device)
+        if mounts:
+            device_dict["storage_mounts"] = mounts
+
     def _vpn_connections_or_previous(
         self, site_id: str, connections: dict[str, dict[str, Any]] | None
     ) -> dict[str, dict[str, Any]] | None:
@@ -576,10 +598,10 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
 
     def _reuse_previous_wans(self, site_id: str, devices: list[dict[str, Any]]) -> None:
         """
-        Carry each device's last WAN links over a failed legacy fetch.
+        Carry each device's last WAN and storage data over a failed legacy fetch.
 
-        WAN links only come from the legacy device call, so one failed call
-        would otherwise flip every WAN Connection sensor on -> unknown -> on.
+        WAN links and storage mounts both only come from the legacy device call,
+        so one failed call would otherwise drop them until the next poll.
         Like VPN connections, the reuse is bounded so a call that keeps
         failing cannot hold a stale state forever.
         """
@@ -590,9 +612,12 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
         previous_devices = self.data["devices"].get(site_id, {})
         for device in devices:
             previous = previous_devices.get(device.get("id", ""))
-            wans = previous.get("wans") if isinstance(previous, dict) else None
-            if isinstance(wans, list):
-                device["wans"] = wans
+            if not isinstance(previous, dict):
+                continue
+            for field in ("wans", "storage_mounts"):
+                value = previous.get(field)
+                if isinstance(value, list):
+                    device[field] = value
 
     async def _fetch_vpn_connections(
         self, site_id: str, legacy_site_name: str | None
@@ -970,9 +995,10 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
                     # When legacy is primary, _legacy_device_to_v1_dict()
                     # already embeds the topology block directly.
                     self._merge_legacy_uplink_data(device, legacy_devices_by_mac)
-                # The legacy-to-v1 mapping does not carry WAN links, so they
+                # The legacy-to-v1 mapping does not carry WAN links and storage, so they
                 # are merged whichever source is primary.
                 self._merge_legacy_wan_data(device, legacy_devices_by_mac)
+                self._merge_legacy_storage_data(device, legacy_devices_by_mac)
 
         if legacy_failed:
             self._reuse_previous_wans(site_id, devices)

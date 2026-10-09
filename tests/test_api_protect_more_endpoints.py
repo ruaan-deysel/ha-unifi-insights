@@ -1978,6 +1978,7 @@ async def test_sensor_motion_sensitivity_spec_mismatch() -> None:
     ],
 )
 async def test_missing_and_malformed_object_responses(
+    *,
     endpoint: str,
     method: str,
     args: tuple[str, ...],

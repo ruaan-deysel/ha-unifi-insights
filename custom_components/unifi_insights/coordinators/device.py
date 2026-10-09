@@ -166,7 +166,6 @@ class UnifiDeviceCoordinator(UnifiBaseCoordinator):
             "devices": {},
             "clients": {},
             "stats": {},
-            "vouchers": {},
             "vpn_connections": {},
             "last_update": None,
         }

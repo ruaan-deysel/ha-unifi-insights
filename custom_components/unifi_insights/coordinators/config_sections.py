@@ -258,6 +258,28 @@ async def async_fetch_site_firewall(
     return firewall_rules_dict
 
 
+async def async_fetch_site_vouchers(
+    coordinator: Any,
+    site_id: str,
+    failed_sections: set[tuple[str, str]],
+) -> dict[str, Any]:
+    """Fetch the voucher inventory of one site, keyed by voucher id."""
+    models = await coordinator._fetch_optional_section(
+        "vouchers",
+        site_id,
+        partial(coordinator.network_client.vouchers.get_all_pages, site_id),
+    )
+    if models is None:
+        failed_sections.add(("vouchers", site_id))
+        return dict(coordinator.data.get("vouchers", {}).get(site_id, {}))
+    inventory: dict[str, Any] = {}
+    for model in models:
+        record = coordinator._model_to_dict(model)
+        if voucher_id := record.get("id"):
+            inventory[voucher_id] = record
+    return inventory
+
+
 async def async_fetch_site_routes(
     network_client: UniFiNetworkClient,
     model_to_dict: Callable[[Any], dict[str, Any]],

@@ -1239,6 +1239,47 @@ class TestNetworkServices:
 
         await async_unload_services(hass)
 
+    async def test_generate_voucher_zero_limits_are_still_forwarded(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Test generate_voucher forwards 0 limits to coordinator unchanged."""
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_generate_voucher = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        await async_setup_services(hass)
+
+        with patch.object(
+            hass.config_entries,
+            "async_entries",
+            return_value=[mock_entry],
+        ):
+            await hass.services.async_call(
+                DOMAIN,
+                "generate_voucher",
+                {
+                    "site_id": "site1",
+                    "upload_limit_kbps": 0,
+                    "download_limit_kbps": 0,
+                    "data_limit_mb": 0,
+                },
+                blocking=True,
+            )
+
+        mock_coordinator.async_generate_voucher.assert_called_once_with(
+            "site1",
+            count=1,
+            time_limit_minutes=480,
+            tx_rate_limit_kbps=0,
+            rx_rate_limit_kbps=0,
+            data_usage_limit_mbytes=0,
+            name="Home Assistant",
+        )
+
+        await async_unload_services(hass)
+
     async def test_generate_voucher_with_note(self, hass: HomeAssistant) -> None:
         """Test generate_voucher uses provided note and schema duration default."""
         mock_coordinator = MagicMock()

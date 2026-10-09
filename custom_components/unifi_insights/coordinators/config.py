@@ -19,6 +19,7 @@ from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_
 from .base import UnifiBaseCoordinator
 from .config_sections import (
     async_fetch_site_firewall,
+    async_fetch_site_vouchers,
     async_fetch_site_routes,
     async_fetch_site_vpn_clients,
     async_fetch_site_vpns,
@@ -93,6 +94,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             "sites": {},
             "wifi": {},
             "firewall_rules": {},
+            "vouchers": {},
             "policy_based_routes": {},
             "vpn_clients": {},
             "site_vpns": {},
@@ -123,6 +125,10 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
     def firewall_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched firewall rules for a site."""
         return self._section_available("firewall_rules", site_id)
+
+    def vouchers_available(self, site_id: str) -> bool:
+        """Return True if the last refresh fetched hotspot vouchers for a site."""
+        return self._section_available("vouchers", site_id)
 
     def internet_activity_available(self, site_id: str) -> bool:
         """Return True if the last refresh fetched internet activity for a site."""
@@ -239,6 +245,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 self.data.update(
                     wifi={},
                     firewall_rules={},
+                    vouchers={},
                     policy_based_routes={},
                     vpn_clients={},
                     site_vpns={},
@@ -254,6 +261,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             for key in (
                 "wifi",
                 "firewall_rules",
+                "vouchers",
                 "policy_based_routes",
                 "vpn_clients",
                 "site_vpns",
@@ -275,6 +283,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
 
             wifi_by_site: dict[str, dict[str, Any]] = {}
             firewall_by_site: dict[str, dict[str, Any]] = {}
+            vouchers_by_site: dict[str, dict[str, Any]] = {}
             internet_activity_by_site: dict[str, dict[str, dict[str, int]]] = {}
             failed_sections: set[tuple[str, str]] = set()
             routes_by_site: dict[str, dict[str, Any]] = {}
@@ -292,6 +301,9 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     self, site_id, legacy_name, failed_sections
                 )
                 firewall_by_site[site_id] = await async_fetch_site_firewall(
+                    self, site_id, failed_sections
+                )
+                vouchers_by_site[site_id] = await async_fetch_site_vouchers(
                     self, site_id, failed_sections
                 )
                 await async_update_site_internet_activity(
@@ -322,6 +334,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 sites=sites,
                 wifi=wifi_by_site,
                 firewall_rules=firewall_by_site,
+                vouchers=vouchers_by_site,
                 internet_activity=internet_activity_by_site,
                 internet_activity_unavailable={
                     s for sec, s in failed_sections if sec == "internet_activity"
@@ -353,6 +366,20 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
             self._handle_generic_error(err)
 
         return self.data  # pragma: no cover
+
+    async def async_refresh_vouchers(self, site_id: str) -> None:
+        """Re-fetch one site's voucher inventory without a full configuration refresh.
+
+        Auth failures propagate; any other failure keeps the last inventory and flags the section.
+        """
+        if site_id not in self.data.get("sites", {}):
+            return
+        failed: set[tuple[str, str]] = set()
+        inventory = await async_fetch_site_vouchers(self, site_id, failed)
+        self.data["vouchers"] = {**self.data.get("vouchers", {}), site_id: inventory}
+        self._failed_sections.discard(("vouchers", site_id))
+        self._failed_sections |= failed
+        self.async_update_listeners()
 
     def get_site(self, site_id: str) -> dict[str, Any] | None:
         """Get site data by site ID."""

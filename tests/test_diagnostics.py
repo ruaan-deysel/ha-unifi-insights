@@ -415,6 +415,53 @@ async def test_diagnostics_redacts_wifi_ssid(
     assert "Sarah and Tom 5G" not in _strings(diagnostics)
 
 
+async def test_diagnostics_redacts_voucher_codes_and_notes(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations,
+) -> None:
+    """Test voucher codes and notes are redacted in vouchers and latest_vouchers."""
+    coordinator = init_integration.runtime_data.coordinator
+    coordinator.data["vouchers"] = {
+        "site-1": {
+            "v-1": {
+                "id": "v-1",
+                "code": "secret-code-123",
+                "name": "Guest John",
+                "timeLimitMinutes": 480,
+                "expired": False,
+            }
+        }
+    }
+    coordinator.data["latest_vouchers"] = {
+        "site-1": {
+            "id": "v-1",
+            "code": "secret-code-123",
+            "name": "Guest John",
+            "timeLimitMinutes": 480,
+            "expired": False,
+        }
+    }
+
+    diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
+    voucher = diagnostics["data"]["vouchers"]["site-1"]["v-1"]
+    latest = diagnostics["data"]["latest_vouchers"]["site-1"]
+
+    assert voucher["code"] == REDACTED
+    assert voucher["name"] == REDACTED
+    assert voucher["timeLimitMinutes"] == 480
+    assert voucher["expired"] is False
+
+    assert latest["code"] == REDACTED
+    assert latest["name"] == REDACTED
+    assert latest["timeLimitMinutes"] == 480
+    assert latest["expired"] is False
+
+    all_diag_strings = _strings(diagnostics)
+    assert "secret-code-123" not in all_diag_strings
+    assert "Guest John" not in all_diag_strings
+
+
 @pytest.mark.parametrize(
     "data",
     [
@@ -423,6 +470,8 @@ async def test_diagnostics_redacts_wifi_ssid(
         {"clients": "not-a-mapping", "wifi": None},
         {"stats": {"site-1": None}},
         {"stats": {"site-1": {"device-1": {"uptime": 42}}}},
+        {"vouchers": "x", "latest_vouchers": None},
+        {"latest_vouchers": {"s": None}},
     ],
 )
 def test_redact_coordinator_data_tolerates_unexpected_shapes(data: Any) -> None:

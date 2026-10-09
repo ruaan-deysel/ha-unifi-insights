@@ -78,6 +78,7 @@ def _create_mock_network_client() -> MagicMock:
 
     # Setup vouchers namespace
     client.vouchers = MagicMock()
+    client.vouchers.get_all_pages = AsyncMock(return_value=[])
     client.vouchers.create = AsyncMock(return_value=[MagicMock(id="voucher1")])
     client.vouchers.delete = AsyncMock(return_value=True)
 

@@ -142,6 +142,10 @@ CLIENT_TO_REDACT = TO_REDACT | PERSONAL_NAMES
 # WiFi records: the SSID is also carried in the record's "name" field.
 WIFI_TO_REDACT = TO_REDACT | {"name"}
 
+# Hotspot vouchers: voucher codes are guest credentials; the note ("name" or
+# "note") can name a guest.
+VOUCHER_TO_REDACT = TO_REDACT | {"code", "name", "note"}
+
 # Keys whose value is a MAC address even when it arrives unpunctuated. Values
 # are replaced with a per-report placeholder rather than dropped; see
 # _anonymize_macs.
@@ -267,6 +271,8 @@ def _redact_coordinator_data(data: Any) -> Any:
     for section, to_redact in (
         ("clients", CLIENT_TO_REDACT),
         ("wifi", WIFI_TO_REDACT),
+        ("vouchers", VOUCHER_TO_REDACT),
+        ("latest_vouchers", VOUCHER_TO_REDACT),
     ):
         records = data.get(section)
         if isinstance(records, Mapping):

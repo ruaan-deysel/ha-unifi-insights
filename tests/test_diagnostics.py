@@ -687,7 +687,7 @@ async def test_diagnostics_show_whether_the_global_alarm_manager_is_enabled(
 async def test_diagnostics_redacts_port_forward_addresses(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
-    enable_custom_integrations,
+    enable_custom_integrations: None,
 ) -> None:
     """Test diagnostics redacts port forward IP addresses but preserves rule info."""
     coordinator = init_integration.runtime_data.coordinator
@@ -711,7 +711,7 @@ async def test_diagnostics_redacts_port_forward_addresses(
 async def test_diagnostics_redacts_traffic_rule_targets(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
-    enable_custom_integrations,
+    enable_custom_integrations: None,
 ) -> None:
     """Test diagnostics redacts traffic rule target domains, IPs and MACs."""
     coordinator = init_integration.runtime_data.coordinator
@@ -743,7 +743,7 @@ async def test_diagnostics_redacts_traffic_rule_targets(
 async def test_diagnostics_anonymizes_dotted_client_mac(
     hass: HomeAssistant,
     init_integration: MockConfigEntry,
-    enable_custom_integrations,
+    enable_custom_integrations: None,
 ) -> None:
     """Test diagnostics anonymizes dotted client_mac in MAC_KEYS."""
     coordinator = init_integration.runtime_data.coordinator

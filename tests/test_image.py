@@ -941,7 +941,7 @@ class TestUnifiVoucherQrCodeImage:
                     "id": "v1",
                     "code": "1234567890",
                     "createdAt": "2026-10-09T00:00:00Z",
-                    "expiresAt": "2026-10-10T00:00:00Z",
+                    "expiresAt": "2099-01-01T00:00:00Z",
                     "expired": False,
                 }
             },

@@ -56,8 +56,11 @@ def _create_mock_model(data: dict) -> MagicMock:
 @pytest.mark.asyncio
 async def test_generate_flow_updates_inventory_and_latest_voucher(
     hass: HomeAssistant,
+    freezer: Any,
 ) -> None:
     """Generating a voucher updates inventory, latest_vouchers and fires listeners."""
+    # Inside the fixture voucher's 12:00-20:00 window, so it counts as active.
+    freezer.move_to("2026-10-09T13:00:00Z")
     entry = MockConfigEntry(
         domain=DOMAIN,
         data={CONF_API_KEY: "test_api_key"},

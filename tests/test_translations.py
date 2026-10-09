@@ -233,3 +233,51 @@ def test_protect_security_entity_icons_defined() -> None:
             entry = icons.get(platform, {}).get(desc.translation_key)
             assert entry is not None, f"{desc.translation_key} has no icon"
             assert entry["default"].startswith("mdi:")
+
+
+def test_voucher_translation_and_icon_keys_present() -> None:
+    """Hotspot voucher entity keys exist in strings.json, en.json, and icons.json."""
+    strings_data = json.loads(_STRINGS_JSON.read_text())["entity"]
+    en_data = json.loads(_EN_JSON.read_text())["entity"]
+    icons_data = json.loads(_ICONS_JSON.read_text())["entity"]
+
+    expected_keys = {
+        "number": [
+            "voucher_duration",
+            "voucher_guest_limit",
+            "voucher_download_limit",
+            "voucher_upload_limit",
+            "voucher_data_limit",
+        ],
+        "button": [
+            "generate_voucher",
+        ],
+        "sensor": [
+            "latest_voucher_code",
+            "latest_voucher_expiration",
+            "active_vouchers",
+        ],
+        "image": [
+            "voucher_qr_code",
+        ],
+    }
+
+    for platform, keys in expected_keys.items():
+        for key in keys:
+            assert key in strings_data[platform], (
+                f"{platform}.{key} missing from strings.json"
+            )
+            assert key in en_data[platform], (
+                f"{platform}.{key} missing from translations/en.json"
+            )
+            assert strings_data[platform][key] == en_data[platform][key], (
+                f"{platform}.{key} mismatch between strings.json and en.json"
+            )
+            assert key in icons_data[platform], (
+                f"{platform}.{key} missing from icons.json"
+            )
+            icon_entry = icons_data[platform][key]
+            assert "default" in icon_entry, f"{platform}.{key} missing default icon"
+            assert icon_entry["default"].startswith("mdi:"), (
+                f"{platform}.{key} invalid icon"
+            )

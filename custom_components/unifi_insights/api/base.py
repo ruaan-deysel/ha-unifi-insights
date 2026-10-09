@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import re
@@ -55,9 +56,46 @@ _SENSITIVE_KEYS_RE = re.compile(
 )
 
 
+_SENSITIVE_KEYS = frozenset(
+    {
+        "password",
+        "psk",
+        "passphrase",
+        "token",
+        "apikey",
+        "api_key",
+        "secret",
+        "credential",
+        "x-api-key",
+        "authorization",
+        "code",
+        "voucher",
+        "fingerprint",
+    }
+)
+
+
+def _redact_json(value: Any) -> Any:
+    """Redact credential keys recursively regardless of their JSON value type."""
+    if isinstance(value, dict):
+        return {
+            key: "**REDACTED**"
+            if key.lower() in _SENSITIVE_KEYS
+            else _redact_json(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_json(item) for item in value]
+    return value
+
+
 def _redact(text: str) -> str:
-    """Replace sensitive JSON field values with a redaction placeholder."""
-    return _SENSITIVE_KEYS_RE.sub(r'\1"**REDACTED**"', text)
+    """Redact parsed JSON credentials, falling back to regex for non-JSON text."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return _SENSITIVE_KEYS_RE.sub(r'\1"**REDACTED**"', text)
+    return json.dumps(_redact_json(value))
 
 
 def _retry_after_seconds(value: str | None) -> int:
@@ -311,6 +349,7 @@ class BaseUniFiClient(ABC):
         json_data: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         expected_unsupported: bool = False,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make an HTTP request, retrying once after a short-lived 429.
@@ -330,6 +369,7 @@ class BaseUniFiClient(ABC):
                 json_data=json_data,
                 headers=headers,
                 expected_unsupported=expected_unsupported,
+                log_body=log_body,
             ),
             f"{method} {path}",
         )
@@ -343,6 +383,7 @@ class BaseUniFiClient(ABC):
         json_data: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         expected_unsupported: bool = False,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a single HTTP request to the API.
@@ -355,6 +396,7 @@ class BaseUniFiClient(ABC):
             headers: Additional headers.
             expected_unsupported: Whether a non-JSON 2xx response is an
                 expected unsupported-endpoint signal.
+            log_body: Whether redacted response body excerpts may be logged.
 
         Returns:
             Response data as dict, list, or None.
@@ -394,6 +436,7 @@ class BaseUniFiClient(ABC):
                     response,
                     expected_unsupported=expected_unsupported,
                     request_path=path,
+                    log_body=log_body,
                 )
 
         except aiohttp.ClientConnectorError as err:
@@ -416,6 +459,7 @@ class BaseUniFiClient(ABC):
         *,
         expected_unsupported: bool = False,
         request_path: str | None = None,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Handle API response.
@@ -425,6 +469,7 @@ class BaseUniFiClient(ABC):
             expected_unsupported: Log unredirected non-JSON 2xx responses at
                 DEBUG as expected unsupported-endpoint signals.
             request_path: Original request path before any redirect.
+            log_body: Whether redacted response body excerpts may be logged.
 
         Returns:
             Response data.
@@ -440,7 +485,12 @@ class BaseUniFiClient(ABC):
         response_text = await response.text()
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
-            redacted_body = self._response_log_text(response_text, limit=500)
+            # Retain the override used by clients that omit response bodies.
+            redacted_body = (
+                self._response_log_text(response_text, limit=500)
+                if log_body
+                else f"<body omitted, {len(response_text.encode('utf-8'))} bytes>"
+            )
             _LOGGER.debug(
                 "Response status: %s, body: %s",
                 status,
@@ -496,7 +546,11 @@ class BaseUniFiClient(ABC):
             # True and entities kept serving stale cached data indefinitely
             # instead of surfacing as unavailable and letting the
             # coordinator's normal retry/backoff take over.
-            redacted_response = self._response_log_text(response_text, limit=200)
+            redacted_response = (
+                self._response_log_text(response_text, limit=200)
+                if log_body
+                else f"<body omitted, {len(response_text.encode('utf-8'))} bytes>"
+            )
             expected_path = (
                 self._build_url(request_path).path
                 if request_path is not None
@@ -540,6 +594,7 @@ class BaseUniFiClient(ABC):
         *,
         params: dict[str, Any] | None = None,
         expected_unsupported: bool = False,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a GET request.
@@ -549,6 +604,7 @@ class BaseUniFiClient(ABC):
             params: Query parameters.
             expected_unsupported: Whether a non-JSON 2xx response is an
                 expected unsupported-endpoint signal.
+            log_body: Whether redacted response body excerpts may be logged.
 
         Returns:
             Response data.
@@ -559,6 +615,7 @@ class BaseUniFiClient(ABC):
             path,
             params=params,
             expected_unsupported=expected_unsupported,
+            log_body=log_body,
         )
 
     async def _post(
@@ -568,6 +625,7 @@ class BaseUniFiClient(ABC):
         json_data: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
         expected_unsupported: bool = False,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a POST request.
@@ -578,6 +636,7 @@ class BaseUniFiClient(ABC):
             params: Query parameters.
             expected_unsupported: Whether a non-JSON 2xx response is an
                 expected unsupported-endpoint signal.
+            log_body: Whether redacted response body excerpts may be logged.
 
         Returns:
             Response data.
@@ -589,6 +648,7 @@ class BaseUniFiClient(ABC):
             json_data=json_data,
             params=params,
             expected_unsupported=expected_unsupported,
+            log_body=log_body,
         )
 
     async def _put(
@@ -636,6 +696,7 @@ class BaseUniFiClient(ABC):
         path: str,
         *,
         params: dict[str, Any] | None = None,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """
         Make a DELETE request.
@@ -643,12 +704,13 @@ class BaseUniFiClient(ABC):
         Args:
             path: API path.
             params: Query parameters.
+            log_body: Whether redacted response body excerpts may be logged.
 
         Returns:
             Response data.
 
         """
-        return await self._request("DELETE", path, params=params)
+        return await self._request("DELETE", path, params=params, log_body=log_body)
 
     async def _get_binary_with_content_type(
         self,

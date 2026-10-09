@@ -5,9 +5,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberEntityDescription,
+    NumberMode,
+    RestoreNumber,
+)
+from homeassistant.const import UnitOfDataRate, UnitOfInformation, UnitOfTime
 from homeassistant.core import callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_CAMERA_ID,
@@ -24,7 +33,18 @@ from .const import (
     DEVICE_TYPE_CHIME,
     DEVICE_TYPE_LIGHT,
 )
-from .entity import UnifiProtectEntity, async_call_coordinator_action
+from .coordinators import UnifiFacadeCoordinator
+from .coordinators.voucher_state import (
+    VOUCHER_INPUTS,
+    cast_input,
+    restore_input,
+    voucher_site_ids,
+)
+from .entity import (
+    UnifiProtectEntity,
+    async_call_coordinator_action,
+    build_site_device_info,
+)
 from .led_level import led_level_to_percent, percent_to_led_level
 
 if TYPE_CHECKING:
@@ -32,12 +52,62 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 # Number entities are action-based, allow parallel execution
 PARALLEL_UPDATES = 1
+
+VOUCHER_NUMBER_DESCRIPTIONS: tuple[NumberEntityDescription, ...] = (
+    NumberEntityDescription(
+        key="voucher_duration",
+        translation_key="voucher_duration",
+        device_class=NumberDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.MINUTES,
+        native_min_value=VOUCHER_INPUTS["voucher_duration"].minimum,
+        native_max_value=VOUCHER_INPUTS["voucher_duration"].maximum,
+        native_step=VOUCHER_INPUTS["voucher_duration"].step,
+        mode=NumberMode.BOX,
+    ),
+    NumberEntityDescription(
+        key="voucher_guest_limit",
+        translation_key="voucher_guest_limit",
+        native_min_value=VOUCHER_INPUTS["voucher_guest_limit"].minimum,
+        native_max_value=VOUCHER_INPUTS["voucher_guest_limit"].maximum,
+        native_step=VOUCHER_INPUTS["voucher_guest_limit"].step,
+        mode=NumberMode.BOX,
+    ),
+    NumberEntityDescription(
+        key="voucher_download_limit",
+        translation_key="voucher_download_limit",
+        device_class=NumberDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        native_min_value=VOUCHER_INPUTS["voucher_download_limit"].minimum,
+        native_max_value=VOUCHER_INPUTS["voucher_download_limit"].maximum,
+        native_step=VOUCHER_INPUTS["voucher_download_limit"].step,
+        mode=NumberMode.BOX,
+    ),
+    NumberEntityDescription(
+        key="voucher_upload_limit",
+        translation_key="voucher_upload_limit",
+        device_class=NumberDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        native_min_value=VOUCHER_INPUTS["voucher_upload_limit"].minimum,
+        native_max_value=VOUCHER_INPUTS["voucher_upload_limit"].maximum,
+        native_step=VOUCHER_INPUTS["voucher_upload_limit"].step,
+        mode=NumberMode.BOX,
+    ),
+    NumberEntityDescription(
+        key="voucher_data_limit",
+        translation_key="voucher_data_limit",
+        device_class=NumberDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        native_min_value=VOUCHER_INPUTS["voucher_data_limit"].minimum,
+        native_max_value=VOUCHER_INPUTS["voucher_data_limit"].maximum,
+        native_step=VOUCHER_INPUTS["voucher_data_limit"].step,
+        mode=NumberMode.BOX,
+    ),
+)
 
 
 async def async_setup_entry(
@@ -48,6 +118,7 @@ async def async_setup_entry(
     """Set up number entities for UniFi Protect integration."""
     _ = hass
     coordinator: UnifiFacadeCoordinator = entry.runtime_data.coordinator
+    _async_setup_voucher_numbers(entry, coordinator, async_add_entities)
 
     # Skip if Protect API is not available
     if not coordinator.protect_client:
@@ -429,4 +500,86 @@ class UnifiProtectChimeRepeatTimesNumber(UnifiProtectEntity, NumberEntity):
             ),
         )
         self._attr_native_value = int(value)
+        self.async_write_ha_state()
+
+
+def _async_setup_voucher_numbers(
+    entry: UnifiInsightsConfigEntry,
+    coordinator: UnifiFacadeCoordinator,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up hotspot voucher input number entities."""
+    if not isinstance(coordinator.data, dict) or "vouchers" not in coordinator.data:
+        return
+
+    known: set[tuple[str, str]] = set()
+
+    @callback
+    def discover() -> None:
+        new_entities: list[UnifiVoucherInputNumber] = []
+        for site_id in voucher_site_ids(coordinator.data):
+            for description in VOUCHER_NUMBER_DESCRIPTIONS:
+                key = (site_id, description.key)
+                if key in known:
+                    continue
+                entity = UnifiVoucherInputNumber(coordinator, description, site_id)
+                known.add(key)
+                new_entities.append(entity)
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(coordinator.async_add_listener(discover))
+    discover()
+
+
+class UnifiVoucherInputNumber(CoordinatorEntity[UnifiFacadeCoordinator], RestoreNumber):
+    """Input number entity holding parameters for next generated voucher."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    entity_description: NumberEntityDescription
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        description: NumberEntityDescription,
+        site_id: str,
+    ) -> None:
+        """Initialize the voucher input number."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._site_id = site_id
+        self._attr_unique_id = f"{site_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            **build_site_device_info(coordinator.data, site_id)  # type: ignore[typeddict-item]
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return True if vouchers are available for this site."""
+        return bool(self.coordinator.vouchers_available(self._site_id))
+
+    @property
+    def native_value(self) -> float | None:
+        """Return current native value from settings."""
+        settings = self.coordinator.get_voucher_settings(self._site_id)
+        val = getattr(settings, VOUCHER_INPUTS[self.entity_description.key].field)
+        return float(val) if val is not None else None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_number_data()
+        if last is not None and last.native_value is not None:
+            restored = restore_input(self.entity_description.key, last.native_value)
+            if restored is not None:
+                settings = self.coordinator.get_voucher_settings(self._site_id)
+                field = VOUCHER_INPUTS[self.entity_description.key].field
+                setattr(settings, field, restored)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Update settings value held in HA without calling external API."""
+        settings = self.coordinator.get_voucher_settings(self._site_id)
+        field = VOUCHER_INPUTS[self.entity_description.key].field
+        setattr(settings, field, cast_input(self.entity_description.key, value))
         self.async_write_ha_state()

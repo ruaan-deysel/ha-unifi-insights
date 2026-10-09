@@ -540,6 +540,15 @@
           "enabled": "Enabled",
           "disabled": "Disabled"
         }
+      },
+      "latest_voucher_code": {
+        "name": "Latest voucher code"
+      },
+      "latest_voucher_expiration": {
+        "name": "Latest voucher expiration"
+      },
+      "active_vouchers": {
+        "name": "Active vouchers"
       }
     },
     "binary_sensor": {
@@ -626,6 +635,9 @@
       },
       "poe_power_cycle": {
         "name": "{port_label} PoE Power Cycle"
+      },
+      "generate_voucher": {
+        "name": "Generate guest voucher"
       }
     },
     "camera": {
@@ -711,6 +723,21 @@
       },
       "repeat_times": {
         "name": "Repeat Times"
+      },
+      "voucher_duration": {
+        "name": "Voucher duration"
+      },
+      "voucher_guest_limit": {
+        "name": "Voucher guest limit"
+      },
+      "voucher_download_limit": {
+        "name": "Voucher download limit"
+      },
+      "voucher_upload_limit": {
+        "name": "Voucher upload limit"
+      },
+      "voucher_data_limit": {
+        "name": "Voucher data limit"
       }
     },
     "event": {
@@ -737,6 +764,9 @@
     "image": {
       "floor_plan": {
         "name": "Floor plan"
+      },
+      "voucher_qr_code": {
+        "name": "Latest voucher QR code"
       }
     }
   },

@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from yarl import URL
 
 from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.base import _redact
 from custom_components.unifi_insights.api.exceptions import (
     UniFiNotFoundError,
     UniFiResponseError,
@@ -1210,7 +1211,9 @@ async def test_vouchers_delete_methods_pin_spec_requests_and_branches() -> None:
         )
 
 
-async def test_vouchers_get_all_pages_walks_total_count_and_pins_spec_requests() -> None:
+async def test_vouchers_get_all_pages_walks_total_count_and_pins_spec_requests() -> (
+    None
+):
     """get_all_pages walks pages using totalCount and pins spec requests."""
     page1_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
     page2_items = [{"id": "v-1000", "code": "1234501000"}]
@@ -1239,8 +1242,8 @@ async def test_vouchers_get_all_pages_walks_total_count_and_pins_spec_requests()
     assert session.requests[1]["params"] == {"offset": 1000, "limit": 1000}
 
 
-async def test_vouchers_get_all_pages_without_total_count_stops_on_short_page() -> None:
-    """get_all_pages stops when returned page is shorter than page size without totalCount."""
+async def test_vouchers_get_all_pages_no_total_count_stops_on_short_page() -> None:
+    """get_all_pages stops when returned page is shorter than page size."""
     raw_voucher = {"id": "v-1", "code": "1234567890"}
     session = _Session(
         [
@@ -1256,8 +1259,10 @@ async def test_vouchers_get_all_pages_without_total_count_stops_on_short_page() 
     assert session.requests[0]["params"] == {"offset": 0, "limit": 1000}
 
 
-async def test_vouchers_get_all_pages_without_total_count_continues_on_full_page() -> None:
-    """get_all_pages continues to next page when page is full and totalCount is absent."""
+async def test_vouchers_get_all_pages_without_total_count_continues_on_full_page() -> (
+    None
+):
+    """get_all_pages continues when page is full and totalCount is absent."""
     page1_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
     session = _Session(
         [
@@ -1275,7 +1280,7 @@ async def test_vouchers_get_all_pages_without_total_count_continues_on_full_page
 
 
 async def test_vouchers_get_all_pages_empty_and_malformed_responses() -> None:
-    """get_all_pages handles None, non-list data, empty list, and bare list responses."""
+    """get_all_pages handles None, non-list, empty, and bare list responses."""
     raw_voucher = {"id": "v-1", "code": "1234567890"}
 
     # None
@@ -1301,29 +1306,101 @@ async def test_vouchers_get_all_pages_empty_and_malformed_responses() -> None:
     assert isinstance(vouchers[0], Voucher)
 
 
-async def test_vouchers_get_all_pages_stops_at_page_cap(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+async def test_vouchers_get_all_pages_deduplicates_by_voucher_id() -> None:
+    """get_all_pages deduplicates vouchers across pages by voucher ID."""
+    v1 = {"id": "v-1", "code": "1111111111", "name": "V1", "timeLimitMinutes": 60}
+    v2 = {"id": "v-2", "code": "2222222222", "name": "V2", "timeLimitMinutes": 60}
+    v3 = {"id": "v-3", "code": "3333333333", "name": "V3", "timeLimitMinutes": 60}
+    session = _Session(
+        [
+            {"data": [v1, v2], "totalCount": 3},
+            {"data": [v2, v3], "totalCount": 3},
+        ]
+    )
+    client = _client(session)
+    vouchers = await client.vouchers.get_all_pages("default")
+    assert len(vouchers) == 3
+    assert [v.id for v in vouchers] == ["v-1", "v-2", "v-3"]
+
+
+async def test_vouchers_get_all_pages_no_progress_raises_incomplete_error() -> None:
+    """get_all_pages raises credential-free error when a page makes no progress."""
+    v1 = {"id": "v-1", "code": "1111111111", "name": "V1", "timeLimitMinutes": 60}
+    session = _Session(
+        [
+            {"data": [v1], "totalCount": 2},
+            {"data": [v1], "totalCount": 2},
+        ]
+    )
+    client = _client(session)
+    with pytest.raises(RuntimeError, match="no progress"):
+        await client.vouchers.get_all_pages("default")
+
+
+async def test_vouchers_get_all_pages_unsupported_html_is_debug_only_and_redirect_warns(
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """get_all_pages stops at page cap and logs warning."""
-    page_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
+    """Expected 200 HTML logs at DEBUG only; unexpected redirect still logs WARNING."""
+    path = "/proxy/network/integration/v1/sites/default/hotspot/vouchers"
+
+    # 1. Expected unsupported response (unredirected path)
+    resp_unsupported = _Response("<!doctype html><html>login</html>", status=200)
+    resp_unsupported.url = URL(f"https://192.168.1.1{path}")
+    session1 = _Session([resp_unsupported])
+    client1 = _client(session1)
+
+    with caplog.at_level("DEBUG"), pytest.raises(UniFiResponseError):
+        await client1.vouchers.get_all_pages("default")
+
+    assert not any(
+        record.levelno >= 30 and "Response is not JSON" in record.getMessage()
+        for record in caplog.records
+    )
+    assert any(
+        "Expected unsupported-endpoint non-JSON response" in record.getMessage()
+        for record in caplog.records
+    )
+
+    # 2. Redirected response logs WARNING
+    caplog.clear()
+    resp_redirected = _Response("<!doctype html><html>login</html>", status=200)
+    resp_redirected.url = URL("https://192.168.1.1/manage/account/login")
+    session2 = _Session([resp_redirected])
+    client2 = _client(session2)
+
+    with caplog.at_level("DEBUG"), pytest.raises(UniFiResponseError):
+        await client2.vouchers.get_all_pages("default")
+
+    assert any(
+        record.levelno >= 30 and "Response is not JSON" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+async def test_vouchers_get_all_pages_stops_at_page_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """get_all_pages stops at page cap and raises incomplete listing error."""
+    page1_items = [{"id": f"v-{i}", "code": f"12345{i:05d}"} for i in range(1000)]
+    page2_items = [
+        {"id": f"v-{1000 + i}", "code": f"12345{1000 + i:05d}"} for i in range(1000)
+    ]
     monkeypatch.setattr(
         "custom_components.unifi_insights.api.network.endpoints.vouchers.VOUCHER_MAX_PAGES",
         2,
     )
     session = _Session(
         [
-            {"data": page_items, "totalCount": 99999},
-            {"data": page_items, "totalCount": 99999},
+            {"data": page1_items, "totalCount": 99999},
+            {"data": page2_items, "totalCount": 99999},
         ]
     )
     client = _client(session)
 
-    with caplog.at_level("WARNING"):
-        vouchers = await client.vouchers.get_all_pages("default")
+    with pytest.raises(RuntimeError, match="reached page limit"):
+        await client.vouchers.get_all_pages("default")
 
-    assert len(vouchers) == 2000
     assert len(session.requests) == 2
-    assert "Stopped listing vouchers of site default after 2 pages" in caplog.text
 
 
 async def test_vouchers_get_all_pages_propagates_http_errors() -> None:
@@ -1333,6 +1410,133 @@ async def test_vouchers_get_all_pages_propagates_http_errors() -> None:
 
     with pytest.raises(UniFiNotFoundError):
         await client.vouchers.get_all_pages("default")
+
+
+@pytest.mark.parametrize("retry_consistent", [True, False])
+async def test_vouchers_get_all_pages_retries_incomplete_inventory_once(
+    *,
+    retry_consistent: bool,
+) -> None:
+    """Only the retry's distinct inventory can satisfy a changed totalCount."""
+    stale = [{"id": f"stale-{i}", "code": "1234567890"} for i in range(3)]
+    fresh = [{"id": f"fresh-{i}", "code": "1234567890"} for i in range(4)]
+    incomplete = [
+        {"data": stale[:2], "totalCount": 4},
+        {"data": stale[1:], "totalCount": 4},
+    ]
+    retry = (
+        [
+            {"data": fresh[:2], "totalCount": 4},
+            {"data": fresh[2:], "totalCount": 4},
+        ]
+        if retry_consistent
+        else incomplete
+    )
+    session = _Session(incomplete + retry)
+    client = _client(session)
+    if retry_consistent:
+        result = await client.vouchers.get_all_pages("default")
+        assert [voucher.id for voucher in result] == [item["id"] for item in fresh]
+    else:
+        with pytest.raises(RuntimeError, match="distinct inventory"):
+            await client.vouchers.get_all_pages("default")
+    assert [request["params"]["offset"] for request in session.requests] == [0, 2, 0, 2]
+
+
+async def test_vouchers_get_all_pages_retry_preserves_page_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A completeness retry still fails when its own page budget is exhausted."""
+    monkeypatch.setattr(
+        "custom_components.unifi_insights.api.network.endpoints.vouchers.VOUCHER_MAX_PAGES",
+        2,
+    )
+    items = [{"id": f"v-{i}", "code": "1234567890"} for i in range(4)]
+    session = _Session(
+        [
+            {"data": items[:2], "totalCount": 4},
+            {"data": items[1:3], "totalCount": 4},
+            {"data": items[:2], "totalCount": 10},
+            {"data": items[2:], "totalCount": 10},
+        ]
+    )
+    with pytest.raises(RuntimeError, match="reached page limit"):
+        await _client(session).vouchers.get_all_pages("default")
+    assert [request["params"]["offset"] for request in session.requests] == [0, 2, 0, 2]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "get_all_pages",
+        "get_all",
+        "get",
+        "create",
+        "delete",
+        "delete_by_filter",
+        "delete_multiple",
+    ],
+)
+@pytest.mark.parametrize("non_json", [False, True])
+async def test_voucher_endpoints_omit_response_bodies(
+    caplog: pytest.LogCaptureFixture,
+    operation: str,
+    *,
+    non_json: bool,
+) -> None:
+    """Every voucher entry point suppresses JSON and non-JSON response bodies."""
+    body = (
+        "<html>1234567890 Café</html>"
+        if non_json
+        else {"id": "v1", "code": "1234567890", "name": "Café"}
+    )
+    response = _Response(body)
+    # A login redirect must exercise the non-JSON WARNING, even for list/get.
+    response.url = URL("https://192.168.1.1/login")
+    client = _client(_Session([response]))
+    endpoint = getattr(client.vouchers, operation)
+    args: list[Any] = ["default"]
+    kwargs: dict[str, Any] = {}
+    if operation in {"get", "delete"}:
+        args.append("v1")
+    elif operation == "delete_by_filter":
+        args.append("expired.eq(true)")
+    elif operation == "delete_multiple":
+        args.append(["v1"])
+    elif operation == "create":
+        kwargs = {"name": "Home Assistant", "time_limit_minutes": 480}
+    with caplog.at_level("DEBUG"):
+        if non_json:
+            with pytest.raises(UniFiResponseError):
+                await endpoint(*args, **kwargs)
+        else:
+            await endpoint(*args, **kwargs)
+    assert "1234567890" not in caplog.text
+    assert "Caf" not in caplog.text
+    assert (
+        f"<body omitted, {len((await response.text()).encode())} bytes>" in caplog.text
+    )
+    if non_json:
+        assert any(
+            record.levelname == "WARNING" and "body omitted" in record.getMessage()
+            for record in caplog.records
+        )
+
+
+async def test_non_voucher_transport_logs_redacted_body_by_default(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Other endpoints retain body logging and recursive credential redaction."""
+    body = {"data": {"name": "safe-name", "token": [1234567890]}}
+    client = _client(_Session([body]))
+    with caplog.at_level("DEBUG"):
+        assert await client._get("/sites/default") == body
+    assert (
+        json.dumps({"data": {"name": "safe-name", "token": "**REDACTED**"}})
+        in caplog.text
+    )
+    assert "1234567890" not in caplog.text
+    assert "body omitted" not in caplog.text
 
 
 # =============================================================================
@@ -2048,3 +2252,44 @@ async def test_routes_list_malformed_payloads(payload: Any) -> None:
     session = _Session([payload])
     assert await _client(session).routes.list_routes("default") == []
     _assert_request(session.requests[0], "GET", "/v2/api/site/default/trafficroutes")
+
+
+@pytest.mark.parametrize(
+    "value", [9876543210, True, None, [9876543210], {"raw": 9876543210}]
+)
+def test_response_redaction_handles_all_credential_value_types(value: object) -> None:
+    """All existing case-insensitive credential keys redact recursively."""
+    keys = (
+        "password",
+        "psk",
+        "passphrase",
+        "token",
+        "apiKey",
+        "api_key",
+        "secret",
+        "credential",
+        "x-api-key",
+        "authorization",
+        "code",
+        "voucher",
+        "fingerprint",
+    )
+    payload = {"safe": 123, "nested": [{key.upper(): value for key in keys}]}
+    redacted = json.loads(_redact(json.dumps(payload)))
+    assert redacted == {
+        "safe": 123,
+        "nested": [{key.upper(): "**REDACTED**" for key in keys}],
+    }
+
+
+def test_response_redaction_preserves_non_json_fallback_and_log_bound() -> None:
+    """Non-JSON regex fallback and post-redaction truncation retain behavior."""
+    client = _client(_Session([]))
+    text = 'prefix {"code": "synthetic-code", "safe": "ok"} suffix'
+    assert _redact(text) == 'prefix {"code": "**REDACTED**", "safe": "ok"} suffix'
+    assert client._response_log_text("", limit=10) == "empty"
+    payload = json.dumps({"code": 9876543210, "safe": "x" * 600})
+    excerpt = client._response_log_text(payload, limit=500)
+    assert len(excerpt) == 500
+    assert "9876543210" not in excerpt
+    assert "**REDACTED**" in excerpt

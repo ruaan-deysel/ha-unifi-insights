@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -2165,7 +2166,7 @@ def _make_response(
 )
 def test_redact_replaces_whole_sensitive_value(text: str, expected: str) -> None:
     """Colons or escaped quotes inside a secret must not leave part of it."""
-    assert api_base._redact(text) == expected
+    assert json.loads(api_base._redact(text)) == json.loads(expected)
 
 
 async def test_handle_response_debug_body_redacts_secret_with_colons(
@@ -3712,6 +3713,7 @@ async def test_site_report_bucket_and_endpoint_local_and_remote() -> None:
         json_data={"start": 1, "end": 2},
         params=None,
         expected_unsupported=True,
+        log_body=True,
     )
 
     # meta.rc == "error" raises UniFiResponseError
@@ -4055,6 +4057,7 @@ async def test_vouchers_delete_by_filter() -> None:
     client._delete.assert_awaited_once_with(
         client.build_api_path("/sites/site-1/hotspot/vouchers"),
         params={"filter": "note.eq('Guest')"},
+        log_body=False,
     )
 
 
@@ -4112,6 +4115,7 @@ async def test_vouchers_create_pins_required_name_and_duration() -> None:
             "name": "Guest Voucher",
             "timeLimitMinutes": 120,
         },
+        log_body=False,
     )
 
 

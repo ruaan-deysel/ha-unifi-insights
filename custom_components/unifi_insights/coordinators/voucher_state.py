@@ -1,11 +1,12 @@
+# Copyright (c) 2026 Ruaan Deysel
 """Pure helpers and data structures for hotspot voucher entities."""
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-import math
 from typing import Any, Final
 
 from homeassistant.util import dt as dt_util
@@ -83,7 +84,7 @@ def cast_input(key: str, value: float) -> int | float:
     """Cast an input value to its target type and precision."""
     spec = VOUCHER_INPUTS[key]
     if spec.step == 1:
-        return int(round(value))
+        return round(value)
     return round(float(value), 3)
 
 
@@ -106,25 +107,29 @@ def restore_input(key: str, value: object) -> int | float | None:
 
 def voucher_request_kwargs(settings: VoucherSettings) -> dict[str, int]:
     """Convert settings into UniFi voucher creation kwargs with clamped bounds."""
-    duration = int(round(settings.duration_minutes))
-    duration = max(TIME_LIMIT_MINUTES_RANGE[0], min(duration, TIME_LIMIT_MINUTES_RANGE[1]))
+    duration = round(settings.duration_minutes)
+    duration = max(
+        TIME_LIMIT_MINUTES_RANGE[0], min(duration, TIME_LIMIT_MINUTES_RANGE[1])
+    )
     kwargs: dict[str, int] = {
         "time_limit_minutes": duration,
     }
     if settings.guest_limit > 0:
         kwargs["authorized_guest_limit"] = max(
-            GUEST_LIMIT_MIN, int(round(settings.guest_limit))
+            GUEST_LIMIT_MIN, round(settings.guest_limit)
         )
     if settings.data_limit_mb > 0:
-        data_mb = int(round(settings.data_limit_mb))
-        data_mb = max(DATA_LIMIT_MBYTES_RANGE[0], min(data_mb, DATA_LIMIT_MBYTES_RANGE[1]))
+        data_mb = round(settings.data_limit_mb)
+        data_mb = max(
+            DATA_LIMIT_MBYTES_RANGE[0], min(data_mb, DATA_LIMIT_MBYTES_RANGE[1])
+        )
         kwargs["data_usage_limit_mbytes"] = data_mb
     if settings.download_limit_mbps > 0:
-        rx_kbps = int(round(settings.download_limit_mbps * KBPS_PER_MBPS))
+        rx_kbps = round(settings.download_limit_mbps * KBPS_PER_MBPS)
         rx_kbps = max(RATE_LIMIT_KBPS_RANGE[0], min(rx_kbps, RATE_LIMIT_KBPS_RANGE[1]))
         kwargs["rx_rate_limit_kbps"] = rx_kbps
     if settings.upload_limit_mbps > 0:
-        tx_kbps = int(round(settings.upload_limit_mbps * KBPS_PER_MBPS))
+        tx_kbps = round(settings.upload_limit_mbps * KBPS_PER_MBPS)
         tx_kbps = max(RATE_LIMIT_KBPS_RANGE[0], min(tx_kbps, RATE_LIMIT_KBPS_RANGE[1]))
         kwargs["tx_rate_limit_kbps"] = tx_kbps
     return kwargs
@@ -132,13 +137,9 @@ def voucher_request_kwargs(settings: VoucherSettings) -> dict[str, int]:
 
 def voucher_to_record(voucher: object) -> dict[str, Any] | None:
     """Convert a voucher model or dict to an internal record dict."""
-    from unittest.mock import Mock
-
-    if isinstance(voucher, Mock):
-        return None
     if isinstance(voucher, Mapping):
         rec = dict(voucher)
-    elif hasattr(voucher, "model_dump") and callable(getattr(voucher, "model_dump")):
+    elif hasattr(voucher, "model_dump") and callable(voucher.model_dump):
         try:
             dumped = voucher.model_dump(by_alias=True)
         except Exception:
@@ -172,7 +173,8 @@ def parse_timestamp(value: object) -> datetime | None:
 
 
 def _field(record: Mapping[str, Any], *keys: str) -> Any:
-    """Return the first non-None value among keys in record, or None.
+    """
+    Return the first non-None value among keys in record, or None.
 
     Duplicated locally from data_transforms.get_field to avoid import cycle
     with entity/coordinators.
@@ -193,11 +195,19 @@ def is_voucher_active(record: Mapping[str, Any], now: datetime) -> bool:
         return False
 
     limit = _field(record, "authorizedGuestLimit", "authorized_guest_limit")
-    if limit is not None and not isinstance(limit, bool) and isinstance(limit, (int, float)):
+    if (
+        limit is not None
+        and not isinstance(limit, bool)
+        and isinstance(limit, (int, float))
+    ):
         count = _field(record, "authorizedGuestCount", "authorized_guest_count")
         guest_count = (
             count
-            if (count is not None and not isinstance(count, bool) and isinstance(count, (int, float)))
+            if (
+                count is not None
+                and not isinstance(count, bool)
+                and isinstance(count, (int, float))
+            )
             else 0
         )
         if guest_count >= limit:
@@ -218,12 +228,21 @@ def count_active_vouchers(inventory: object, now: datetime | None = None) -> int
     return count
 
 
-def latest_voucher_qr_payload(record: object) -> str | None:
+def latest_voucher_qr_payload(
+    record: object, now: datetime | None = None
+) -> str | None:
     """Extract QR code payload from latest voucher record."""
     if not isinstance(record, Mapping):
         return None
     if record.get("expired") is True:
         return None
+    expires_at_raw = _field(record, "expiresAt", "expires_at")
+    if expires_at_raw is not None:
+        expires_at = parse_timestamp(expires_at_raw)
+        if expires_at is not None:
+            current_time = now if now is not None else dt_util.utcnow()
+            if expires_at <= current_time:
+                return None
     code = record.get("code")
     if isinstance(code, str) and code:
         return code
@@ -238,7 +257,28 @@ def refresh_latest_voucher(
     if voucher_id and isinstance(inventory, Mapping):
         item = inventory.get(voucher_id)
         if isinstance(item, Mapping):
-            return dict(item)
+            new_record = dict(item)
+            if record.get("expired") is True:
+                new_record["expired"] = True
+            for camel, snake in (
+                ("activatedAt", "activated_at"),
+                ("expiresAt", "expires_at"),
+            ):
+                if _field(new_record, camel, snake) is None:
+                    known_value = _field(record, camel, snake)
+                    if known_value is not None:
+                        new_record[camel] = known_value
+            old_count = record.get("authorizedGuestCount")
+            new_count = new_record.get("authorizedGuestCount")
+            if (
+                isinstance(old_count, int)
+                and not isinstance(old_count, bool)
+                and isinstance(new_count, int)
+                and not isinstance(new_count, bool)
+                and old_count > new_count
+            ):
+                new_record["authorizedGuestCount"] = old_count
+            return new_record
     return dict(record)
 
 

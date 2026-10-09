@@ -428,6 +428,7 @@ async def test_diagnostics_redacts_voucher_codes_and_notes(
                 "id": "v-1",
                 "code": "secret-code-123",
                 "name": "Guest John",
+                "note": "Secret Guest Note",
                 "timeLimitMinutes": 480,
                 "expired": False,
             }
@@ -438,6 +439,7 @@ async def test_diagnostics_redacts_voucher_codes_and_notes(
             "id": "v-1",
             "code": "secret-code-123",
             "name": "Guest John",
+            "note": "Secret Guest Note",
             "timeLimitMinutes": 480,
             "expired": False,
         }
@@ -449,17 +451,20 @@ async def test_diagnostics_redacts_voucher_codes_and_notes(
 
     assert voucher["code"] == REDACTED
     assert voucher["name"] == REDACTED
+    assert voucher["note"] == REDACTED
     assert voucher["timeLimitMinutes"] == 480
     assert voucher["expired"] is False
 
     assert latest["code"] == REDACTED
     assert latest["name"] == REDACTED
+    assert latest["note"] == REDACTED
     assert latest["timeLimitMinutes"] == 480
     assert latest["expired"] is False
 
     all_diag_strings = _strings(diagnostics)
     assert "secret-code-123" not in all_diag_strings
     assert "Guest John" not in all_diag_strings
+    assert "Secret Guest Note" not in all_diag_strings
 
 
 @pytest.mark.parametrize(

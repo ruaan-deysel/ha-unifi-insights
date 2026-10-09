@@ -78,6 +78,7 @@ from .site_internet_activity_sensor import (
 from .site_internet_activity_sensor import (
     _discover_site_internet_activity_sensors,
 )
+from .voucher_sensor import discover_voucher_sensors
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1463,6 +1464,9 @@ async def async_setup_entry(
         entities.extend(
             _discover_site_internet_activity_sensors(coordinator, known_sensor_keys)
         )
+
+        # Add hotspot voucher management sensors
+        entities.extend(discover_voucher_sensors(coordinator, known_sensor_keys))
 
         # Add per-WiFi-network connected client count sensors
         wifi_by_site = coordinator.data.get("wifi", {})

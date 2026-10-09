@@ -37,6 +37,9 @@ from custom_components.unifi_insights.api.innerspace import (
     InnerSpaceSwitch,
     UniFiInnerSpaceClient,
 )
+from custom_components.unifi_insights.api.network.endpoints.vouchers import (
+    VouchersEndpoint,
+)
 from custom_components.unifi_insights.api.network.models import (
     LegacyPortMetrics,
     PortBytesMetrics,
@@ -9247,7 +9250,13 @@ class TestConfigCoordinatorVouchers:
         network_client = _create_mock_network_client()
         network_client.vouchers.get_all_pages = AsyncMock(
             side_effect=lambda site_id: [
-                _create_mock_model({"id": f"{site_id}_v1", "code": "1234567890", "timeLimitMinutes": 480})
+                _create_mock_model(
+                    {
+                        "id": f"{site_id}_v1",
+                        "code": "1234567890",
+                        "timeLimitMinutes": 480,
+                    }
+                )
             ]
         )
         coordinator = UnifiConfigCoordinator(
@@ -9258,7 +9267,10 @@ class TestConfigCoordinatorVouchers:
         )
         result = await coordinator._async_update_data()
         assert coordinator.network_client.vouchers.get_all_pages.await_count == 2
-        polled_sites = [c.args[0] for c in coordinator.network_client.vouchers.get_all_pages.await_args_list]
+        polled_sites = [
+            c.args[0]
+            for c in coordinator.network_client.vouchers.get_all_pages.await_args_list
+        ]
         assert polled_sites == ["default", "site2"]
         assert "vouchers" in result
         assert result["vouchers"]["default"]["default_v1"]["code"] == "1234567890"
@@ -9279,7 +9291,7 @@ class TestConfigCoordinatorVouchers:
     async def test_vouchers_unsupported_endpoint_gives_empty_inventory(
         self, coordinator: UnifiConfigCoordinator, error: Exception
     ) -> None:
-        """A 4xx / non-JSON error means vouchers are unsupported; gives empty inventory and stays available."""
+        """A 4xx / non-JSON error gives empty inventory and stays available."""
         coordinator.network_client.vouchers.get_all_pages = AsyncMock(side_effect=error)
         result = await coordinator._async_update_data()
         assert result["vouchers"]["default"] == {}
@@ -9300,7 +9312,7 @@ class TestConfigCoordinatorVouchers:
     async def test_vouchers_transient_failure_keeps_inventory_and_flags_section(
         self, coordinator: UnifiConfigCoordinator, error: Exception
     ) -> None:
-        """Transient error keeps existing inventory and marks section unavailable without failing update."""
+        """Transient error keeps inventory and marks section unavailable."""
         coordinator.network_client.vouchers.get_all_pages = AsyncMock(
             return_value=[_create_mock_model({"id": "v1", "code": "1111111111"})]
         )
@@ -9393,7 +9405,9 @@ class TestConfigCoordinatorVouchers:
         await coordinator.async_refresh_vouchers("default")
 
         assert coordinator.network_client.vouchers.get_all_pages.await_count == 1
-        assert coordinator.network_client.vouchers.get_all_pages.await_args[0] == ("default",)
+        assert coordinator.network_client.vouchers.get_all_pages.await_args[0] == (
+            "default",
+        )
         assert "v-new" in coordinator.data["vouchers"]["default"]
         listener.assert_called_once()
 
@@ -9426,3 +9440,53 @@ class TestConfigCoordinatorVouchers:
         assert coordinator.vouchers_available("default") is True
         coordinator.last_update_success = False
         assert coordinator.vouchers_available("default") is False
+
+    @pytest.mark.asyncio
+    @pytest.mark.asyncio
+    async def test_vouchers_incomplete_listing_keeps_inventory_and_flags_section(
+        self, coordinator: UnifiConfigCoordinator
+    ) -> None:
+        """Incomplete voucher listing keeps inventory and marks unavailable."""
+        coordinator.network_client.vouchers.get_all_pages = AsyncMock(
+            return_value=[_create_mock_model({"id": "v1", "code": "1111111111"})]
+        )
+        await coordinator.async_refresh()
+        assert coordinator.vouchers_available("default") is True
+        assert "v1" in coordinator.data["vouchers"]["default"]
+
+        coordinator.network_client.vouchers.get_all_pages = AsyncMock(
+            side_effect=RuntimeError(
+                "Incomplete voucher listing for site default: reached page limit 50"
+            )
+        )
+        await coordinator.async_refresh()
+        assert coordinator.vouchers_available("default") is False
+        assert "v1" in coordinator.data["vouchers"]["default"]
+
+    async def test_vouchers_validation_error_does_not_leak_code_in_logs(
+        self,
+        coordinator: UnifiConfigCoordinator,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Pydantic validation error during polling does not log the voucher code."""
+        synthetic_code = "1234567890"
+
+        class _TestClient:
+            def build_api_path(self, path: str) -> str:
+                return path
+
+            async def _get(
+                self,
+                path: str,
+                params: Any = None,
+                *,
+                expected_unsupported: bool = False,
+            ) -> Any:
+                return {"data": [{"code": synthetic_code}], "totalCount": 1}
+
+        coordinator.network_client.vouchers = VouchersEndpoint(_TestClient())  # type: ignore[assignment]
+        with caplog.at_level("DEBUG"):
+            await coordinator.async_refresh()
+
+        assert coordinator.vouchers_available("default") is False
+        assert synthetic_code not in caplog.text

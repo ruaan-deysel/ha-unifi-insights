@@ -4,13 +4,16 @@ import logging
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
-import pytest
 
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.network import UniFiNetworkClient
 from custom_components.unifi_insights.button import (
     BUTTON_TYPES,
     UnifiClientReconnectButton,
+    UnifiGenerateVoucherButton,
     UnifiInsightsButton,
     UnifiInsightsPoePowerCycleButton,
     UnifiProtectChimePlayButton,
@@ -23,6 +26,11 @@ from custom_components.unifi_insights.button import (
     port_can_be_power_cycled,
 )
 from custom_components.unifi_insights.const import CONF_CLIENT_CONTROL
+from custom_components.unifi_insights.coordinators.facade import (
+    UnifiFacadeCoordinator,
+)
+from custom_components.unifi_insights.coordinators.voucher_state import VoucherSettings
+from tests.test_api_network_more_endpoints import _Response, _Session
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -744,10 +752,18 @@ class TestAsyncSetupEntry:
         assert first_count > 0
 
         ptz_start_before = len(
-            [e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStartButton)]
+            [
+                e
+                for e in added_entities
+                if isinstance(e, UnifiProtectPTZPatrolStartButton)
+            ]
         )
         ptz_stop_before = len(
-            [e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStopButton)]
+            [
+                e
+                for e in added_entities
+                if isinstance(e, UnifiProtectPTZPatrolStopButton)
+            ]
         )
         chime_before = len(
             [e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)]
@@ -758,15 +774,33 @@ class TestAsyncSetupEntry:
 
         assert len(added_entities) == first_count
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStartButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectPTZPatrolStartButton)
+                ]
+            )
             == ptz_start_before
         )
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectPTZPatrolStopButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectPTZPatrolStopButton)
+                ]
+            )
             == ptz_stop_before
         )
         assert (
-            len([e for e in added_entities if isinstance(e, UnifiProtectChimePlayButton)])
+            len(
+                [
+                    e
+                    for e in added_entities
+                    if isinstance(e, UnifiProtectChimePlayButton)
+                ]
+            )
             == chime_before
         )
 
@@ -1577,3 +1611,186 @@ class TestSetupEntryPoeButtons:
         for listener in listeners:
             listener()
         assert len(added_entities) == prev_count
+
+
+class TestGenerateVoucherButton:
+    """Tests for UnifiGenerateVoucherButton."""
+
+    @pytest.fixture
+    def mock_coordinator(self):
+        coord = MagicMock()
+        coord.data = {
+            "sites": {"default": {"desc": "Default"}},
+            "vouchers": {"default": []},
+        }
+        coord.vouchers_available = MagicMock(return_value=True)
+        coord.get_voucher_settings = MagicMock(
+            return_value=VoucherSettings(
+                duration_minutes=1440,
+                guest_limit=1,
+                download_limit_mbps=0,
+                upload_limit_mbps=0,
+                data_limit_mb=0,
+            )
+        )
+        coord.async_generate_voucher = AsyncMock(
+            return_value=[MagicMock(code="1234567890")]
+        )
+        return coord
+
+    def test_init_and_properties(self, mock_coordinator):
+        button = UnifiGenerateVoucherButton(mock_coordinator, "default")
+        assert button.unique_id == "default_generate_voucher"
+        assert button.translation_key == "generate_voucher"
+        assert button.available is True
+        assert button.has_entity_name is True
+
+    def test_available(self, mock_coordinator):
+        button = UnifiGenerateVoucherButton(mock_coordinator, "default")
+        mock_coordinator.vouchers_available.return_value = False
+        assert button.available is False
+
+    async def test_async_press_success(self, mock_coordinator):
+        button = UnifiGenerateVoucherButton(mock_coordinator, "default")
+        await button.async_press()
+        mock_coordinator.get_voucher_settings.assert_called_once_with("default")
+        mock_coordinator.async_generate_voucher.assert_awaited_once_with(
+            "default",
+            name="Home Assistant",
+            count=1,
+            time_limit_minutes=1440,
+            authorized_guest_limit=1,
+        )
+
+    async def test_async_press_empty_result_raises_error(self, mock_coordinator):
+        button = UnifiGenerateVoucherButton(mock_coordinator, "default")
+        mock_coordinator.async_generate_voucher.return_value = []
+        with pytest.raises(HomeAssistantError, match="UniFi returned no voucher"):
+            await button.async_press()
+
+    async def test_async_press_coordinator_error_raises_error(self, mock_coordinator):
+        button = UnifiGenerateVoucherButton(mock_coordinator, "default")
+        mock_coordinator.async_generate_voucher.side_effect = RuntimeError(
+            "API failure"
+        )
+        with pytest.raises(
+            HomeAssistantError, match="Unable to generate a guest voucher"
+        ):
+            await button.async_press()
+
+    async def test_discovery_and_deduplication(self, hass, mock_coordinator):
+        mock_entry = MagicMock()
+        mock_entry.entry_id = "test_entry"
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+        mock_entry.options = {}
+
+        added_entities: list = []
+
+        def add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        listeners = []
+        mock_coordinator.async_add_listener = listeners.append
+
+        await async_setup_entry(hass, mock_entry, add_entities)
+
+        voucher_buttons = [
+            e for e in added_entities if isinstance(e, UnifiGenerateVoucherButton)
+        ]
+        assert len(voucher_buttons) == 1
+        assert voucher_buttons[0].unique_id == "default_generate_voucher"
+
+        # Deduplication
+        prev_count = len(added_entities)
+        for listener in listeners:
+            listener()
+        assert len(added_entities) == prev_count
+
+    async def test_button_press_through_real_facade_and_real_endpoint_pins_http(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Button press through real facade and real endpoint pins POST URL and body."""
+        post_response = {
+            "vouchers": [
+                {
+                    "id": "v-1",
+                    "code": "1234567890",
+                    "name": "Home Assistant",
+                    "timeLimitMinutes": 90,
+                }
+            ]
+        }
+        session = _Session(
+            [
+                _Response(post_response),
+                _Response(post_response),
+            ]
+        )
+        client = UniFiNetworkClient(
+            auth=ApiKeyAuth(api_key="test-key"),
+            base_url="https://192.168.1.1",
+            connection_type=ConnectionType.LOCAL,
+            session=session,  # type: ignore[arg-type]
+        )
+        config_coord = MagicMock()
+        config_coord.data = {"sites": {"default": {"id": "default"}}, "vouchers": {}}
+        config_coord.vouchers_available.return_value = True
+        config_coord.async_refresh_vouchers = AsyncMock()
+
+        facade = UnifiFacadeCoordinator(
+            hass=hass,
+            network_client=client,
+            protect_client=None,
+            entry=MagicMock(),
+            config_coordinator=config_coord,
+            device_coordinator=MagicMock(),
+            protect_coordinator=None,
+        )
+
+        settings = facade.get_voucher_settings("default")
+        settings.duration_minutes = 90
+        settings.guest_limit = 3
+        settings.download_limit_mbps = 1.5
+        settings.upload_limit_mbps = 0.5
+        settings.data_limit_mb = 2048
+
+        button = UnifiGenerateVoucherButton(facade, "default")
+        await button.async_press()
+
+        assert len(session.requests) == 1
+        req1 = session.requests[0]
+        assert req1["method"] == "POST"
+        assert (
+            req1["url"]
+            == "https://192.168.1.1/proxy/network/integration/v1/sites/default/hotspot/vouchers"
+        )
+        assert req1["json"] == {
+            "count": 1,
+            "name": "Home Assistant",
+            "timeLimitMinutes": 90,
+            "authorizedGuestLimit": 3,
+            "dataUsageLimitMBytes": 2048,
+            "rxRateLimitKbps": 1500,
+            "txRateLimitKbps": 500,
+        }
+
+        # Second press: zero limits omitted
+        settings.guest_limit = 0
+        settings.download_limit_mbps = 0.0
+        settings.upload_limit_mbps = 0.0
+        settings.data_limit_mb = 0
+        await button.async_press()
+
+        assert len(session.requests) == 2
+        req2 = session.requests[1]
+        assert req2["method"] == "POST"
+        assert (
+            req2["url"]
+            == "https://192.168.1.1/proxy/network/integration/v1/sites/default/hotspot/vouchers"
+        )
+        assert req2["json"] == {
+            "count": 1,
+            "name": "Home Assistant",
+            "timeLimitMinutes": 90,
+        }

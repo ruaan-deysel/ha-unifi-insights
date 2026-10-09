@@ -172,6 +172,15 @@
       },
       "fob_arm_control": {
         "default": "mdi:shield-key"
+      },
+      "latest_voucher_code": {
+        "default": "mdi:ticket"
+      },
+      "latest_voucher_expiration": {
+        "default": "mdi:calendar-clock"
+      },
+      "active_vouchers": {
+        "default": "mdi:ticket-confirmation-outline"
       }
     },
     "binary_sensor": {
@@ -269,6 +278,9 @@
       },
       "poe_power_cycle": {
         "default": "mdi:power-cycle"
+      },
+      "generate_voucher": {
+        "default": "mdi:ticket-confirmation"
       }
     },
     "switch": {
@@ -299,11 +311,31 @@
       },
       "repeat_times": {
         "default": "mdi:repeat"
+      },
+      "voucher_duration": {
+        "default": "mdi:timer-outline"
+      },
+      "voucher_guest_limit": {
+        "default": "mdi:account-multiple"
+      },
+      "voucher_download_limit": {
+        "default": "mdi:download"
+      },
+      "voucher_upload_limit": {
+        "default": "mdi:upload"
+      },
+      "voucher_data_limit": {
+        "default": "mdi:database"
       }
     },
     "device_tracker": {
       "mobility_location": {
         "default": "mdi:map-marker"
+      }
+    },
+    "image": {
+      "voucher_qr_code": {
+        "default": "mdi:qrcode"
       }
     }
   },

@@ -99,6 +99,7 @@ class UniFiCarrierFabricClient(BaseUniFiClient):
         *,
         expected_unsupported: bool = False,
         request_path: str | None = None,
+        log_body: bool = True,
     ) -> dict[str, Any] | list[Any] | None:
         """Handle response with error code extraction and privacy-preserving logging."""
         try:
@@ -106,6 +107,7 @@ class UniFiCarrierFabricClient(BaseUniFiClient):
                 response,
                 expected_unsupported=expected_unsupported,
                 request_path=request_path,
+                log_body=log_body,
             )
         except (UniFiAuthenticationError, UniFiResponseError) as err:
             response_text = getattr(err, "response_body", None)

@@ -3,14 +3,28 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+import asyncio
+import json
+import logging
+import traceback
+from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant
+from pydantic import ValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.unifi_insights.api.network.models.voucher import Voucher
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
 from homeassistant.const import CONF_API_KEY
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+from custom_components.unifi_insights.api import ApiKeyAuth, ConnectionType
+from custom_components.unifi_insights.api.network import UniFiNetworkClient
+from custom_components.unifi_insights.api.network.models.voucher import Voucher
 from custom_components.unifi_insights.const import DOMAIN
 from custom_components.unifi_insights.coordinators.config import (
     UnifiConfigCoordinator,
@@ -24,6 +38,7 @@ from custom_components.unifi_insights.coordinators.facade import (
 from custom_components.unifi_insights.coordinators.voucher_state import (
     count_active_vouchers,
 )
+from custom_components.unifi_insights.image import UnifiVoucherQrCodeImage
 
 
 def _create_mock_model(data: dict) -> MagicMock:
@@ -151,3 +166,414 @@ async def test_generate_flow_updates_inventory_and_latest_voucher(
 
     # Active count is 1
     assert count_active_vouchers(inventory) == 1
+
+
+@pytest.mark.asyncio
+async def test_slower_full_poll_does_not_regress_newer_targeted_refresh_state(
+    hass: HomeAssistant,
+) -> None:
+    """A slower full config poll must not regress newer targeted voucher state."""
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={CONF_API_KEY: "test_api_key"},
+        options={"site_ids": ["site1"]},
+    )
+    network_client = MagicMock()
+    network_client.base_url = "https://192.168.1.1"
+    network_client.sites = MagicMock()
+    network_client.sites.get_all = AsyncMock(
+        return_value=[_create_mock_model({"id": "site1", "name": "Default"})]
+    )
+    network_client.sites.get_legacy_all = AsyncMock(return_value=[])
+    network_client.wifi = MagicMock()
+    network_client.wifi.get_all = AsyncMock(return_value=[])
+    network_client.firewall = MagicMock()
+    network_client.firewall.list_rules = AsyncMock(return_value=[])
+    network_client.devices = MagicMock()
+    network_client.devices.get_all = AsyncMock(return_value=[])
+    network_client.clients = MagicMock()
+    network_client.clients.get_all = AsyncMock(return_value=[])
+    network_client.reports = MagicMock()
+    network_client.reports.get_site_report = AsyncMock(return_value=[])
+
+    older_snapshot = _create_mock_model(
+        {
+            "id": "v-1",
+            "code": "1234567890",
+            "name": "Home Assistant",
+            "timeLimitMinutes": 480,
+            "expired": False,
+        }
+    )
+    newer_snapshot = _create_mock_model(
+        {
+            "id": "v-1",
+            "code": "1234567890",
+            "name": "Home Assistant",
+            "timeLimitMinutes": 480,
+            "expired": True,
+            "activatedAt": "2026-10-09T12:00:00Z",
+            "expiresAt": "2026-10-09T20:00:00Z",
+        }
+    )
+
+    full_poll_started = asyncio.Event()
+    targeted_done = asyncio.Event()
+
+    call_count = 0
+
+    async def mock_get_all_pages(site_id: str):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # First call is the initial setup
+            return [older_snapshot]
+        if call_count == 2:
+            # Second call is the full poll
+            full_poll_started.set()
+            await targeted_done.wait()
+            return [older_snapshot]
+        # Third call is the targeted refresh
+        return [newer_snapshot]
+
+    network_client.vouchers = MagicMock()
+    network_client.vouchers.get_all_pages = AsyncMock(side_effect=mock_get_all_pages)
+
+    config_coord = UnifiConfigCoordinator(
+        hass=hass,
+        network_client=network_client,
+        protect_client=None,
+        entry=entry,
+    )
+    device_coord = UnifiDeviceCoordinator(
+        hass=hass,
+        network_client=network_client,
+        protect_client=None,
+        entry=entry,
+        config_coordinator=config_coord,
+    )
+    facade = UnifiFacadeCoordinator(
+        hass=hass,
+        network_client=network_client,
+        protect_client=None,
+        entry=entry,
+        config_coordinator=config_coord,
+        device_coordinator=device_coord,
+        protect_coordinator=None,
+    )
+
+    # Initial setup
+    await config_coord.async_refresh()
+    facade._latest_vouchers["site1"] = {
+        "id": "v-1",
+        "code": "1234567890",
+        "expired": False,
+    }
+    facade._aggregate_data()
+    assert facade.data["latest_vouchers"]["site1"]["expired"] is False
+
+    # Start slower full poll in background
+    full_poll_task = asyncio.create_task(config_coord.async_refresh())
+    await full_poll_started.wait()
+
+    # Perform newer targeted refresh while full poll is outstanding
+    await config_coord.async_refresh_vouchers("site1")
+    facade._aggregate_data()
+    assert config_coord.data["vouchers"]["site1"]["v-1"]["expired"] is True
+    assert facade.data["latest_vouchers"]["site1"]["expired"] is True
+
+    # Release older full poll
+    targeted_done.set()
+    await full_poll_task
+    facade._aggregate_data()
+
+    # State must NOT regress back to expired: False
+    assert config_coord.data["vouchers"]["site1"]["v-1"]["expired"] is True
+    assert facade.data["latest_vouchers"]["site1"]["expired"] is True
+
+
+@pytest.fixture
+def voucher_flow(
+    hass: HomeAssistant,
+) -> tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator]:
+    """Build real coordinators with unrelated API sections mocked locally."""
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_API_KEY: "test-key"})
+    client = MagicMock()
+    client.base_url = "https://192.168.1.1"
+    client.sites.get_all = AsyncMock(
+        return_value=[_create_mock_model({"id": "site1", "name": "Default"})]
+    )
+    for endpoint, method in (
+        ("sites", "get_legacy_all"),
+        ("wifi", "get_all"),
+        ("firewall", "list_rules"),
+        ("devices", "get_all"),
+        ("clients", "get_all"),
+        ("reports", "get_site_report"),
+        ("vouchers", "get_all_pages"),
+    ):
+        setattr(getattr(client, endpoint), method, AsyncMock(return_value=[]))
+    config = UnifiConfigCoordinator(hass, client, None, entry)
+    device = UnifiDeviceCoordinator(hass, client, None, entry, config)
+    facade = UnifiFacadeCoordinator(hass, client, None, entry, config, device, None)
+    return config, facade
+
+
+def _voucher_transport(responses: list[Any]) -> UniFiNetworkClient:
+    """Use the real vendored transport over queued mocked HTTP responses."""
+    session = MagicMock(closed=False)
+    contexts = []
+    for body in responses:
+        response = MagicMock(status=200, headers={}, history=())
+        response.text = AsyncMock(return_value=json.dumps(body))
+        response.json = AsyncMock(return_value=body)
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=response)
+        contexts.append(context)
+    session.request.side_effect = contexts
+    return UniFiNetworkClient(
+        auth=ApiKeyAuth(api_key="test-key"),
+        base_url="https://192.168.1.1",
+        connection_type=ConnectionType.LOCAL,
+        session=session,
+    )
+
+
+def _assert_credential_absent(
+    caplog: pytest.LogCaptureFixture, credential: str
+) -> None:
+    """Inspect messages and formatted exception chains at every captured level."""
+    assert credential not in caplog.text
+    formatter = logging.Formatter()
+    for record in caplog.records:
+        assert credential not in record.getMessage()
+        assert credential not in formatter.format(record)
+        if record.exc_info:
+            assert credential not in formatter.formatException(record.exc_info)
+
+
+async def test_root_validation_error_does_not_log_credential(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A root model error stays private through HTTP, endpoint and facade."""
+    _, facade = voucher_flow
+    code = "1234567890"
+    client = _voucher_transport([{"vouchers": [code]}])
+    facade.network_client.vouchers = client.vouchers
+    with caplog.at_level(logging.DEBUG), pytest.raises(HomeAssistantError) as caught:
+        await facade.async_generate_voucher(
+            "site1", name="Home Assistant", time_limit_minutes=480
+        )
+    _assert_credential_absent(caplog, code)
+    assert code not in "".join(traceback.format_exception(caught.value))
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__ is True
+
+
+async def test_root_validation_error_does_not_log_credential_polling(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A malformed root voucher preserves inventory without logging its code."""
+    config, _ = voucher_flow
+    await config.async_refresh()
+    prior = {"old": {"id": "old", "code": "old-synthetic-code"}}
+    config.data["vouchers"]["site1"] = prior
+    code = "1234567890"
+    client = _voucher_transport([{"data": [code], "totalCount": 1}])
+    config.network_client.vouchers = client.vouchers
+    with caplog.at_level(logging.DEBUG):
+        await config.async_refresh_vouchers("site1")
+    _assert_credential_absent(caplog, code)
+    assert config.data["vouchers"]["site1"] == prior
+    assert config._failed_sections == {("vouchers", "site1")}
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("code", [9876543210, [9876543210], {"value": 9876543210}])
+async def test_numeric_code_does_not_log_credential(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    caplog: pytest.LogCaptureFixture,
+    method: str,
+    code: object,
+) -> None:
+    """Invalid numeric and composite credential values stay private in DEBUG."""
+    config, facade = voucher_flow
+    await config.async_refresh()
+    body = {"id": "v1", "code": code}
+    client = _voucher_transport(
+        [{"data": [body], "totalCount": 1} if method == "GET" else {"vouchers": [body]}]
+    )
+    config.network_client.vouchers = client.vouchers
+    with caplog.at_level(logging.DEBUG):
+        if method == "GET":
+            await config.async_refresh_vouchers("site1")
+            assert config.vouchers_available("site1") is False
+        else:
+            with pytest.raises(HomeAssistantError):
+                await facade.async_generate_voucher(
+                    "site1", name="Home Assistant", time_limit_minutes=480
+                )
+    _assert_credential_absent(caplog, "9876543210")
+    assert "<body omitted," in caplog.text
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"data": {"vouchers": ["1234567890"]}},
+        {"data": {"vouchers": [1234567890]}},
+        {"data": "1234567890"},
+        {"vouchers": "1234567890"},
+        {"items": ["1234567890"]},
+        "1234567890",
+    ],
+)
+async def test_malformed_voucher_body_does_not_log_credential(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    caplog: pytest.LogCaptureFixture,
+    method: str,
+    body: Any,
+) -> None:
+    """Malformed envelopes stay private through real transport and endpoint calls."""
+    config, facade = voucher_flow
+    client = _voucher_transport([body])
+    config.network_client.vouchers = client.vouchers
+    with caplog.at_level(logging.DEBUG):
+        if method == "GET":
+            await client.vouchers.get_all_pages("site1")
+        else:
+            with pytest.raises(HomeAssistantError):
+                await facade.async_generate_voucher(
+                    "site1", name="Home Assistant", time_limit_minutes=480
+                )
+    _assert_credential_absent(caplog, "1234567890")
+    assert f"<body omitted, {len(json.dumps(body).encode())} bytes>" in caplog.text
+
+
+def _overlapping_pages() -> list[dict[str, Any]]:
+    """Four advertised vouchers, but only three distinct IDs across two pages."""
+    vouchers = [{"id": f"v{i}", "code": "1234567890"} for i in range(1, 4)]
+    return [
+        {"data": vouchers[:2], "totalCount": 4},
+        {"data": vouchers[1:], "totalCount": 4},
+    ]
+
+
+async def test_partial_overlap_is_incomplete(caplog: pytest.LogCaptureFixture) -> None:
+    """Reaching the row offset cannot establish a complete distinct inventory."""
+    client = _voucher_transport(_overlapping_pages() * 2)
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(RuntimeError, match="Incomplete voucher listing") as caught,
+    ):
+        await client.vouchers.get_all_pages("site1")
+    _assert_credential_absent(caplog, "1234567890")
+    assert "1234567890" not in "".join(traceback.format_exception(caught.value))
+
+
+async def test_partial_overlap_is_incomplete_coordinator(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Incomplete transport results keep the prior inventory and isolate failure."""
+    config, _ = voucher_flow
+    await config.async_refresh()
+    prior = {"old": {"id": "old", "code": "old-synthetic-code"}}
+    config.data["vouchers"]["site1"] = prior
+    client = _voucher_transport(_overlapping_pages() * 2)
+    config.network_client.vouchers = client.vouchers
+    with caplog.at_level(logging.DEBUG):
+        await config.async_refresh()
+    assert config.data["vouchers"]["site1"] == prior
+    assert config.last_update_success is True
+    assert config._failed_sections == {("vouchers", "site1")}
+    assert config.wifi_available("site1") is True
+    assert config.firewall_available("site1") is True
+    _assert_credential_absent(caplog, "1234567890")
+
+
+async def test_real_model_refresh_does_not_redisplay_expired_qr(
+    hass: HomeAssistant,
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    freezer: Any,
+) -> None:
+    """A real model's null timestamp defaults cannot resurrect an expired QR."""
+    freezer.move_to("2026-10-09T11:59:00Z")
+    config, facade = voucher_flow
+    known = Voucher(
+        id="v1",
+        code="1234567890",
+        expired=False,
+        activatedAt="2026-10-09T11:00:00Z",
+        expiresAt="2026-10-09T12:00:00Z",
+    )
+    config.network_client.vouchers.get_all_pages.return_value = [known]
+    await config.async_refresh()
+    facade._latest_vouchers["site1"] = known.model_dump(
+        by_alias=True, exclude_none=False
+    )
+    facade._aggregate_data()
+    image = UnifiVoucherQrCodeImage(hass, facade, "site1")
+    image.entity_id = "image.test_voucher"
+    await image.async_added_to_hass()
+    try:
+        assert image.available is True
+        assert await image.async_image() is not None
+        assert image._expiration_unsub is not None
+        freezer.move_to("2026-10-09T12:00:00Z")
+        deadline = dt_util.parse_datetime("2026-10-09T12:00:00Z")
+        assert deadline is not None
+        with patch.object(image, "async_write_ha_state"):
+            async_fire_time_changed(hass, deadline)
+            await hass.async_block_till_done()
+            assert image.available is False
+            assert await image.async_image() is None
+            assert image._expiration_unsub is None
+            omitted = Voucher(id="v1", code="1234567890", expired=False)
+            assert (
+                omitted.model_dump(by_alias=True, exclude_none=False)["expiresAt"]
+                is None
+            )
+            config.network_client.vouchers.get_all_pages.return_value = [omitted]
+            await config.async_refresh_vouchers("site1")
+            assert image.available is False
+            assert await image.async_image() is None
+            assert image._expiration_unsub is None
+            assert (
+                facade.data["latest_vouchers"]["site1"]["expiresAt"] == known.expires_at
+            )
+    finally:
+        await image.async_will_remove_from_hass()
+
+
+@pytest.mark.parametrize("boundary", ["config", "facade"])
+async def test_root_validation_error_does_not_log_credential_sanitizers(
+    voucher_flow: tuple[UnifiConfigCoordinator, UnifiFacadeCoordinator],
+    caplog: pytest.LogCaptureFixture,
+    boundary: str,
+) -> None:
+    """Both coordinator sanitizers handle direct empty-location errors safely."""
+    config, facade = voucher_flow
+    code = "1234567890"
+    with pytest.raises(ValidationError) as invalid:
+        Voucher.model_validate(code)
+    fetch = AsyncMock(side_effect=invalid.value)
+    with caplog.at_level(logging.DEBUG):
+        if boundary == "config":
+            assert (
+                await config._fetch_optional_section("vouchers", "site1", fetch) is None
+            )
+        else:
+            with pytest.raises(HomeAssistantError) as caught:
+                await facade._async_execute_api_action(
+                    "Unable to generate voucher", fetch
+                )
+            assert caught.value.__cause__ is None
+            assert caught.value.__suppress_context__ is True
+            assert code not in "".join(traceback.format_exception(caught.value))
+    _assert_credential_absent(caplog, code)
+    assert "root" in caplog.text

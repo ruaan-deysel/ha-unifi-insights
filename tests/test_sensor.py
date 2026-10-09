@@ -67,6 +67,7 @@ from custom_components.unifi_insights.sensor import (
     format_uptime,
     get_network_device_temperature,
 )
+from custom_components.unifi_insights.voucher_sensor import UnifiVoucherSensor
 from tests.fixtures.library_responses import (
     SAMPLE_KEYPAD_FOB,
     SAMPLE_THREAD_LINK_STATION,
@@ -4223,3 +4224,49 @@ class TestSensorAdditionalCoverageGaps:
 
         coordinator.data = None
         discover_callback()
+
+    async def test_voucher_sensor_discovery_and_deduplication(
+        self, hass: HomeAssistant, mock_config_entry: MockConfigEntry
+    ) -> None:
+        """Test that voucher sensors are discovered and deduplicated."""
+        coordinator = MagicMock()
+        coordinator.data = {
+            "sites": {"default": {"desc": "Default"}},
+            "vouchers": {"default": {}},
+            "latest_vouchers": {},
+        }
+        coordinator.protect_client = None
+        coordinator.vouchers_available = MagicMock(return_value=True)
+        listeners = []
+        coordinator.async_add_listener = listeners.append
+
+        mock_config_entry.runtime_data = MagicMock(
+            coordinator=coordinator, mobility_coordinator=None
+        )
+        added_entities: list = []
+
+        def async_add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        with (
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_get",
+                return_value=MagicMock(),
+            ),
+            patch(
+                "custom_components.unifi_insights.sensor.er.async_entries_for_config_entry",
+                return_value=[],
+            ),
+        ):
+            await async_setup_entry(hass, mock_config_entry, async_add_entities)
+
+        voucher_entities = [
+            e for e in added_entities if isinstance(e, UnifiVoucherSensor)
+        ]
+        assert len(voucher_entities) == 3
+        count_before = len(added_entities)
+
+        # Trigger listener (deduplication check)
+        for listener in listeners:
+            listener()
+        assert len(added_entities) == count_before

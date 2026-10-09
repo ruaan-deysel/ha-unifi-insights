@@ -15,6 +15,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_CHIME_ID,
@@ -23,15 +24,19 @@ from .const import (
     CHIME_RINGTONE_DEFAULT,
     CONF_CLIENT_CONTROL,
     DEFAULT_CLIENT_CONTROL,
+    DEFAULT_VOUCHER_NAME,
     DEVICE_TYPE_CAMERA,
     DEVICE_TYPE_CHIME,
     DOMAIN,
     MANUFACTURER,
 )
+from .coordinators import UnifiFacadeCoordinator
+from .coordinators.voucher_state import voucher_request_kwargs, voucher_site_ids
 from .entity import (
     UnifiInsightsEntity,
     UnifiProtectEntity,
     async_call_coordinator_action,
+    build_site_device_info,
     camera_supports_ptz,
 )
 
@@ -40,7 +45,6 @@ if TYPE_CHECKING:
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
     from . import UnifiInsightsConfigEntry
-    from .coordinators import UnifiFacadeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -164,6 +168,14 @@ async def async_setup_entry(
             CONF_CLIENT_CONTROL, DEFAULT_CLIENT_CONTROL
         )
         entities: list[ButtonEntity] = []
+
+        for site_id in voucher_site_ids(coordinator.data):
+            voucher_key = (site_id, "generate_voucher")
+            if voucher_key in known_button_keys:
+                continue
+            button = UnifiGenerateVoucherButton(coordinator, site_id)
+            known_button_keys.add(voucher_key)
+            entities.append(button)
 
         # Add buttons for each device in each site
         devices_by_site = coordinator.data.get("devices", {})
@@ -646,3 +658,47 @@ class UnifiProtectPTZPatrolStopButton(UnifiProtectEntity, ButtonEntity):
             ),
         )
         _LOGGER.info("Successfully stopped PTZ patrol for camera %s", self._device_id)
+
+
+class UnifiGenerateVoucherButton(
+    CoordinatorEntity[UnifiFacadeCoordinator], ButtonEntity
+):
+    """Button entity that creates a new hotspot voucher using HA-stored settings."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "generate_voucher"
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        site_id: str,
+    ) -> None:
+        """Initialize the voucher generation button."""
+        super().__init__(coordinator)
+        self._site_id = site_id
+        self._attr_unique_id = f"{site_id}_generate_voucher"
+        self._attr_device_info = DeviceInfo(
+            **build_site_device_info(coordinator.data, site_id)  # type: ignore[typeddict-item]
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return True if vouchers are available for this site."""
+        return bool(self.coordinator.vouchers_available(self._site_id))
+
+    async def async_press(self) -> None:
+        """Generate a guest voucher with current HA settings."""
+        settings = self.coordinator.get_voucher_settings(self._site_id)
+        kwargs: dict[str, Any] = voucher_request_kwargs(settings)
+        created = await async_call_coordinator_action(
+            self.coordinator,
+            "async_generate_voucher",
+            f"Unable to generate a guest voucher in site {self._site_id}",
+            self._site_id,
+            name=DEFAULT_VOUCHER_NAME,
+            count=1,
+            **kwargs,
+        )
+        if not created:
+            err_msg = f"UniFi returned no voucher for site {self._site_id}"
+            raise HomeAssistantError(err_msg)

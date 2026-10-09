@@ -101,6 +101,26 @@ def _client(session: _Session) -> UniFiCarrierFabricClient:
     return UniFiCarrierFabricClient(ApiKeyAuth("test-carrier-key"), session=session)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("log_body", [True, False])
+async def test_carrier_transport_accepts_response_body_logging_flag(
+    caplog: pytest.LogCaptureFixture,
+    *,
+    log_body: bool,
+) -> None:
+    """The response-handler override forwards explicit body logging preferences."""
+    body = {"data": [{"name": "private-subscriber"}]}
+    client = _client(_Session([body]))
+    with caplog.at_level(logging.DEBUG):
+        assert await client._get("/service-plans", log_body=log_body) == body
+    assert "private-subscriber" not in caplog.text
+    expected = (
+        "[Carrier Fabric response omitted]"
+        if log_body
+        else f"<body omitted, {len(json.dumps(body).encode())} bytes>"
+    )
+    assert expected in caplog.text
+
+
 async def test_subscribers_multi_page_cursor_pagination() -> None:
     """Subscriber get_all iterates cursor pages until hasMore is false."""
     session = _Session(

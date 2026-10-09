@@ -1,21 +1,25 @@
 # Copyright (c) 2026 Ruaan Deysel
 """Tests for UniFi Insights facade coordinator."""
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.unifi_insights.api.network.endpoints.vouchers import (
+    VouchersEndpoint,
+)
 from custom_components.unifi_insights.api.network.models.voucher import Voucher
-from custom_components.unifi_insights.coordinators.voucher_state import VoucherSettings
 from custom_components.unifi_insights.coordinators.facade import (
     UnifiFacadeCoordinator,
 )
+from custom_components.unifi_insights.coordinators.voucher_state import VoucherSettings
 
 
 @pytest.fixture
@@ -346,7 +350,7 @@ class TestFacadeGenerateVoucher:
         mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """If targeted refresh fails, voucher creation still succeeds without code in log."""
+        """Targeted refresh failure still succeeds without voucher code in log."""
         config_coord = mock_sub_coordinators[0]
         config_coord.async_refresh_vouchers = AsyncMock(
             side_effect=RuntimeError("Refresh error")
@@ -362,7 +366,58 @@ class TestFacadeGenerateVoucher:
         assert "Unable to refresh the vouchers of site site1" in caplog.text
         assert "1111111111" not in caplog.text
 
-    async def test_generate_voucher_api_error_becomes_home_assistant_error_and_skips_refresh(
+    async def test_generate_voucher_validation_error_does_not_leak_code_in_logs(
+        self,
+        facade: UnifiFacadeCoordinator,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Pydantic validation error does not leak code in logs."""
+        synthetic_code = "1234567890"
+        try:
+            Voucher.model_validate({"code": synthetic_code})
+        except ValidationError as validation_error:
+            real_validation_error = validation_error
+
+        facade.network_client.vouchers.create = AsyncMock(
+            side_effect=real_validation_error
+        )
+        with (
+            caplog.at_level("DEBUG"),
+            pytest.raises(HomeAssistantError),
+        ):
+            await facade.async_generate_voucher(
+                site_id="site1", name="G1", time_limit_minutes=60
+            )
+
+        assert synthetic_code not in caplog.text
+
+    async def test_generate_voucher_real_endpoint_validation_error_does_not_leak_code(
+        self,
+        facade: UnifiFacadeCoordinator,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Real endpoint validation failure does not leak code in logs."""
+        synthetic_code = "1234567890"
+
+        class _TestClient:
+            def build_api_path(self, path: str) -> str:
+                return path
+
+            async def _post(self, path: str, json_data: Any = None) -> Any:
+                return {"vouchers": [{"code": synthetic_code}]}
+
+        facade.network_client.vouchers = VouchersEndpoint(_TestClient())  # type: ignore[assignment]
+        with (
+            caplog.at_level("DEBUG"),
+            pytest.raises(HomeAssistantError),
+        ):
+            await facade.async_generate_voucher(
+                site_id="site1", name="G1", time_limit_minutes=60
+            )
+
+        assert synthetic_code not in caplog.text
+
+    async def test_generate_voucher_api_error_raises_and_skips_refresh(
         self,
         facade: UnifiFacadeCoordinator,
         mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
@@ -409,7 +464,7 @@ class TestFacadeGenerateVoucher:
         facade: UnifiFacadeCoordinator,
         mock_sub_coordinators: tuple[MagicMock, MagicMock, MagicMock, MagicMock],
     ) -> None:
-        """facade.data[vouchers] is sourced from config_coordinator, not device_coordinator."""
+        """Verify facade.data[vouchers] is sourced from config_coordinator."""
         config_coord, device_coord, _, _ = mock_sub_coordinators
         config_coord.data["vouchers"] = {"site1": {"v1": {"id": "v1"}}}
         device_coord.data["vouchers"] = {"site1": {"stale": {"id": "stale"}}}
@@ -436,7 +491,10 @@ class TestFacadeGenerateVoucher:
         }
         facade._aggregate_data()
         assert facade.data["latest_vouchers"]["site1"]["expired"] is True
-        assert facade.data["latest_vouchers"]["site1"]["activatedAt"] == "2026-10-09T12:00:00Z"
+        assert (
+            facade.data["latest_vouchers"]["site1"]["activatedAt"]
+            == "2026-10-09T12:00:00Z"
+        )
 
     async def test_latest_voucher_is_kept_when_missing_from_inventory(
         self,

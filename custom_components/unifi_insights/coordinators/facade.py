@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
     from custom_components.unifi_insights.api.innerspace import UniFiInnerSpaceClient
     from custom_components.unifi_insights.api.network import UniFiNetworkClient
-    from custom_components.unifi_insights.api.protect import UniFiProtectClient
     from custom_components.unifi_insights.api.network.models.voucher import Voucher
+    from custom_components.unifi_insights.api.protect import UniFiProtectClient
 
     from .config import UnifiConfigCoordinator
     from .device import UnifiDeviceCoordinator
@@ -28,14 +28,16 @@ if TYPE_CHECKING:
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from pydantic import ValidationError
 
 from custom_components.unifi_insights.api import UniFiGlobalAlarmManagerError
 from custom_components.unifi_insights.const import CONF_CONSOLE_ID, DOMAIN
-from .voucher_state import VoucherSettings, refresh_latest_voucher, voucher_to_record
 from custom_components.unifi_insights.data_transforms import (
     correlate_innerspace_devices,
     normalize_innerspace_snapshot,
 )
+
+from .voucher_state import VoucherSettings, refresh_latest_voucher, voucher_to_record
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -230,14 +232,16 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return (id(raw_innerspace), tuple(net_pairs), tuple(prot_pairs))
 
     def _refresh_latest_vouchers(self) -> None:
-        """Pick up activation / expiry changes of each latest voucher from the polled inventory."""
+        """Pick up activation / expiry changes of latest vouchers from inventory."""
         inventory = self._config_coordinator.data.get("vouchers", {})
         if not isinstance(inventory, Mapping):
             return
         for site_id, record in list(self._latest_vouchers.items()):
             site_inventory = inventory.get(site_id)
             if isinstance(site_inventory, Mapping):
-                self._latest_vouchers[site_id] = refresh_latest_voucher(record, site_inventory)
+                self._latest_vouchers[site_id] = refresh_latest_voucher(
+                    record, site_inventory
+                )
 
     def _aggregate_data(self) -> None:
         """Aggregate data from all coordinators into unified structure."""
@@ -322,7 +326,10 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "sites": self._config_coordinator.data.get("sites", {}),
             "wifi": self._config_coordinator.data.get("wifi", {}),
             "vouchers": self._config_coordinator.data.get("vouchers", {}),
-            "latest_vouchers": {site_id: dict(record) for site_id, record in self._latest_vouchers.items()},
+            "latest_vouchers": {
+                site_id: dict(record)
+                for site_id, record in self._latest_vouchers.items()
+            },
             "firewall_rules": self._config_coordinator.data.get("firewall_rules", {}),
             "policy_based_routes": self._config_coordinator.data.get(
                 "policy_based_routes", {}
@@ -569,8 +576,18 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except HomeAssistantError:
             raise
         except Exception as err:
+            if isinstance(err, ValidationError):
+                field_names = [
+                    str((e.get("loc") or ("root",))[-1]) for e in err.errors()
+                ]
+                fields_str = ", ".join(sorted(set(field_names)))
+                msg = (
+                    f"{error_message}: Invalid API response data (fields: {fields_str})"
+                )
+                _LOGGER.error("%s", msg)  # noqa: TRY400
+                raise HomeAssistantError(msg) from None
             _LOGGER.exception("%s", error_message)
-            raise HomeAssistantError(error_message) from err
+            raise HomeAssistantError(error_message) from None
 
     async def async_restart_device(self, site_id: str, device_id: str) -> bool:
         """Restart a network device."""
@@ -1046,7 +1063,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_refresh_vouchers(site_id)
 
     async def _async_refresh_vouchers(self, site_id: str) -> None:
-        """Refresh one site's voucher inventory after a change; never fail the change itself."""
+        """Refresh a site's vouchers after change; never fail change itself."""
         try:
             await self._config_coordinator.async_refresh_vouchers(site_id)
         except Exception as err:

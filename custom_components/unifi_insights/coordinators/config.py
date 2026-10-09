@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from custom_components.unifi_insights.api import (
     UniFiAuthenticationError,
     UniFiConnectionError,
@@ -19,8 +21,8 @@ from custom_components.unifi_insights.const import CONF_SITE_IDS, SCAN_INTERVAL_
 from .base import UnifiBaseCoordinator
 from .config_sections import (
     async_fetch_site_firewall,
-    async_fetch_site_vouchers,
     async_fetch_site_routes,
+    async_fetch_site_vouchers,
     async_fetch_site_vpn_clients,
     async_fetch_site_vpns,
     async_fetch_site_wifi_and_links,
@@ -106,6 +108,8 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         self.available_sites: dict[str, str] = {}
         self._warned_no_selected_sites = False
         self._failed_sections: set[tuple[str, str]] = set()
+        self._voucher_site_request_seq: dict[str, int] = {}
+        self._voucher_site_committed_seq: dict[str, int] = {}
 
     def _section_available(self, section: str, site_id: str) -> bool:
         """Return True if the last refresh fetched the given section for a site."""
@@ -154,12 +158,20 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     if (section, site_id) in self._failed_sections
                     else _LOGGER.warning
                 )
+                if isinstance(err, ValidationError):
+                    field_names = [
+                        str((e.get("loc") or ("root",))[-1]) for e in err.errors()
+                    ]
+                    fields_str = ", ".join(sorted(set(field_names)))
+                    err_msg: Any = f"ValidationError(fields: {fields_str})"
+                else:
+                    err_msg = err
                 log(
                     "Config coordinator: Unable to fetch %s for site %s, keeping "
                     "the last known data: %s",
                     section,
                     site_id,
-                    err,
+                    err_msg,
                 )
                 return None
             unsupported = err
@@ -283,7 +295,7 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
 
             wifi_by_site: dict[str, dict[str, Any]] = {}
             firewall_by_site: dict[str, dict[str, Any]] = {}
-            vouchers_by_site: dict[str, dict[str, Any]] = {}
+            vouchers_by_site: dict[str, tuple[int, dict[str, Any]]] = {}
             internet_activity_by_site: dict[str, dict[str, dict[str, int]]] = {}
             failed_sections: set[tuple[str, str]] = set()
             routes_by_site: dict[str, dict[str, Any]] = {}
@@ -303,8 +315,11 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                 firewall_by_site[site_id] = await async_fetch_site_firewall(
                     self, site_id, failed_sections
                 )
-                vouchers_by_site[site_id] = await async_fetch_site_vouchers(
-                    self, site_id, failed_sections
+                v_seq = self._voucher_site_request_seq.get(site_id, 0) + 1
+                self._voucher_site_request_seq[site_id] = v_seq
+                vouchers_by_site[site_id] = (
+                    v_seq,
+                    await async_fetch_site_vouchers(self, site_id, failed_sections),
                 )
                 await async_update_site_internet_activity(
                     self._fetch_site_internet_activity,
@@ -330,11 +345,21 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
                     prior_site_vpns=self.data.get("site_vpns", {}).get(site_id, {}),
                 )
 
+            committed_vouchers = dict(self.data.get("vouchers", {}))
+            for site_id, (v_seq, inv) in vouchers_by_site.items():
+                if v_seq >= self._voucher_site_committed_seq.get(site_id, 0):
+                    self._voucher_site_committed_seq[site_id] = v_seq
+                    committed_vouchers[site_id] = inv
+                elif ("vouchers", site_id) in self._failed_sections:
+                    failed_sections.add(("vouchers", site_id))
+                else:
+                    failed_sections.discard(("vouchers", site_id))
+
             self.data.update(
                 sites=sites,
                 wifi=wifi_by_site,
                 firewall_rules=firewall_by_site,
-                vouchers=vouchers_by_site,
+                vouchers=committed_vouchers,
                 internet_activity=internet_activity_by_site,
                 internet_activity_unavailable={
                     s for sec, s in failed_sections if sec == "internet_activity"
@@ -368,18 +393,22 @@ class UnifiConfigCoordinator(UnifiBaseCoordinator):
         return self.data  # pragma: no cover
 
     async def async_refresh_vouchers(self, site_id: str) -> None:
-        """Re-fetch one site's voucher inventory without a full configuration refresh.
-
-        Auth failures propagate; any other failure keeps the last inventory and flags the section.
-        """
+        """Re-fetch one site's voucher inventory without full config refresh."""
         if site_id not in self.data.get("sites", {}):
             return
+        v_seq = self._voucher_site_request_seq.get(site_id, 0) + 1
+        self._voucher_site_request_seq[site_id] = v_seq
         failed: set[tuple[str, str]] = set()
         inventory = await async_fetch_site_vouchers(self, site_id, failed)
-        self.data["vouchers"] = {**self.data.get("vouchers", {}), site_id: inventory}
-        self._failed_sections.discard(("vouchers", site_id))
-        self._failed_sections |= failed
-        self.async_update_listeners()
+        if v_seq >= self._voucher_site_committed_seq.get(site_id, 0):
+            self._voucher_site_committed_seq[site_id] = v_seq
+            self.data["vouchers"] = {
+                **self.data.get("vouchers", {}),
+                site_id: inventory,
+            }
+            self._failed_sections.discard(("vouchers", site_id))
+            self._failed_sections |= failed
+            self.async_update_listeners()
 
     def get_site(self, site_id: str) -> dict[str, Any] | None:
         """Get site data by site ID."""

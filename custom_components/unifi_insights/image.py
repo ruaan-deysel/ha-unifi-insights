@@ -1,25 +1,35 @@
-"""Support for UniFi Insights WiFi QR codes and InnerSpace floor plan images."""
+"""Support for UniFi Insights QR codes and floor plan images."""
 
 from __future__ import annotations
 
 import io
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 import segno
 from homeassistant.components.image import ImageEntity
-from homeassistant.core import callback
+from homeassistant.core import CALLBACK_TYPE, callback
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .api.exceptions import UniFiError
 from .const import DOMAIN, MANUFACTURER
 from .coordinators import UnifiFacadeCoordinator
+from .coordinators.voucher_state import (
+    _field,
+    latest_voucher_qr_payload,
+    parse_timestamp,
+    voucher_site_ids,
+)
+from .entity import build_site_device_info
 from .innerspace_transforms import parse_floor_plan_asset_path, strip_url_query
 
 if TYPE_CHECKING:
     import asyncio
+    from datetime import datetime
 
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -37,10 +47,11 @@ async def async_setup_entry(
     entry: UnifiInsightsConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up WiFi QR code and floor plan images for UniFi Insights."""
+    """Set up QR code and floor plan images for UniFi Insights."""
     coordinator = entry.runtime_data.coordinator
     known_wifi_keys: set[tuple[str, str]] = set()
     known_floor_plan_keys: set[str] = set()
+    known_voucher_keys: set[str] = set()
 
     @callback
     def async_discover_images() -> None:
@@ -111,6 +122,14 @@ async def async_setup_entry(
                         )
                     )
 
+        # Hotspot voucher QR codes
+        for site_id in voucher_site_ids(coordinator.data):
+            if site_id in known_voucher_keys:
+                continue
+            entity = UnifiVoucherQrCodeImage(hass, coordinator, site_id)
+            known_voucher_keys.add(site_id)
+            new_entities.append(entity)
+
         if new_entities:
             _LOGGER.info("Adding %d UniFi image entities", len(new_entities))
             async_add_entities(new_entities)
@@ -135,6 +154,7 @@ class UnifiWifiQrCodeImage(CoordinatorEntity[UnifiFacadeCoordinator], ImageEntit
         """Initialize the WiFi QR code image."""
         CoordinatorEntity.__init__(self, coordinator)
         ImageEntity.__init__(self, hass)
+        self.hass = hass
         self._site_id = site_id
         self._wifi_id = wifi_id
 
@@ -408,3 +428,136 @@ class UnifiFloorPlanImage(CoordinatorEntity[UnifiFacadeCoordinator], ImageEntity
         self._fetch_failed = False
         self._logged_fetch_error = False
         return self._cached_bytes
+
+
+class UnifiVoucherQrCodeImage(CoordinatorEntity[UnifiFacadeCoordinator], ImageEntity):
+    """
+    QR code of the latest generated hotspot voucher code.
+
+    This QR code contains only the plain voucher code string for portal entry.
+    It does NOT configure Wi-Fi credentials or join a network.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "voucher_qr_code"
+    _attr_content_type = "image/png"
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        coordinator: UnifiFacadeCoordinator,
+        site_id: str,
+    ) -> None:
+        """Initialize the voucher QR code image."""
+        CoordinatorEntity.__init__(self, coordinator)
+        ImageEntity.__init__(self, hass)
+        self.hass = hass
+        self._site_id = site_id
+        self._attr_unique_id = f"{site_id}_voucher_qr_code"
+        self._attr_device_info = DeviceInfo(
+            **build_site_device_info(coordinator.data, site_id)  # type: ignore[typeddict-item]
+        )
+        self._last_observed_payload: str | None = self._current_payload()
+        self._rendered_payload: str | None = None
+        self._rendered_png: bytes | None = None
+        self._attr_image_last_updated = dt_util.utcnow()
+        self._expiration_unsub: CALLBACK_TYPE | None = None
+
+    def _cancel_expiration_timer(self) -> None:
+        """Cancel any scheduled expiration callback."""
+        if self._expiration_unsub is not None:
+            self._expiration_unsub()
+            self._expiration_unsub = None
+
+    def _reschedule_expiration_timer(self) -> None:
+        """Schedule a timer to expire the QR image at the voucher deadline."""
+        self._cancel_expiration_timer()
+        if not getattr(self, "hass", None):
+            return
+        latest_vouchers = self.coordinator.data.get("latest_vouchers")
+        if not isinstance(latest_vouchers, Mapping):
+            return
+        record = latest_vouchers.get(self._site_id)
+        if not isinstance(record, Mapping):
+            return
+        if record.get("expired") is True:
+            return
+        expires_at_raw = _field(record, "expiresAt", "expires_at")
+        if expires_at_raw is None:
+            return
+        expires_at = parse_timestamp(expires_at_raw)
+        if expires_at is None:
+            return
+        now = dt_util.utcnow()
+        if expires_at <= now:
+            return
+        self._expiration_unsub = async_track_point_in_time(
+            self.hass, self._handle_expiration, expires_at
+        )
+
+    @callback
+    def _handle_expiration(self, _now: datetime) -> None:
+        """Handle expiration deadline reaching current time."""
+        self._expiration_unsub = None
+        self._rendered_payload = None
+        self._rendered_png = None
+        if self._last_observed_payload is not None:
+            self._last_observed_payload = None
+            self._attr_image_last_updated = dt_util.utcnow()
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Register lifecycle and timer on add."""
+        await super().async_added_to_hass()
+        self.async_on_remove(self._cancel_expiration_timer)
+        self._reschedule_expiration_timer()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel timer on removal."""
+        self._cancel_expiration_timer()
+        await super().async_will_remove_from_hass()
+
+    def _current_payload(self) -> str | None:
+        """Return the QR payload for the latest voucher if active and unexpired."""
+        latest_vouchers = self.coordinator.data.get("latest_vouchers")
+        if not isinstance(latest_vouchers, Mapping):
+            return None
+        return latest_voucher_qr_payload(latest_vouchers.get(self._site_id))
+
+    @property
+    def available(self) -> bool:
+        """Return True if vouchers are available and a valid QR payload exists."""
+        return bool(
+            self.coordinator.vouchers_available(self._site_id)
+            and self._current_payload()
+        )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Refresh timestamp when payload changes; invalidate cache on disappearance."""
+        payload = self._current_payload()
+        if payload != self._last_observed_payload:
+            self._attr_image_last_updated = dt_util.utcnow()
+            self._last_observed_payload = payload
+            self._rendered_payload = None
+            self._rendered_png = None
+        if payload is None:
+            self._rendered_payload = None
+            self._rendered_png = None
+        self._reschedule_expiration_timer()
+        super()._handle_coordinator_update()
+
+    async def async_image(self) -> bytes | None:
+        """Return the QR code as PNG bytes."""
+        payload = self._current_payload()
+        if payload is None:
+            return None
+
+        if payload == self._rendered_payload and self._rendered_png is not None:
+            return self._rendered_png
+
+        buffer = io.BytesIO()
+        segno.make(payload, error="m").save(buffer, kind="png", scale=6, border=2)
+        self._rendered_payload = payload
+        self._rendered_png = buffer.getvalue()
+        return self._rendered_png

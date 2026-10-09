@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.const import EVENT_STATE_CHANGED, STATE_UNAVAILABLE
 from homeassistant.core import callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockEntityPlatform,
+    async_fire_time_changed,
 )
 
 from custom_components.unifi_insights.api.exceptions import (
@@ -23,6 +25,7 @@ from custom_components.unifi_insights.api.exceptions import (
 from custom_components.unifi_insights.const import DOMAIN
 from custom_components.unifi_insights.image import (
     UnifiFloorPlanImage,
+    UnifiVoucherQrCodeImage,
     UnifiWifiQrCodeImage,
     async_setup_entry,
 )
@@ -922,3 +925,255 @@ class TestUnifiFloorPlanImage:
         innerspace_coordinator.data["innerspace"]["floor_plans"] = None
         listener()
         async_add_entities.assert_not_called()
+
+
+class TestUnifiVoucherQrCodeImage:
+    """Tests for UnifiVoucherQrCodeImage entity."""
+
+    @pytest.fixture
+    def mock_coordinator(self):
+        coord = MagicMock()
+        coord.data = {
+            "sites": {"default": {"desc": "Default"}},
+            "vouchers": {"default": {}},
+            "latest_vouchers": {
+                "default": {
+                    "id": "v1",
+                    "code": "1234567890",
+                    "createdAt": "2026-10-09T00:00:00Z",
+                    "expiresAt": "2026-10-10T00:00:00Z",
+                    "expired": False,
+                }
+            },
+        }
+        coord.vouchers_available = MagicMock(return_value=True)
+        return coord
+
+    def test_init_and_properties(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        assert entity.unique_id == "default_voucher_qr_code"
+        assert entity.translation_key == "voucher_qr_code"
+        assert entity.content_type == "image/png"
+        assert entity.available is True
+        assert ("unifi_insights", "site_default") in entity.device_info.get(
+            "identifiers", set()
+        )
+
+    @pytest.mark.asyncio
+    async def test_image_rendering_and_caching(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        img_bytes = await entity.async_image()
+        assert img_bytes is not None
+        assert img_bytes.startswith(b"\x89PNG")
+
+        # Second call returns cached bytes
+        cached = await entity.async_image()
+        assert cached is img_bytes
+
+    @pytest.mark.asyncio
+    async def test_payload_disappearance(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        assert await entity.async_image() is not None
+
+        # Remove latest voucher
+        mock_coordinator.data["latest_vouchers"] = {}
+        with patch.object(entity, "async_write_ha_state"):
+            entity._handle_coordinator_update()
+        assert entity.available is False
+        assert await entity.async_image() is None
+
+    def test_availability_vouchers_unavailable(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        mock_coordinator.vouchers_available.return_value = False
+        assert entity.available is False
+
+    @pytest.mark.asyncio
+    async def test_discovery_and_deduplication(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        mock_entry = MagicMock()
+        mock_entry.runtime_data = MagicMock()
+        mock_entry.runtime_data.coordinator = mock_coordinator
+
+        added_entities: list = []
+
+        def async_add_entities(new_entities, **kwargs):
+            added_entities.extend(new_entities)
+
+        listeners = []
+        mock_coordinator.async_add_listener = listeners.append
+
+        await async_setup_entry(hass, mock_entry, async_add_entities)
+
+        voucher_images = [
+            e for e in added_entities if isinstance(e, UnifiVoucherQrCodeImage)
+        ]
+        assert len(voucher_images) == 1
+        assert voucher_images[0].unique_id == "default_voucher_qr_code"
+
+        # Deduplication
+        prev_count = len(added_entities)
+        for listener in listeners:
+            listener()
+        assert len(added_entities) == prev_count
+
+    @pytest.mark.asyncio
+    async def test_voucher_image_expiration_deadline_frozen_time(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock, freezer: Any
+    ) -> None:
+        """QR image becomes unavailable before, at, and after expiration deadline."""
+        freezer.move_to("2026-10-09T11:59:00Z")
+        mock_coordinator.vouchers_available.return_value = True
+        record = {
+            "id": "v1",
+            "code": "1234567890",
+            "expired": False,
+            "expiresAt": "2026-10-09T12:00:00Z",
+        }
+        mock_coordinator.data["latest_vouchers"] = {"default": record}
+        mock_coordinator.data["vouchers"] = {"default": {}}
+
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        entity._reschedule_expiration_timer()
+
+        assert entity.available is True
+        img_bytes = await entity.async_image()
+        assert img_bytes is not None
+
+        # At deadline
+        freezer.move_to("2026-10-09T12:00:00Z")
+        target_dt = dt_util.parse_datetime("2026-10-09T12:00:00Z")
+        assert target_dt is not None
+        with patch.object(entity, "async_write_ha_state"):
+            async_fire_time_changed(hass, target_dt)
+            await hass.async_block_till_done()
+
+        assert entity.available is False
+        assert await entity.async_image() is None
+
+        # After deadline
+        freezer.move_to("2026-10-09T12:00:05Z")
+        assert entity.available is False
+        assert await entity.async_image() is None
+
+        entity._cancel_expiration_timer()
+
+    @pytest.mark.asyncio
+    async def test_voucher_image_reschedule_expiration_timer_branches(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Test timer reschedule branches for expired or missing deadline."""
+        mock_coordinator.vouchers_available.return_value = True
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+
+        # 1. Non-mapping latest_vouchers
+        mock_coordinator.data["latest_vouchers"] = None
+        entity._reschedule_expiration_timer()
+        assert entity._current_payload() is None
+
+        # 2. Expired record
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {"id": "v1", "code": "1234567890", "expired": True}
+        }
+        entity._reschedule_expiration_timer()
+
+        # 3. Missing expiresAt
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {"id": "v1", "code": "1234567890", "expired": False}
+        }
+        entity._reschedule_expiration_timer()
+
+        # 4. Past expiresAt
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {
+                "id": "v1",
+                "code": "1234567890",
+                "expired": False,
+                "expiresAt": "2020-01-01T00:00:00Z",
+            }
+        }
+        entity._reschedule_expiration_timer()
+
+        # 5. Invalid timestamp
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {
+                "id": "v1",
+                "code": "1234567890",
+                "expired": False,
+                "expiresAt": "invalid-date",
+            }
+        }
+        entity._reschedule_expiration_timer()
+
+        # 6. Valid future record scheduled and cancelled
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {
+                "id": "v1",
+                "code": "1234567890",
+                "expired": False,
+                "expiresAt": "2099-01-01T00:00:00Z",
+            }
+        }
+        entity._reschedule_expiration_timer()
+        assert entity._expiration_unsub is not None
+        entity._cancel_expiration_timer()
+        assert entity._expiration_unsub is None
+
+    @pytest.mark.asyncio
+    async def test_voucher_image_timestamp_stability(
+        self, hass: HomeAssistant, mock_coordinator: MagicMock
+    ) -> None:
+        """Image timestamp remains stable when observed payload does not change."""
+        mock_coordinator.vouchers_available.return_value = True
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {"id": "v1", "code": "1234567890", "expired": False}
+        }
+        entity = UnifiVoucherQrCodeImage(hass, mock_coordinator, "default")
+        if hasattr(entity, "async_added_to_hass"):
+            await entity.async_added_to_hass()
+        initial_ts = entity.image_last_updated
+
+        # 1. Update before rendering with SAME code: timestamp must NOT change
+        with patch.object(entity, "async_write_ha_state"):
+            entity._handle_coordinator_update()
+        assert entity.image_last_updated == initial_ts
+
+        # 2. Render image: cached bytes created
+        img1 = await entity.async_image()
+        assert img1 is not None
+
+        # 3. Update after rendering with SAME code:
+        # timestamp must NOT change, cached bytes retained
+        with patch.object(entity, "async_write_ha_state"):
+            entity._handle_coordinator_update()
+        assert entity.image_last_updated == initial_ts
+        img2 = await entity.async_image()
+        assert img2 is img1
+
+        # 4. New code: timestamp advances, cached bytes invalidated
+        mock_coordinator.data["latest_vouchers"] = {
+            "default": {"id": "v2", "code": "9876543210", "expired": False}
+        }
+        with patch.object(entity, "async_write_ha_state"):
+            entity._handle_coordinator_update()
+        assert entity.image_last_updated > initial_ts
+        img3 = await entity.async_image()
+        assert img3 is not None
+        assert img3 != img1
+
+        # 5. Disappearance: available False, image None
+        mock_coordinator.data["latest_vouchers"] = {}
+        with patch.object(entity, "async_write_ha_state"):
+            entity._handle_coordinator_update()
+        assert entity.available is False
+        assert await entity.async_image() is None
+        if hasattr(entity, "async_will_remove_from_hass"):
+            await entity.async_will_remove_from_hass()

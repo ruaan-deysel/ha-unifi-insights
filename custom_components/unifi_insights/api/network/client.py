@@ -26,12 +26,14 @@ from .endpoints import (
     FirewallEndpoint,
     LagsEndpoint,
     NetworksEndpoint,
+    PortForwardsEndpoint,
     ReportsEndpoint,
     ResourcesEndpoint,
     RoutesEndpoint,
     SitesEndpoint,
     StacksEndpoint,
     TrafficEndpoint,
+    TrafficRulesEndpoint,
     VouchersEndpoint,
     VpnClientsEndpoint,
     WifiEndpoint,
@@ -148,6 +150,8 @@ class UniFiNetworkClient(BaseUniFiClient):
         self._stacks = StacksEndpoint(self)
         self._routes = RoutesEndpoint(self)
         self._vpn_clients = VpnClientsEndpoint(self)
+        self._port_forwards = PortForwardsEndpoint(self)
+        self._traffic_rules = TrafficRulesEndpoint(self)
         self._reports = ReportsEndpoint(self)
 
     @property
@@ -354,6 +358,16 @@ class UniFiNetworkClient(BaseUniFiClient):
     def vpn_clients(self) -> VpnClientsEndpoint:
         """Access VPN client configuration endpoints."""
         return self._vpn_clients
+
+    @property
+    def port_forwards(self) -> PortForwardsEndpoint:
+        """Access port forwarding rule endpoints."""
+        return self._port_forwards
+
+    @property
+    def traffic_rules(self) -> TrafficRulesEndpoint:
+        """Access traffic rule endpoints."""
+        return self._traffic_rules
 
     @property
     def reports(self) -> ReportsEndpoint:

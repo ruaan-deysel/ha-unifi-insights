@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Hotspot voucher management entities and QR code ([#279](https://github.com/ruaan-deysel/ha-unifi-insights/issues/279)):
+  - Number entities to configure voucher duration in minutes (1–1,000,000, default 480), guest limit (0–1000), download/upload rate limits (0–100 Mbit/s in 0.1 steps, ×1000 to kbps), and byte quota (0–1,048,576 MB); 0 omits the limit ("not set; UniFi applies its own default").
+  - Button entity to generate a new hotspot voucher using the configured parameters.
+  - Sensors for active unexpired voucher count, latest voucher activation code, and latest voucher expiration timestamp.
+  - Image entity rendering a pure QR code of the latest voucher code for captive portal login.
+  - Targeted per-site inventory refresh on voucher generation or deletion rather than waiting for the five-minute polling cycle.
 - `unifi_insights.reconnect_client` and `unifi_insights.remove_clients` actions for parity with Home Assistant core UniFi Network. Reconnects connected wireless clients to Wi-Fi, and prunes short-lived unnamed historical clients across configured consoles. ([#222](https://github.com/ruaan-deysel/ha-unifi-insights/issues/222))
 - An alarm control panel for the UniFi Protect alarm (Alarm Manager), one for each NVR that reports an arm mode. It shows disarmed, arming, armed away or triggered, and can arm (away) and disarm using the selected arm profile. A status it does not recognise shows as unknown, never as disarmed. Protect's own arm state does not follow the UniFi global alarm manager, so the panel is not created, or becomes unavailable, while the global alarm manager is enabled, and Home Assistant says so if Protect refuses a command because it is. [#220](https://github.com/ruaan-deysel/ha-unifi-insights/issues/220)
 - A **Power cycle** button for each switch port with PoE enabled, and a `unifi_insights.power_cycle_port` action, to restart a hung PoE device (an access point or camera, for example) by cutting and restoring its power. The buttons are disabled by default. Uses the documented `POST …/devices/{deviceId}/interfaces/ports/{portIdx}/actions` endpoint. [#245](https://github.com/ruaan-deysel/ha-unifi-insights/issues/245)

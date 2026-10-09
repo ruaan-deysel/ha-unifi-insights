@@ -151,6 +151,51 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 | WiFi QR code                                        | Image          | Scan to join a Wi-Fi network                                                         |
 | Client tracker                                      | Device tracker | Presence of each client (needs **Track WiFi Clients** or **Track Wired Clients**)    |
 | Firmware                                            | Update         | Installed and available firmware version (no installation)                           |
+| Voucher Duration                                    | Number         | Duration in minutes for generated vouchers (1–1,000,000, default 480)                |
+| Voucher Guest Limit                                 | Number         | Authorized guest limit (0–1000, default 1; 0 = not set; UniFi applies its own default) |
+| Voucher Download Limit                              | Number         | Download rate limit in Mbit/s (0–100, step 0.1, ×1000 to kbps; 0 = not set)          |
+| Voucher Upload Limit                                | Number         | Upload rate limit in Mbit/s (0–100, step 0.1, ×1000 to kbps; 0 = not set)            |
+| Voucher Data Limit                                  | Number         | Data transfer quota in MB (0–1,048,576; 0 = not set; UniFi applies its own default)  |
+| Generate Voucher                                    | Button         | Generate a new hotspot voucher using current input settings                          |
+| Active Vouchers                                     | Sensor         | Count of active, unexpired vouchers for the site                                     |
+| Latest Voucher Code                                 | Sensor         | Secret activation code of the most recent generated voucher                          |
+| Latest Voucher Expiration                           | Sensor         | Expiration timestamp of the most recent generated voucher                            |
+| Voucher QR Code                                     | Image          | Captive portal activation code QR code (not for joining Wi-Fi)                       |
+
+#### Hotspot voucher management
+
+The integration creates entities to configure, generate, and monitor UniFi Hotspot guest vouchers:
+
+- **Generation parameters (Number entities):**
+  - **Voucher Duration:** Validity in minutes (1 to 1,000,000 minutes, default 480 / 8 hours). Forwarded directly as minutes.
+  - **Voucher Guest Limit:** Allowed distinct guest count per voucher (0 to 1000, default 1; 0 = not set; UniFi applies its own default).
+  - **Voucher Download Limit / Upload Limit:** Speed limit in Mbit/s (0 to 100 Mbit/s in 0.1 steps, multiplied by 1000 to kbps for UniFi; 0 = not set; UniFi applies its own default).
+  - **Voucher Data Limit:** Byte transfer quota in MB (0 to 1,048,576 MB, default 0; 0 = not set; UniFi applies its own default).
+  - Settings are Home Assistant-only (`RestoreNumber`) and restored across restarts; setting a number makes no API call.
+  - **Generate Voucher (Button entity):** Generates a single voucher in the site named "Home Assistant" using current input settings.
+- **Inventory polling & targeted refresh:**
+  - Voucher inventory is polled on the config coordinator schedule (every five minutes).
+  - Generating or deleting a voucher triggers an immediate targeted per-site voucher refresh (`async_refresh_vouchers`).
+- **Voucher status (Sensor entities):**
+  - **Active Vouchers:** Count of unexpired vouchers that can still admit a guest (future or unactivated expiration, authorized guest count below limit).
+  - **Latest Voucher Code:** Plain activation code of the most recent voucher generated in this Home Assistant session. In-memory only (not restored across restarts).
+  - **Latest Voucher Expiration:** Expiration timestamp of the latest generated voucher. Unknown until first guest authorization.
+- **Externally deleted record retention:**
+  - If a voucher is deleted externally on the controller, Home Assistant retains the latest generated in-memory record until a restart or subsequent generation, but the QR image and entity become unavailable once the expiration timestamp passes.
+- **Voucher QR Code (Image entity):**
+  - Displays a QR code containing the plain activation code text for entry on the captive portal web page.
+  - **Note:** This QR code contains only the activation code text. It does not configure or join a Wi-Fi network (use the Wi-Fi QR code entity for Wi-Fi credentials).
+  - Automatically becomes unavailable when expired or when the expiration deadline is reached.
+- **Recorder history disclosure and privacy:**
+  - **Security:** Voucher codes grant network access. The "Latest Voucher Code" sensor stores the active credential in Home Assistant's recorder history database by default.
+  - To prevent credentials from persisting in the database, exclude the sensor in `configuration.yaml`:
+    ```yaml
+    recorder:
+      exclude:
+        entities:
+          - sensor.your_site_latest_voucher_code
+    ```
+  - You can also disable the code sensor entity in Home Assistant entity settings. Note that disabling the entity after use does not erase previously recorded database history.
 
 ### Network actions
 

@@ -44,6 +44,6 @@ Flag any PR as needing closer human inspection before approval if it introduces:
 
 ### 4. Testing & Coverage Requirements
 - Every new entity, coordinator branch, service action, or API client method must have tests in `tests/`.
-- Ensure tests maintain the project's minimum 95% branch coverage requirement.
+- Ensure tests maintain coverage so every module, including the vendored `api/` client, is ≥95% (checked per file in CI with `python script/check_coverage_per_file.py coverage.xml --fail-under 95`). Local `pytest` enforces only the 95% total coverage threshold. To check per-file coverage locally, run `pytest --cov-report=xml`, then `python script/check_coverage_per_file.py coverage.xml --fail-under 95`.
 - Flag any test attempting real network I/O; all external interactions must be mocked.
 - For frontend pull requests (`frontend/src/**`), ensure TypeScript types are sound and tests pass.

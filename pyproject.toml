@@ -64,7 +64,6 @@ omit = [
     "*/tests/*",
     "*/__pycache__/*",
     "*/site-packages/*",
-    "custom_components/unifi_insights/api/*",
 ]
 
 [tool.coverage.report]

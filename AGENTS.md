@@ -151,7 +151,7 @@ pre-commit run --all-files
 ruff check .          # Linting
 ruff format .         # Formatting
 mypy custom_components/unifi_insights   # Type checking
-pytest                # Tests (95% minimum coverage)
+pytest                # Tests (95% total coverage enforced locally)
 ```
 
 **Shortcut scripts:**
@@ -343,7 +343,7 @@ See `.github/instructions/repairs.instructions.md` for comprehensive patterns.
 ```bash
 pre-commit run --all-files   # Full validation
 script/lint                   # Auto-format and fix linting
-pytest                        # Run unit tests (95% minimum coverage)
+pytest                        # Run unit tests (95% total coverage enforced locally)
 cd frontend && npm ci          # Topology card: install (Node 22)
 npm run lint && npm run typecheck && npm test -- --coverage
 npm run build                  # Rebuild custom_components/unifi_insights/frontend/topology-card.js — commit it
@@ -382,7 +382,9 @@ Aim for zero validation errors in generated code.
 - `tests/` mirrors `custom_components/unifi_insights/` structure
 - Use fixtures for common setup (Home Assistant mock, coordinator, etc.)
 - Mock external API calls
-- 95% minimum coverage required (branch coverage enabled)
+- Every module, including the vendored `api/` client, must be ≥95% (branch coverage enabled, checked per file in CI with `python script/check_coverage_per_file.py coverage.xml --fail-under 95`)
+
+Local `pytest` enforces only the 95% total coverage threshold. To check per-file coverage locally, run `pytest --cov-report=xml`, then `python script/check_coverage_per_file.py coverage.xml --fail-under 95`.
 
 **Running tests:**
 

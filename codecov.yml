@@ -26,4 +26,3 @@ comment:
 ignore:
   - "tests/**/*"
   - "script/**/*"
-  - "custom_components/unifi_insights/api/**/*"

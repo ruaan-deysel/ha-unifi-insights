@@ -44,7 +44,12 @@ jobs:
         run: |
           pytest --cov --cov-branch --cov-report=xml
 
+      - name: Check per-file coverage
+        run: |
+          python script/check_coverage_per_file.py coverage.xml --fail-under 95
+
       - name: Upload coverage reports to Codecov
+        if: ${{ !cancelled() }}
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

@@ -10,7 +10,9 @@ applyTo: "tests/**/*.py"
 
 - **pytest** with `pytest-homeassistant-custom-component`
 - **pytest-asyncio** for async test support
-- **Coverage:** 95% minimum (branch coverage enabled)
+- **Coverage:** Every module, including the vendored `api/` client, must be ≥95% (branch coverage enabled, checked per file in CI with `python script/check_coverage_per_file.py coverage.xml --fail-under 95`)
+
+Local `pytest` enforces only the 95% total coverage threshold. To check per-file coverage locally, run `pytest --cov-report=xml`, then `python script/check_coverage_per_file.py coverage.xml --fail-under 95`.
 
 ## Running Tests
 

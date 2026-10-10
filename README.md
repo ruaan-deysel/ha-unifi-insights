@@ -100,7 +100,7 @@ To change these settings after setup, go to **Settings** → **Devices & service
 | --------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Track WiFi Clients    | Off     | Creates a device tracker for each wireless client. This can add many entities on busy networks.                                                                                    |
 | Track Wired Clients   | Off     | Creates a device tracker for each wired client.                                                                                                                                    |
-| Enable Client Control | On      | Creates allow/block switches and reconnect buttons for connected clients. Turn it off for read-only monitoring. This also prevents unavailable entities from clients that left.    |
+| Enable Client Control | On      | Creates client allow/block switches, reconnect buttons and disabled-by-default Wake-on-LAN buttons for wired clients. Turn off for read-only monitoring.                           |
 | Sites                 | All     | Only shown when the console has more than one site. Choose the sites to poll. Sites you don't choose are not queried at all, which reduces API traffic. Leave empty for all sites. |
 
 Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carrier-fabric-setup).
@@ -111,7 +111,7 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 - **Ports:** PoE power, link speed, traffic counters and rates, and SFP module details.
 - **Power:** PDU outlet switches with power, voltage, current and power factor, and AC power consumption and budget.
 - **Internet and WAN:** gateway and per-WAN connection status, WAN IP address, site-to-site VPN tunnel status, and internet download and upload totals for the last hour, day, week and month.
-- **Clients:** client counts per site, device and Wi-Fi network; optional presence tracking; allow/block switches and reconnect buttons.
+- **Clients:** client counts per site, device and Wi-Fi network; optional presence tracking; allow/block switches and reconnect buttons, and Wake-on-LAN buttons for wired clients.
 - **Controls:** switches for Wi-Fi networks, firewall policies, policy-based routes, VPN clients, port forwards and traffic rules; device restart buttons; QR code images to join each Wi-Fi network.
 - **Firmware:** update entities show the installed firmware and whether a newer version is available. They don't install firmware. Use the UniFi app for that.
 - **Guest access:** authorize guests and create or delete hotspot vouchers with actions.
@@ -148,6 +148,7 @@ Carrier Fabric entries have their own options. See [Carrier Fabric setup](#carri
 | _Outlet name_ Power Cycle                           | Switch         | Automatic modem power cycling for an outlet, disabled by default                       |
 | _Client name_ Allow                                 | Switch         | Block or allow a client (needs **Enable Client Control**)                              |
 | _Client name_ Reconnect                             | Button         | Reconnect a client (needs **Enable Client Control**)                                   |
+| Wake _Client name_                                  | Button         | Send a Wake-on-LAN packet, disabled by default (needs **Enable Client Control**)       |
 | Restart                                             | Button         | Restart a device                                                                       |
 | _Port_ PoE Power Cycle                              | Button         | Cut and restore power on a port with PoE enabled, disabled by default                  |
 | WiFi QR code                                        | Image          | Scan to join a Wi-Fi network                                                           |
@@ -198,6 +199,17 @@ The integration creates entities to configure, generate, and monitor UniFi Hotsp
           - sensor.your_site_latest_voucher_code
     ```
   - You can also disable the code sensor entity in Home Assistant entity settings. Note that disabling the entity after use does not erase previously recorded database history.
+
+### Wake-on-LAN buttons
+
+UniFi has no Wake-on-LAN function, so the **Wake** buttons send the packet from Home Assistant, using Home Assistant's built-in Wake on LAN integration. You don't set that integration up: this integration loads it for you. Wake buttons sit on the site's gateway device, or on the site device when the site has no gateway.
+
+- **Which clients:** every wired client gets a **Wake _Client name_** button, disabled by default. Enable the buttons you want in Home Assistant. A button you have enabled is always restored after a restart, even if its client is offline, unnamed or absent from history, or history cannot be fetched. At startup, a background task also seeds buttons for wired clients with a name or hostname on the console that were seen in the last 30 days. Turning off **Enable Client Control** removes the client controls, including Wake buttons, for read-only monitoring.
+- **Same network:** Home Assistant must be on the same network (VLAN) as the device. UniFi gateways usually don't forward wake packets between VLANs. The packet goes to the broadcast address of the client's network when the console reports it, and to 255.255.255.255 otherwise.
+- **The device:** it needs Wake-on-LAN enabled in its BIOS/UEFI and in its operating system or network adapter settings. The button can't tell whether the device woke up.
+- **Home Assistant:** it must use host networking (Home Assistant OS does). In a Docker bridge network the packet doesn't reach your network.
+- **Debug logging:** turn on debug logging for `homeassistant.components.wake_on_lan` to see each packet.
+- Remote (cloud) entries work the same way: the packet is sent from Home Assistant, not through the console.
 
 ### Network actions
 
@@ -523,6 +535,7 @@ action: unifi_insights.refresh_data
 | Entities missing              | Check that the devices are adopted and online in UniFi.                                                                                                                                                            |
 | Storage sensors unavailable   | The public Protect API does not report NVR storage on all firmware versions.                                                                                                                                       |
 | Many orphaned client entities | Turn off the **Enable Client Control** option.                                                                                                                                                                     |
+| Wake button does nothing      | Check Wake-on-LAN in the device settings, Home Assistant host networking and VLAN. See the Wake-on-LAN section for details and debug logging.                                                                      |
 | Duplicate entities            | If you also use the official UniFi Network or UniFi Protect integration, both create entities for the same devices. Disable the duplicates you don't need so automations don't act on two entities for one device. |
 
 ### Diagnostics

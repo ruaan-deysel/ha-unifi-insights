@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from custom_components.unifi_insights.api.const import ENDPOINT_NETWORKCONF
+
 from ..models import Network
 
 if TYPE_CHECKING:
@@ -204,3 +206,34 @@ class NetworksEndpoint:
             if isinstance(data, dict):
                 return data
         return {}
+
+    async def get_legacy_all(self, site_name: str) -> list[dict[str, Any]]:
+        """
+        List a site's networks from the classic API (``rest/networkconf``).
+
+        Only the fields needed to work out a network's address range are kept,
+        so the VPN keys and secrets classic network records can carry never
+        leave this method.
+
+        Args:
+            site_name: The classic site name (for example ``default``).
+
+        Returns:
+            Dicts with ``id``, ``purpose``, ``enabled`` and ``ip_subnet``.
+
+        """
+        path = self._client.build_legacy_api_path(site_name, ENDPOINT_NETWORKCONF)
+        response = await self._client._get(path)
+        data = response.get("data") if isinstance(response, dict) else None
+        if not isinstance(data, list):
+            return []
+        return [
+            {
+                "id": item.get("_id") or item.get("id"),
+                "purpose": item.get("purpose"),
+                "enabled": item.get("enabled") is not False,
+                "ip_subnet": item.get("ip_subnet"),
+            }
+            for item in data
+            if isinstance(item, dict)
+        ]

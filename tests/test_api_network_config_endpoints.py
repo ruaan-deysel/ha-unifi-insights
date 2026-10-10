@@ -1251,6 +1251,83 @@ async def test_networks_get_references_pins_spec_request_and_branches() -> None:
     assert await client.networks.get_references("default", "net-1") == {}
 
 
+async def test_networks_get_legacy_all_pins_request_and_projects_fields() -> None:
+    """networks.get_legacy_all pins legacy path and projects only safe fields."""
+    item1 = {
+        "_id": "net-1",
+        "purpose": "corporate",
+        "enabled": True,
+        "ip_subnet": "10.0.0.1/24",
+        "x_ipsec_pre_shared_key": "secret123",
+    }
+    item2 = {
+        "id": "net-2",
+        "purpose": "guest",
+        "ip_subnet": "10.0.1.1/24",
+    }
+    session = _Session([{"data": [item1, item2]}])
+    client = _client(session)
+
+    networks = await client.networks.get_legacy_all("default")
+    assert networks == [
+        {
+            "id": "net-1",
+            "purpose": "corporate",
+            "enabled": True,
+            "ip_subnet": "10.0.0.1/24",
+        },
+        {
+            "id": "net-2",
+            "purpose": "guest",
+            "enabled": True,
+            "ip_subnet": "10.0.1.1/24",
+        },
+    ]
+    assert "x_ipsec_pre_shared_key" not in networks[0]
+    req = session.requests[0]
+    assert req["method"] == "GET"
+    assert (
+        req["url"] == "https://192.168.1.1/proxy/network/api/s/default/rest/networkconf"
+    )
+
+
+async def test_networks_get_legacy_all_handles_unexpected_payloads() -> None:
+    """networks.get_legacy_all handles unexpected payloads gracefully."""
+    session = _Session(
+        [
+            [1, 2, 3],
+            {"data": "not-a-list"},
+            {
+                "data": [
+                    123,
+                    None,
+                    {
+                        "_id": "net-3",
+                        "purpose": "corporate",
+                        "enabled": False,
+                        "ip_subnet": "10.0.2.1/24",
+                    },
+                ]
+            },
+        ]
+    )
+    client = _client(session)
+
+    # 1. response not a dict
+    assert await client.networks.get_legacy_all("default") == []
+    # 2. data not a list
+    assert await client.networks.get_legacy_all("default") == []
+    # 3. non-dict items skipped
+    assert await client.networks.get_legacy_all("default") == [
+        {
+            "id": "net-3",
+            "purpose": "corporate",
+            "enabled": False,
+            "ip_subnet": "10.0.2.1/24",
+        }
+    ]
+
+
 # =============================================================================
 # Traffic Matching & DPI Endpoints (traffic.py)
 # =============================================================================

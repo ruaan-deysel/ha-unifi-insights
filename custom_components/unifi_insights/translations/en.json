@@ -135,7 +135,7 @@
         "data_description": {
           "track_wifi_clients": "Create device tracker entities for connected WiFi clients. This may create many entities.",
           "track_wired_clients": "Create device tracker entities for connected wired (LAN) clients. This may create many entities.",
-          "client_control": "Create allow/block switch and reconnect button entities for connected clients. Disable to prevent orphaned entities when clients leave the network.",
+          "client_control": "Create allow/block switch and reconnect button entities for connected clients, and Wake-on-LAN buttons (disabled by default) for wired clients. Turning this off removes client buttons.",
           "site_ids": "Only poll these sites. Leave empty to include every site on the console. Unselected sites are not queried, which reduces API traffic on multi-site consoles.",
           "track_subscribers": "Create device entries for each subscriber in your Carrier Fabric organisation.",
           "carrier_actions": "Allow suspending and resuming subscriber services from Home Assistant."
@@ -638,6 +638,9 @@
       },
       "generate_voucher": {
         "name": "Generate guest voucher"
+      },
+      "client_wake": {
+        "name": "Wake {client_name}"
       }
     },
     "camera": {
@@ -878,6 +881,12 @@
     },
     "legacy_site_not_found": {
       "message": "No verified classic site name found for site {site_id}."
+    },
+    "wake_on_lan_unavailable": {
+      "message": "Home Assistant's Wake on LAN service is not available. Check the log for Wake on LAN setup errors, then restart Home Assistant."
+    },
+    "wake_failed": {
+      "message": "Unable to send the Wake-on-LAN packet to {client_name}: {error}"
     }
   }
 }

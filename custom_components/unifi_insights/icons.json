@@ -281,6 +281,9 @@
       },
       "generate_voucher": {
         "default": "mdi:ticket-confirmation"
+      },
+      "client_wake": {
+        "default": "mdi:power"
       }
     },
     "switch": {

@@ -13,10 +13,17 @@ from homeassistant.components.button import (
 from homeassistant.const import EntityCategory
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .client_wake import (
+    find_client_by_mac,
+    first_non_blank_text,
+    mac_from_wake_unique_id,
+    wake_unique_id,
+)
 from .const import (
     ATTR_CHIME_ID,
     ATTR_CHIME_NAME,
@@ -38,7 +45,10 @@ from .entity import (
     async_call_coordinator_action,
     build_site_device_info,
     camera_supports_ptz,
+    get_client_type,
+    get_field,
 )
+from .topology_contract import normalize_mac
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -117,6 +127,42 @@ def _get_port_label(port: dict[str, Any], port_idx: int) -> str:
     return f"Port {port_idx}"
 
 
+def _wired_client_mac(client: dict[str, Any]) -> str | None:
+    """Return a wired client's normalized MAC, or None for any other client."""
+    if get_client_type(client) != "WIRED":
+        return None
+    return normalize_mac(get_field(client, "macAddress", "mac_address", "mac"))
+
+
+def _connected_client_macs(coordinator: UnifiFacadeCoordinator) -> set[str]:
+    """Return the normalized MACs of all clients currently connected."""
+    macs: set[str] = set()
+    clients_by_site = (coordinator.data or {}).get("clients")
+    if not isinstance(clients_by_site, dict):
+        return macs
+    for clients in clients_by_site.values():
+        if not isinstance(clients, dict):
+            continue
+        for client in clients.values():
+            if not isinstance(client, dict):
+                continue
+            raw_mac = get_field(client, "macAddress", "mac_address", "mac")
+            if (mac := normalize_mac(raw_mac)) is not None:
+                macs.add(mac)
+    return macs
+
+
+def _registered_wake_macs(registry: er.EntityRegistry, entry_id: str) -> set[str]:
+    """Return the MACs of this entry's Wake buttons already in the entity registry."""
+    macs: set[str] = set()
+    for reg_entry in er.async_entries_for_config_entry(registry, entry_id):
+        if reg_entry.domain != "button" or reg_entry.platform != DOMAIN:
+            continue
+        if (mac := mac_from_wake_unique_id(reg_entry.unique_id)) is not None:
+            macs.add(mac)
+    return macs
+
+
 BUTTON_TYPES: tuple[UnifiInsightsButtonEntityDescription, ...] = (
     UnifiInsightsButtonEntityDescription(
         key="device_restart",
@@ -138,7 +184,7 @@ async def async_setup_entry(
         CONF_CLIENT_CONTROL, DEFAULT_CLIENT_CONTROL
     )
 
-    # Remove orphaned client reconnect buttons when client control is disabled.
+    # Remove orphaned client buttons (reconnect, Wake) when client control is off.
     registry = er.async_get(hass)
     if not client_control:
         for reg_entry in er.async_entries_for_config_entry(
@@ -147,16 +193,96 @@ async def async_setup_entry(
             if (
                 reg_entry.domain == "button"
                 and reg_entry.platform == DOMAIN
-                and reg_entry.unique_id.endswith("_reconnect")
+                and (
+                    reg_entry.unique_id.endswith("_reconnect")
+                    or mac_from_wake_unique_id(reg_entry.unique_id) is not None
+                )
             ):
                 _LOGGER.debug(
-                    "Removing client reconnect button %s (client control disabled)",
+                    "Removing client button %s (client control disabled)",
                     reg_entry.entity_id,
                 )
                 registry.async_remove(reg_entry.entity_id)
 
     _LOGGER.debug("Setting up buttons for UniFi Insights")
     known_button_keys: set[tuple[Any, ...]] = set()
+
+    # Restore enabled buttons immediately, even without a history response.
+    # Disabled buttons qualify only while connected or in the recent named seed.
+    known_wake_macs: set[str] = set()
+    if client_control:
+        registered_macs = _registered_wake_macs(registry, config_entry.entry_id)
+        connected_macs = _connected_client_macs(coordinator)
+        restored: dict[str, UnifiClientWakeButton] = {}
+        enabled_macs: set[str] = set()
+        coord_data = coordinator.data or {}
+        for row in er.async_entries_for_config_entry(registry, config_entry.entry_id):
+            mac = mac_from_wake_unique_id(row.unique_id)
+            if row.domain != "button" or row.platform != DOMAIN or mac is None:
+                continue
+            if row.disabled_by is None:
+                enabled_macs.add(mac)
+            elif mac not in registered_macs & connected_macs:
+                continue
+            live = find_client_by_mac(coord_data.get("clients"), mac)
+            site_id = live[0] if live else next(iter(coord_data.get("sites", {})), "")
+            device = (
+                dr.async_get(hass).async_get(row.device_id) if row.device_id else None
+            )
+            saved_name = first_non_blank_text(
+                {"name": row.name, "original_name": row.original_name},
+                "name",
+                "original_name",
+            )
+            if saved_name:
+                saved_name = (
+                    "" if saved_name == "Wake" else saved_name.removeprefix("Wake ")
+                )
+            restored[mac] = UnifiClientWakeButton(
+                coordinator,
+                mac,
+                site_id=site_id,
+                fallback_name=saved_name,
+                device_info=DeviceInfo(identifiers=device.identifiers)
+                if device
+                else None,
+            )
+        known_wake_macs.update(restored)
+        if restored:
+            async_add_entities(list(restored.values()))
+
+        async def _async_seed_wake_history() -> None:
+            """Fetch console history in background and seed Wake buttons."""
+            try:
+                history = await coordinator.async_get_wake_history(
+                    enabled_macs=enabled_macs
+                )
+            except Exception as err:
+                _LOGGER.debug("Wake-on-LAN client history seed failed: %s", err)
+                return
+            if not isinstance(history, dict) or not history:
+                return
+            entities: list[UnifiClientWakeButton] = []
+            for mac, (fallback_name, seed_site) in sorted(history.items()):
+                if mac in restored:
+                    restored[mac].async_update_history_name(fallback_name)
+                if mac in known_wake_macs:
+                    continue
+                known_wake_macs.add(mac)
+                entities.append(
+                    UnifiClientWakeButton(
+                        coordinator,
+                        mac,
+                        fallback_name=fallback_name,
+                        site_id=seed_site,
+                    )
+                )
+            if entities:
+                async_add_entities(entities)
+
+        config_entry.async_create_background_task(
+            hass, _async_seed_wake_history(), name=f"{DOMAIN}_wake_seed"
+        )
 
     @callback
     def async_discover_buttons() -> None:
@@ -261,6 +387,21 @@ async def async_setup_entry(
                                 coordinator=coordinator,
                                 site_id=site_id,
                                 client_id=client_id,
+                            )
+                        )
+                for site_id, clients in clients_by_site.items():
+                    if not isinstance(clients, dict):
+                        continue
+                    for client_data in clients.values():
+                        if not isinstance(client_data, dict):
+                            continue
+                        wake_mac = _wired_client_mac(client_data)
+                        if wake_mac is None or wake_mac in known_wake_macs:
+                            continue
+                        known_wake_macs.add(wake_mac)
+                        entities.append(
+                            UnifiClientWakeButton(
+                                coordinator, wake_mac, site_id=str(site_id)
                             )
                         )
 
@@ -593,6 +734,71 @@ class UnifiClientReconnectButton(ButtonEntity):
             "Successfully reconnected client %s in site %s",
             self._client_id,
             self._site_id,
+        )
+
+
+class UnifiClientWakeButton(ButtonEntity):
+    """Button that wakes a wired client with a Wake-on-LAN magic packet."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "client_wake"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator: UnifiFacadeCoordinator,
+        mac: str,
+        *,
+        site_id: str,
+        fallback_name: str | None = None,
+        device_info: DeviceInfo | None = None,
+    ) -> None:
+        """
+        Initialize the button.
+
+        mac is the lower-case colon MAC. fallback_name is the name the
+        console's client history holds, used only while the client is not connected.
+        site_id is the client's site. Registry restoration preserves its device.
+        """
+        self.coordinator = coordinator
+        self._mac = mac
+        self._attr_unique_id = wake_unique_id(mac)
+
+        coord_data = coordinator.data if isinstance(coordinator.data, dict) else {}
+        if device_info is not None:
+            self._attr_device_info = device_info
+        elif site_id:
+            site_info = build_site_device_info(coord_data, site_id)
+            self._attr_device_info = DeviceInfo(**site_info)  # type: ignore[typeddict-item]
+        self.async_update_history_name(fallback_name)
+
+    @callback
+    def async_update_history_name(self, fallback_name: str | None) -> None:
+        """Apply a history name while preferring the current live client name."""
+        live = find_client_by_mac(
+            (self.coordinator.data or {}).get("clients"), self._mac
+        )
+        live_name = first_non_blank_text(live[1], "name", "hostname") if live else None
+        client_name = live_name or (
+            fallback_name.strip()
+            if fallback_name and fallback_name.strip()
+            else self._mac
+        )
+        self._client_name = client_name
+        self._attr_translation_placeholders = {"client_name": client_name}
+        self.__dict__.pop("name", None)
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    async def async_press(self) -> None:
+        """Send the Wake-on-LAN magic packet."""
+        _LOGGER.debug("Sending Wake-on-LAN packet from a Wake button")
+        await async_call_coordinator_action(
+            self.coordinator,
+            "async_wake_client",
+            f"Unable to wake client {self._client_name}",
+            self._mac,
+            client_name=self._client_name,
         )
 
 

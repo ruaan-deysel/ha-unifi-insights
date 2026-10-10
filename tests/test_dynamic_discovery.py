@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -89,12 +89,16 @@ def mock_config_entry(mock_coordinator: MagicMock) -> MagicMock:
     """Create a mock config entry."""
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
+    entry.options = {CONF_CLIENT_CONTROL: True}
+    entry.async_on_unload = MagicMock()
+    entry.async_create_background_task.side_effect = lambda hass, target, name: (
+        hass.async_create_background_task(target, name)
+    )
+    mock_coordinator.async_get_wake_history = AsyncMock(return_value={})
     entry.runtime_data = MagicMock()
     entry.runtime_data.mobility_coordinator = None
     entry.runtime_data.coordinator = mock_coordinator
     entry.runtime_data.device_coordinator = MagicMock()
-    entry.options = {CONF_CLIENT_CONTROL: True}
-    entry.async_on_unload = MagicMock()
     return entry
 
 
@@ -354,6 +358,51 @@ class TestDynamicOptionsAndCapabilities:
         assert (
             switch_add.call_args[0][0][0].unique_id == "site1_client_mac_1_block_switch"
         )
+
+    @pytest.mark.asyncio
+    async def test_client_control_toggle_adds_wake_button_for_wired_client(
+        self, hass: Any, mock_coordinator: MagicMock, mock_config_entry: MagicMock
+    ) -> None:
+        """Enabling client control discovers Wake button for wired clients."""
+        mock_coordinator.async_get_wake_history = AsyncMock(return_value={})
+        mock_config_entry.options = {CONF_CLIENT_CONTROL: False}
+
+        mock_coordinator.data["clients"]["site1"]["wired_pc"] = {
+            "id": "wired_pc",
+            "type": "WIRED",
+            "macAddress": "00:11:22:33:44:55",
+            "name": "Workstation",
+        }
+
+        button_add = MagicMock()
+        await async_setup_button(hass, mock_config_entry, button_add)
+        button_listener = mock_coordinator.async_add_listener.call_args[0][0]
+
+        # While client_control is False, no client buttons added
+        assert button_add.call_count == 0 or len(button_add.call_args[0][0]) == 0
+
+        # Enable client_control and trigger listener
+        mock_config_entry.options = {CONF_CLIENT_CONTROL: True}
+        button_listener()
+
+        assert button_add.call_count == 1
+        added = button_add.call_args[0][0]
+        wake_buttons = [
+            e
+            for e in added
+            if getattr(e, "unique_id", None) == "unifi_insights_00:11:22:33:44:55_wake"
+        ]
+        reconnect_buttons = [
+            e
+            for e in added
+            if getattr(e, "unique_id", None) == "site1_wired_pc_reconnect"
+        ]
+        assert len(wake_buttons) == 1
+        assert len(reconnect_buttons) == 1
+
+        # Second listener run adds nothing
+        button_listener()
+        assert button_add.call_count == 1
 
     @pytest.mark.asyncio
     async def test_dynamic_wifi_qr_and_sensor(

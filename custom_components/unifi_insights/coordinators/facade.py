@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -26,8 +26,9 @@ if TYPE_CHECKING:
     from .site_manager import UnifiInsightsSiteManagerCoordinator
 
 from homeassistant.core import callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 from pydantic import ValidationError
 
 from custom_components.unifi_insights.api import (
@@ -37,16 +38,31 @@ from custom_components.unifi_insights.api import (
     UniFiNotFoundError,
 )
 from custom_components.unifi_insights.api.validation import sanitized_validation_fields
+from custom_components.unifi_insights.client_wake import (
+    WAKE_ON_LAN_DOMAIN,
+    WAKE_ON_LAN_SERVICE,
+    derive_directed_broadcast,
+    find_client_by_mac,
+    first_non_blank_text,
+    history_network_hint,
+    select_wake_history,
+)
 from custom_components.unifi_insights.const import CONF_CONSOLE_ID, DOMAIN
 from custom_components.unifi_insights.data_transforms import (
     correlate_innerspace_devices,
     normalize_innerspace_snapshot,
+)
+from custom_components.unifi_insights.topology_contract import (
+    first_present,
+    normalize_mac,
 )
 
 from .config_sections import rule_display_name, verified_legacy_site_name
 from .voucher_state import VoucherSettings, refresh_latest_voucher, voucher_to_record
 
 _LOGGER = logging.getLogger(__name__)
+
+WAKE_BROADCAST_TIMEOUT_SECONDS: Final = 5
 
 
 class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -891,6 +907,162 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.network_client.clients.forget_batch,
             site_name,
             macs,
+        )
+
+    async def async_get_wake_history(
+        self, *, enabled_macs: set[str] | None = None
+    ) -> dict[str, tuple[str, str]]:
+        """
+        Return recent wired clients and any-age names for enabled Wake buttons.
+
+        Returns MAC -> (name, site_id). Best effort: a site whose history
+        cannot be read is skipped, so this never raises. Costs one request
+        per site, and is called once at setup.
+        """
+        now = dt_util.utcnow().timestamp()
+        history: dict[str, tuple[str, str]] = {}
+        for site_id in self._config_coordinator.get_site_ids():
+            try:
+                site_name = self._require_verified_legacy_site_name(site_id)
+                records = await self.network_client.clients.get_historical_legacy(
+                    site_name
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Wake-on-LAN: no client history for site %s: %s",
+                    site_id,
+                    err,
+                )
+                continue
+            for mac, name in select_wake_history(
+                records, now=now, enabled_macs=enabled_macs
+            ).items():
+                history.setdefault(mac, (name, str(site_id)))
+        return history
+
+    def _resolve_wake_client_name(self, mac: str | None) -> str | None:
+        """Resolve a friendly client name for error messages without exposing MAC."""
+        if not mac:
+            return None
+        live = find_client_by_mac((self.data or {}).get("clients"), mac)
+        if live:
+            return first_non_blank_text(live[1], "name", "hostname")
+        return None
+
+    async def _async_derive_wake_broadcast(self, mac: str) -> str | None:
+        """
+        Return the client's subnet directed broadcast address, or None if unknown.
+
+        Never raises: any failure means "unknown", so the packet goes to the
+        default 255.255.255.255. A connected client with an IP needs one request
+        (the site's networks). Any other client also reads the classic history for
+        its last network, which makes it two.
+        """
+        live = find_client_by_mac((self.data or {}).get("clients"), mac)
+        live_site_id = live[0] if live else None
+        live_ip = (
+            first_present(live[1], "ipAddress", "ip_address", "ip") if live else None
+        )
+
+        async def _query_site(site_id: str) -> str | None:
+            try:
+                site_name = self._require_verified_legacy_site_name(site_id)
+                ip: str | None
+                network_id: str | None
+                if isinstance(live_ip, str) and live_ip:
+                    networks = await self.network_client.networks.get_legacy_all(
+                        site_name
+                    )
+                    ip, network_id = live_ip, None
+                else:
+                    networks, records = await asyncio.gather(
+                        self.network_client.networks.get_legacy_all(site_name),
+                        self.network_client.clients.get_historical_legacy(site_name),
+                    )
+                    ip, network_id = history_network_hint(records, mac)
+                return derive_directed_broadcast(networks, ip=ip, network_id=network_id)
+            except Exception:
+                _LOGGER.debug(
+                    "Wake-on-LAN: no broadcast address from site %s",
+                    site_id,
+                )
+                return None
+
+        if live_site_id:
+            return await _query_site(live_site_id)
+
+        site_ids = self._config_coordinator.get_site_ids()
+        results = await asyncio.gather(*(_query_site(s) for s in site_ids))
+        for broadcast in results:
+            if broadcast is not None:
+                return broadcast
+        return None
+
+    async def async_wake_client(
+        self, mac: str, *, client_name: str | None = None
+    ) -> None:
+        """
+        Send a Wake-on-LAN magic packet to a client through Home Assistant core.
+
+        UniFi has no wake action, so this calls ``wake_on_lan.send_magic_packet``
+        (loaded through this integration's manifest dependencies). The packet goes
+        to the client's subnet directed broadcast when UniFi data allows deriving
+        it, otherwise to the default 255.255.255.255.
+        """
+        normalized = normalize_mac(mac)
+        display_name = (
+            client_name
+            or self._resolve_wake_client_name(normalized)
+            or (f"Client {normalized}" if normalized else str(mac))
+        )
+        if normalized is None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wake_failed",
+                translation_placeholders={
+                    "client_name": display_name,
+                    "error": "invalid MAC address",
+                },
+            )
+
+        broadcast: str | None = None
+        if self.config_available and self.device_available:
+            try:
+                async with asyncio.timeout(WAKE_BROADCAST_TIMEOUT_SECONDS):
+                    broadcast = await self._async_derive_wake_broadcast(normalized)
+            except TimeoutError:
+                _LOGGER.debug("Wake-on-LAN: broadcast address derivation timed out")
+            except Exception:
+                _LOGGER.debug("Wake-on-LAN: broadcast address derivation failed")
+
+        service_data: dict[str, str] = {"mac": normalized}
+        if broadcast is not None:
+            service_data["broadcast_address"] = broadcast
+        try:
+            await self.hass.services.async_call(
+                WAKE_ON_LAN_DOMAIN,
+                WAKE_ON_LAN_SERVICE,
+                service_data,
+                blocking=True,
+            )
+        except ServiceNotFound as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wake_on_lan_unavailable",
+            ) from err
+        except HomeAssistantError:
+            raise
+        except (OSError, ValueError) as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="wake_failed",
+                translation_placeholders={
+                    "client_name": display_name,
+                    "error": str(err),
+                },
+            ) from err
+        _LOGGER.debug(
+            "Sent Wake-on-LAN packet (directed broadcast: %s)", broadcast is not None
         )
 
     async def async_authorize_guest(self, site_id: str, client_id: str) -> None:

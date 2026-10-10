@@ -14,7 +14,7 @@ applyTo: "custom_components/unifi_insights/manifest.json"
   "name": "UniFi Insights",
   "integration_type": "hub",
   "iot_class": "local_polling",
-  "dependencies": ["ffmpeg", "stream"],
+  "dependencies": ["ffmpeg", "stream", "wake_on_lan", "websocket_api"],
   "codeowners": ["@ruaan-deysel"]
 }
 ```
@@ -25,6 +25,7 @@ applyTo: "custom_components/unifi_insights/manifest.json"
 - **integration_type** — `hub` (gateway to multiple devices)
 - **iot_class** — `local_polling` (local network, polling-based with WebSocket for Protect)
 - **dependencies** — `ffmpeg` and `stream` required for camera support
+- **dependencies** also include `wake_on_lan`: the Wake button calls Home Assistant core's `wake_on_lan.send_magic_packet`, and a hard dependency is the simplest way to ensure the service exists without user setup.
 - **ssdp** — Discovery matchers for UniFi Dream Machine variants
 - **version** — Format: `YYYY.MM.PATCH`
 

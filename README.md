@@ -546,3 +546,5 @@ This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE
 ## Disclaimer
 
 This integration is not affiliated with or endorsed by Ubiquiti Inc. Use at your own risk.
+
+<!-- PR governance test marker -->

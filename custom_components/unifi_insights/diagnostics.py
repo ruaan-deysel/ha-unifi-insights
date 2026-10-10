@@ -146,6 +146,18 @@ WIFI_TO_REDACT = TO_REDACT | {"name"}
 # "note") can name a guest.
 VOUCHER_TO_REDACT = TO_REDACT | {"code", "name", "note"}
 
+# Port forwards: the forward target, the allowed source and the WAN-side
+# destination locate hosts inside and outside the network.
+PORT_FORWARD_TO_REDACT = TO_REDACT | {
+    "fwd",
+    "src",
+    "destination_ip",
+    "destination_ips",
+}
+# Traffic rules: the blocked or allowed domains and address ranges
+# ("ip_addresses" is already in TO_REDACT; client MACs are anonymised below).
+TRAFFIC_RULE_TO_REDACT = TO_REDACT | {"domains", "ip_ranges"}
+
 # Keys whose value is a MAC address even when it arrives unpunctuated. Values
 # are replaced with a per-report placeholder rather than dropped; see
 # _anonymize_macs.
@@ -171,6 +183,7 @@ MAC_KEYS = frozenset(
         "wan_mac",
         "lanMac",
         "lan_mac",
+        "client_mac",
     }
 )
 
@@ -273,6 +286,8 @@ def _redact_coordinator_data(data: Any) -> Any:
         ("wifi", WIFI_TO_REDACT),
         ("vouchers", VOUCHER_TO_REDACT),
         ("latest_vouchers", VOUCHER_TO_REDACT),
+        ("port_forwards", PORT_FORWARD_TO_REDACT),
+        ("traffic_rules", TRAFFIC_RULE_TO_REDACT),
     ):
         records = data.get(section)
         if isinstance(records, Mapping):

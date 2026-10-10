@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
@@ -28,6 +29,10 @@ from tests.fixtures.library_responses import (
     SAMPLE_ALARM_HUB_TAMPER_EVENT,
     SAMPLE_SIREN,
     SAMPLE_THREAD_LINK_STATION,
+)
+from tests.fixtures.network_rule_responses import (
+    port_forward_record,
+    traffic_rule_record,
 )
 
 
@@ -731,3 +736,82 @@ async def test_diagnostics_show_whether_the_global_alarm_manager_is_enabled(
     diagnostics = await async_get_config_entry_diagnostics(hass, init_integration)
 
     assert diagnostics["data"]["protect"]["global_alarm_manager"] is enabled
+
+
+async def test_diagnostics_redacts_port_forward_addresses(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations: None,
+) -> None:
+    """Test diagnostics redacts port forward IP addresses but preserves rule info."""
+    coordinator = init_integration.runtime_data.coordinator
+    coordinator.data["port_forwards"] = {
+        "site-1": {
+            "pf-plex": port_forward_record(destination_ips=["203.0.113.8"]),
+        }
+    }
+
+    result = await async_get_config_entry_diagnostics(hass, init_integration)
+    dumped = json.dumps(result, default=str)
+    assert "192.168.1.50" not in dumped
+    assert "198.51.100.0/24" not in dumped
+    assert "203.0.113.7" not in dumped
+    assert "203.0.113.8" not in dumped
+    assert "Plex" in dumped
+    assert "32400" in dumped
+    assert "tcp_udp" in dumped
+
+
+async def test_diagnostics_redacts_traffic_rule_targets(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations: None,
+) -> None:
+    """Test diagnostics redacts traffic rule target domains, IPs and MACs."""
+    coordinator = init_integration.runtime_data.coordinator
+    coordinator.data["traffic_rules"] = {
+        "site-1": {
+            "tr-bedtime": traffic_rule_record(
+                ip_addresses=[
+                    {
+                        "ip_or_subnet": "203.0.113.9/32",
+                        "ip_version": "v4",
+                        "port_ranges": [],
+                        "ports": [],
+                    }
+                ]
+            ),
+        }
+    }
+
+    result = await async_get_config_entry_diagnostics(hass, init_integration)
+    dumped = json.dumps(result, default=str)
+    assert "blocked.example" not in dumped
+    assert "192.168.1.100" not in dumped
+    assert "203.0.113.9" not in dumped
+    assert "aa:bb:cc:dd:ee:01" not in dumped
+    assert "Bedtime" in dumped
+    assert "BLOCK" in dumped
+
+
+async def test_diagnostics_anonymizes_dotted_client_mac(
+    hass: HomeAssistant,
+    init_integration: MockConfigEntry,
+    enable_custom_integrations: None,
+) -> None:
+    """Test diagnostics anonymizes dotted client_mac in MAC_KEYS."""
+    coordinator = init_integration.runtime_data.coordinator
+    coordinator.data["traffic_rules"] = {
+        "site-1": {
+            "tr-1": {
+                "_id": "tr-1",
+                "target_devices": [{"client_mac": "aabb.ccdd.eeff", "type": "CLIENT"}],
+            }
+        }
+    }
+
+    result = await async_get_config_entry_diagnostics(hass, init_integration)
+    dumped = json.dumps(result, default=str)
+    assert "aabb.ccdd.eeff" not in dumped
+    rule = result["data"]["traffic_rules"]["site-1"]["tr-1"]
+    assert rule["target_devices"][0]["client_mac"].startswith("**REDACTED-MAC-")

@@ -51,6 +51,7 @@ from .lag import (
     McLagRole,
 )
 from .network import Network, NetworkPurpose, NetworkType
+from .port_forward import PortForward
 from .report import (
     DEFAULT_SITE_REPORT_ATTRS,
     SITE_REPORT_INTERVALS,
@@ -76,6 +77,7 @@ from .traffic import (
     TrafficMatchingList,
     TrafficMatchingType,
 )
+from .traffic_rule import TrafficRule
 from .voucher import Voucher, VoucherCreateRequest
 from .vpn_client import VpnClient
 from .wifi import WifiNetwork, WifiSecurity
@@ -151,6 +153,8 @@ __all__ = [
     "VPNTunnelStatus",
     "WANInterface",
     "WANStatus",
+    # Port Forward
+    "PortForward",
     # Routes
     "PolicyBasedRoute",
     # Site
@@ -162,6 +166,8 @@ __all__ = [
     "DPICategory",
     "TrafficMatchingList",
     "TrafficMatchingType",
+    # Traffic Rule
+    "TrafficRule",
     # Voucher
     "Voucher",
     "VoucherCreateRequest",

@@ -22,6 +22,6 @@ if (!window.customCards.some((card) => card.type === CARD_TAG)) {
         description: localize("card.description"),
         preview: true,
         documentationURL:
-            "https://github.com/ruaan-deysel/ha-unifi-insights#network-topology-card",
+            "https://github.com/tinkerologie/ha-unifi-insights#network-topology-card",
     });
 }

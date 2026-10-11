@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Updated repository and documentation URLs to `tinkerologie` organization
 - Configured Codecov GitHub Actions workflow for tokenless coverage uploads
 
 ### Added
@@ -671,20 +672,21 @@ Thanks @delacjus
 - Number entities for camera/light settings
 - Select entities for recording modes and video modes
 
-[Unreleased]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.8.2...HEAD
-[2026.8.2]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.8.1...v2026.8.2
-[2026.8.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.8.0...v2026.8.1
-[2026.8.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.4...v2026.8.0
-[2026.6.4]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.3...v2026.6.4
-[2026.6.3]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.2...v2026.6.3
-[2026.6.2]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.1...v2026.6.2
-[2026.6.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.6.0...v2026.6.1
-[2026.6.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.5.0...v2026.6.0
-[2026.5.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.4.1...v2026.5.0
-[2026.4.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.4.0...v2026.4.1
-[2026.4.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.3.2...v2026.4.0
-[2026.3.2]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.3.1...v2026.3.2
-[2026.3.1]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.3.0...v2026.3.1
-[2026.3.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2026.2.0...v2026.3.0
-[2026.2.0]: https://github.com/ruaan-deysel/ha-unifi-insights/compare/v2025.06.05...v2026.2.0
-[2025.06.05]: https://github.com/ruaan-deysel/ha-unifi-insights/releases/tag/v2025.06.05
+[Unreleased]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.10.1...HEAD
+[2026.10.1]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.8.2...v2026.10.1
+[2026.8.2]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.8.1...v2026.8.2
+[2026.8.1]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.8.0...v2026.8.1
+[2026.8.0]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.6.4...v2026.8.0
+[2026.6.4]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.6.3...v2026.6.4
+[2026.6.3]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.6.2...v2026.6.3
+[2026.6.2]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.6.1...v2026.6.2
+[2026.6.1]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.6.0...v2026.6.1
+[2026.6.0]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.5.0...v2026.6.0
+[2026.5.0]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.4.1...v2026.5.0
+[2026.4.1]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.4.0...v2026.4.1
+[2026.4.0]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.3.2...v2026.4.0
+[2026.3.2]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.3.1...v2026.3.2
+[2026.3.1]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.3.0...v2026.3.1
+[2026.3.0]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2026.2.0...v2026.3.0
+[2026.2.0]: https://github.com/tinkerologie/ha-unifi-insights/compare/v2025.06.05...v2026.2.0
+[2025.06.05]: https://github.com/tinkerologie/ha-unifi-insights/releases/tag/v2025.06.05

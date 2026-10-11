@@ -28,7 +28,7 @@ This is **UniFi Insights**, a Home Assistant custom integration that provides mo
 - **Domain:** `unifi_insights`
 - **Title:** UniFi Insights
 - **Class prefix:** `UnifiInsights`
-- **Repository:** ruaan-deysel/ha-unifi-insights
+- **Repository:** tinkerologie/ha-unifi-insights
 
 **Key directories:**
 

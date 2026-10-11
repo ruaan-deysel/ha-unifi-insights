@@ -1,14 +1,14 @@
 # UniFi Insights integration for Home Assistant
 
 [![HACS Integration](https://img.shields.io/badge/HACS-Default-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Last Commit](https://img.shields.io/github/last-commit/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/commits/main)
-[![GitHub Release](https://img.shields.io/github/v/release/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/releases)
-[![GitHub Issues](https://img.shields.io/github/issues/ruaan-deysel/ha-unifi-insights)](https://github.com/ruaan-deysel/ha-unifi-insights/issues)
+[![GitHub Last Commit](https://img.shields.io/github/last-commit/tinkerologie/ha-unifi-insights)](https://github.com/tinkerologie/ha-unifi-insights/commits/main)
+[![GitHub Release](https://img.shields.io/github/v/release/tinkerologie/ha-unifi-insights)](https://github.com/tinkerologie/ha-unifi-insights/releases)
+[![GitHub Issues](https://img.shields.io/github/issues/tinkerologie/ha-unifi-insights)](https://github.com/tinkerologie/ha-unifi-insights/issues)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/ruaan-deysel)](https://github.com/sponsors/ruaan-deysel)
 [![Community Forum](https://img.shields.io/badge/community-forum-brightgreen.svg)](https://community.home-assistant.io/t/unifi-insights-integration)
-[![codecov](https://codecov.io/gh/ruaan-deysel/ha-unifi-insights/graph/badge.svg?token=9WMPJAYFPE)](https://codecov.io/gh/ruaan-deysel/ha-unifi-insights)
-[![License](https://img.shields.io/github/license/ruaan-deysel/ha-unifi-insights)](./LICENSE)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ruaan-deysel/ha-unifi-insights)
+[![codecov](https://codecov.io/gh/tinkerologie/ha-unifi-insights/graph/badge.svg)](https://codecov.io/gh/tinkerologie/ha-unifi-insights)
+[![License](https://img.shields.io/github/license/tinkerologie/ha-unifi-insights)](./LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tinkerologie/ha-unifi-insights)
 
 Monitor and control your UniFi system from Home Assistant: UniFi Network, UniFi Protect, UniFi InnerSpace, UniFi Mobility, UniFi Site Manager and UniFi Carrier Fabric, in one integration.
 
@@ -59,7 +59,7 @@ The integration only creates entities for the applications your console runs. A 
 
 ### HACS (recommended)
 
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ruaan-deysel&repository=ha-unifi-insights&category=integration)
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tinkerologie&repository=ha-unifi-insights&category=integration)
 
 1. Select the button above, or open HACS and search for "UniFi Insights".
 2. Select **Download**.
@@ -67,7 +67,7 @@ The integration only creates entities for the applications your console runs. A 
 
 ### Manual installation
 
-1. Download the latest release from the [Releases page](https://github.com/ruaan-deysel/ha-unifi-insights/releases).
+1. Download the latest release from the [Releases page](https://github.com/tinkerologie/ha-unifi-insights/releases).
 2. Copy the `custom_components/unifi_insights` folder into your Home Assistant `custom_components` folder.
 3. Restart Home Assistant.
 

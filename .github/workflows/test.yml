@@ -9,16 +9,18 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   # OIDC is unavailable to fork and Dependabot PRs; those fall back to tokenless uploads.
-  CODECOV_OIDC: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && github.actor != 'dependabot[bot]' }}
+  CODECOV_OIDC: ${{ !(github.event_name == 'pull_request' && (github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')) }}
 
 jobs:
   test:
     name: Run tests & coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -55,7 +57,7 @@ jobs:
 
       - name: Upload coverage reports to Codecov
         if: ${{ !cancelled() }}
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           slug: ${{ github.repository }}
           files: ./coverage.xml

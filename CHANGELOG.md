@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Configured Codecov GitHub Actions workflow for tokenless coverage uploads
+
 ### Added
 
 - Hotspot voucher management entities and QR code ([#279](https://github.com/ruaan-deysel/ha-unifi-insights/issues/279)):

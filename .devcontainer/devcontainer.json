@@ -1,5 +1,5 @@
 {
-  "name": "domalab/ha-unifi-insights",
+  "name": "tinkerologie/ha-unifi-insights",
   "image": "mcr.microsoft.com/devcontainers/python:3.14",
   "postCreateCommand": "./script/setup/setup",
   "forwardPorts": [8123],

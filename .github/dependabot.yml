@@ -1,66 +1,71 @@
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 version: 2
 updates:
-  - package-ecosystem: "devcontainers"
-    directory: "/"
+  - package-ecosystem: devcontainers
+    directory: /
     schedule:
-      interval: "daily"
-      time: "04:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 5
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
     labels:
-      - "dependencies"
-      - "devcontainer"
+      - dependencies
     commit-message:
-      prefix: "chore"
-
-  - package-ecosystem: "github-actions"
-    directory: "/"
+      prefix: chore(deps)
+    groups:
+      devcontainers-minor-patch:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "daily"
-      time: "04:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 5
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
     labels:
-      - "dependencies"
-      - "github-actions"
+      - dependencies
     commit-message:
-      prefix: "chore"
+      prefix: chore(deps)
     groups:
       github-actions:
         patterns:
-          - "*"
+          - '*'
 
-  - package-ecosystem: "pip"
-    directory: "/"
+  - package-ecosystem: pip
+    directory: /
     schedule:
-      interval: "daily"
-      time: "04:00"
-      timezone: "UTC"
+      interval: daily
     open-pull-requests-limit: 10
     labels:
-      - "dependencies"
-      - "python"
+      - dependencies
     commit-message:
-      prefix: "chore"
+      prefix: chore(deps)
     groups:
       python-dependencies:
         patterns:
-          - "*"
+          - '*'
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+    commit-message:
+      prefix: chore(deps)
     groups:
       # @vitest/* packages peer on the exact vitest version, so bumping one
       # without the others breaks `npm ci`. Keep them in one PR.
       vitest:
         patterns:
-          - "vitest"
-          - "@vitest/*"
+          - vitest
+          - '@vitest/*'
     ignore:
       # typescript-eslint peers on typescript <6.1.0, so a TypeScript 7 bump
       # breaks `npm ci`. Drop this once typescript-eslint supports 7.
-      - dependency-name: "typescript"
-        update-types: ["version-update:semver-major"]
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]

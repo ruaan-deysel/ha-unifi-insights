@@ -1,4 +1,3 @@
----
 name: Release
 
 on:
@@ -9,7 +8,7 @@ on:
 
 jobs:
   release:
-    name: Create release
+    name: Release
     runs-on: ubuntu-latest
     permissions:
       contents: write

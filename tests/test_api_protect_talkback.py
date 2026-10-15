@@ -178,19 +178,23 @@ def test_transcode_and_stream_open_input_failure_redacts_query() -> None:
     ):
         _transcode_and_stream(
             session,
-            "http://ha.local/media.mp3?authSig=supersecret123#fragment",
+            "http://user:password@ha.local/media.mp3?authSig=supersecret123#fragment",
             stop_event,
         )
 
     err_msg = str(exc_info.value)
+    assert "user:password@" not in err_msg
+    assert "password" not in err_msg
     assert "supersecret123" not in err_msg
     assert "fragment" not in err_msg
     assert "http://ha.local/media.mp3" in err_msg
 
 
 def test_transcode_and_stream_open_output_failure_redacts_query() -> None:
-    """Test TalkbackStreamError redacts query parameters from destination URL."""
-    session = _make_session(url="rtp://192.168.1.10:7004?token=secrettoken#frag")
+    """Test TalkbackStreamError redacts credentials from destination URL."""
+    session = _make_session(
+        url="rtp://user:password@192.168.1.10:7004?token=secrettoken#frag"
+    )
     stop_event = threading.Event()
 
     mock_input = MagicMock()
@@ -207,16 +211,26 @@ def test_transcode_and_stream_open_output_failure_redacts_query() -> None:
         _transcode_and_stream(session, "media.mp3", stop_event)
 
     err_msg = str(exc_info.value)
+    assert "user:password@" not in err_msg
+    assert "password" not in err_msg
     assert "secrettoken" not in err_msg
     assert "frag" not in err_msg
     assert "rtp://192.168.1.10:7004" in err_msg
 
 
 def test_sanitize_url_helper() -> None:
-    """Test _sanitize_url strips query parameters, fragments, and invalid URLs."""
+    """Test _sanitize_url strips userinfo, parameters, fragments, and bad URLs."""
     assert (
         _sanitize_url("http://example.com/audio.mp3?key=val#frag")
         == "http://example.com/audio.mp3"
+    )
+    assert (
+        _sanitize_url("http://user:pass@example.com/audio.mp3?key=val#frag")
+        == "http://example.com/audio.mp3"
+    )
+    assert (
+        _sanitize_url("rtp://admin:secret@192.168.1.10:7004")
+        == "rtp://192.168.1.10:7004"
     )
     assert _sanitize_url("/local/doorbell.wav?authSig=abc") == "/local/doorbell.wav"
     assert _sanitize_url("rtp://192.168.1.10:7004") == "rtp://192.168.1.10:7004"

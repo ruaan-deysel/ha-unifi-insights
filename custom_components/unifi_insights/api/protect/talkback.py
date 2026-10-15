@@ -114,10 +114,11 @@ def validate_talkback_session(session: TalkbackSession) -> None:
 
 
 def _sanitize_url(url: str) -> str:
-    """Remove query parameters and fragments to prevent credential leakage."""
+    """Remove userinfo, query parameters, and fragments to prevent credential leakage."""
     try:
         parts = urllib.parse.urlsplit(url)
-        return parts._replace(query="", fragment="").geturl()
+        netloc = parts.netloc.rsplit("@", 1)[-1]
+        return parts._replace(netloc=netloc, query="", fragment="").geturl()
     except Exception:
         return "<invalid-url>"
 

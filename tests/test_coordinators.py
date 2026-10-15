@@ -16,6 +16,7 @@ from homeassistant.const import CONF_API_KEY, CONF_HOST, CONF_VERIFY_SSL
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from pydantic import ValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.unifi_insights.api import (
@@ -7289,6 +7290,16 @@ class TestUnifiFacadeCoordinator:
         """Test async_start_camera_talkback raises when session creation fails."""
         facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
             side_effect=ValueError("Session failed")
+        )
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await facade_coordinator.async_start_camera_talkback(
+                "cam1", "http://media.local/audio.mp3"
+            )
+        assert exc_info.value.translation_key == "talkback_session_invalid"
+
+        # Also verify ValidationError handling with sanitized fields
+        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
+            side_effect=ValidationError.from_exception_data("TalkbackSession", [])
         )
         with pytest.raises(HomeAssistantError) as exc_info:
             await facade_coordinator.async_start_camera_talkback(

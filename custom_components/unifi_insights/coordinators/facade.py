@@ -1358,10 +1358,15 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 camera_id
             )
         except Exception as err:
+            detail = (
+                f"invalid fields: {sanitized_validation_fields(err)}"
+                if isinstance(err, ValidationError)
+                else type(err).__name__
+            )
             _LOGGER.warning(
                 "Failed to create talkback session for camera %s: %s",
                 camera_id,
-                err,
+                detail,
             )
             raise HomeAssistantError(
                 translation_domain=DOMAIN,

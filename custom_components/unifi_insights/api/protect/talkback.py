@@ -117,6 +117,15 @@ def validate_talkback_session(session: TalkbackSession) -> None:
         )
 
 
+def _sanitize_url(url: str) -> str:
+    """Remove query parameters and fragments to prevent credential leakage."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        return parts._replace(query="", fragment="").geturl()
+    except Exception:
+        return "<invalid-url>"
+
+
 def _transcode_and_stream(
     session: TalkbackSession,
     media_url: str,
@@ -152,8 +161,9 @@ def _transcode_and_stream(
                 timeout=DEFAULT_INPUT_TIMEOUT,
             )
         except Exception as err:
+            safe_source = _sanitize_url(media_url)
             raise TalkbackStreamError(
-                f"Failed to open source media '{media_url}': {err}"
+                f"Failed to open source media '{safe_source}'"
             ) from err
 
         if not input_container.streams.audio:
@@ -168,8 +178,9 @@ def _transcode_and_stream(
                 format=out_format,
             )
         except Exception as err:
+            safe_dest = _sanitize_url(session.url)
             raise TalkbackStreamError(
-                f"Failed to open destination stream '{session.url}': {err}"
+                f"Failed to open destination stream '{safe_dest}'"
             ) from err
 
         output_stream = output_container.add_stream(

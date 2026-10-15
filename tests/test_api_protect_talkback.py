@@ -19,6 +19,7 @@ from custom_components.unifi_insights.api.protect.talkback import (
     TalkbackSchemeError,
     TalkbackStream,
     TalkbackStreamError,
+    _sanitize_url,
     _transcode_and_stream,
     validate_talkback_session,
 )
@@ -159,6 +160,68 @@ def test_transcode_and_stream_open_output_failure() -> None:
         ):
             _transcode_and_stream(session, "media.mp3", stop_event)
         mock_input.close.assert_called_once()
+
+
+def test_transcode_and_stream_open_input_failure_redacts_query() -> None:
+    """Test TalkbackStreamError redacts query parameters from source URL."""
+    session = _make_session()
+    stop_event = threading.Event()
+
+    mock_av = MagicMock()
+    mock_av.open.side_effect = RuntimeError("File not found")
+
+    with (
+        patch.dict(
+            sys.modules, {"av": mock_av, "av.audio.resampler": mock_av.audio.resampler}
+        ),
+        pytest.raises(TalkbackStreamError) as exc_info,
+    ):
+        _transcode_and_stream(
+            session,
+            "http://ha.local/media.mp3?authSig=supersecret123#fragment",
+            stop_event,
+        )
+
+    err_msg = str(exc_info.value)
+    assert "supersecret123" not in err_msg
+    assert "fragment" not in err_msg
+    assert "http://ha.local/media.mp3" in err_msg
+
+
+def test_transcode_and_stream_open_output_failure_redacts_query() -> None:
+    """Test TalkbackStreamError redacts query parameters from destination URL."""
+    session = _make_session(url="rtp://192.168.1.10:7004?token=secrettoken#frag")
+    stop_event = threading.Event()
+
+    mock_input = MagicMock()
+    mock_input.streams.audio = [MagicMock()]
+    mock_av = MagicMock()
+    mock_av.open.side_effect = [mock_input, RuntimeError("Cannot bind socket")]
+
+    with (
+        patch.dict(
+            sys.modules, {"av": mock_av, "av.audio.resampler": mock_av.audio.resampler}
+        ),
+        pytest.raises(TalkbackStreamError) as exc_info,
+    ):
+        _transcode_and_stream(session, "media.mp3", stop_event)
+
+    err_msg = str(exc_info.value)
+    assert "secrettoken" not in err_msg
+    assert "frag" not in err_msg
+    assert "rtp://192.168.1.10:7004" in err_msg
+
+
+def test_sanitize_url_helper() -> None:
+    """Test _sanitize_url strips query parameters, fragments, and invalid URLs."""
+    assert (
+        _sanitize_url("http://example.com/audio.mp3?key=val#frag")
+        == "http://example.com/audio.mp3"
+    )
+    assert _sanitize_url("/local/doorbell.wav?authSig=abc") == "/local/doorbell.wav"
+    assert _sanitize_url("rtp://192.168.1.10:7004") == "rtp://192.168.1.10:7004"
+    with patch("urllib.parse.urlsplit", side_effect=ValueError("bad")):
+        assert _sanitize_url("anything") == "<invalid-url>"
 
 
 @pytest.mark.parametrize(

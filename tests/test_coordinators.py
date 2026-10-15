@@ -7285,7 +7285,9 @@ class TestUnifiFacadeCoordinator:
 
     @pytest.mark.asyncio
     async def test_async_start_camera_talkback_session_failure(
-        self, facade_coordinator: UnifiFacadeCoordinator
+        self,
+        facade_coordinator: UnifiFacadeCoordinator,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test async_start_camera_talkback raises when session creation fails."""
         facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
@@ -7293,19 +7295,36 @@ class TestUnifiFacadeCoordinator:
         )
         with pytest.raises(HomeAssistantError) as exc_info:
             await facade_coordinator.async_start_camera_talkback(
-                "cam1", "http://media.local/audio.mp3"
+                "cam1", "https://media.local/audio.mp3"
             )
         assert exc_info.value.translation_key == "talkback_session_invalid"
 
-        # Also verify ValidationError handling with sanitized fields
-        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
-            side_effect=ValidationError.from_exception_data("TalkbackSession", [])
+        # Also verify ValidationError handling logs sanitized fields without raw URL
+        distinctive_url = "rtp://custom-token@192.168.1.10:7004"
+        validation_err = ValidationError.from_exception_data(
+            "TalkbackSession",
+            [
+                {
+                    "type": "string_type",
+                    "loc": ("url",),
+                    "msg": "Input should be a valid string",
+                    "input": distinctive_url,
+                }
+            ],
         )
-        with pytest.raises(HomeAssistantError) as exc_info:
+        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
+            side_effect=validation_err
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            pytest.raises(HomeAssistantError) as exc_info,
+        ):
             await facade_coordinator.async_start_camera_talkback(
-                "cam1", "http://media.local/audio.mp3"
+                "cam1", "https://media.local/audio.mp3"
             )
         assert exc_info.value.translation_key == "talkback_session_invalid"
+        assert "invalid fields: url" in caplog.text
+        assert distinctive_url not in caplog.text
 
     @pytest.mark.asyncio
     async def test_async_start_camera_talkback_unsupported_params(

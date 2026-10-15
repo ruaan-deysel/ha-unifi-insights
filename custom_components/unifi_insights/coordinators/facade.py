@@ -42,7 +42,6 @@ from custom_components.unifi_insights.api import (
 from custom_components.unifi_insights.api.exceptions import UniFiUnsupportedError
 from custom_components.unifi_insights.api.protect.talkback import (
     TalkbackCodecError,
-    TalkbackError,
     TalkbackSamplingRateError,
     TalkbackSchemeError,
     TalkbackStream,
@@ -1358,7 +1357,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             session = await self.protect_client.cameras.create_talkback_session(
                 camera_id
             )
-        except (ValueError, Exception) as err:
+        except Exception as err:
             _LOGGER.warning(
                 "Failed to create talkback session for camera %s: %s",
                 camera_id,
@@ -1387,7 +1386,7 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 translation_domain=DOMAIN,
                 translation_key="talkback_unsupported_codec_or_scheme",
             ) from err
-        except (TalkbackError, Exception) as err:
+        except Exception as err:
             _LOGGER.warning(
                 "Failed to start talkback stream for camera %s: %s",
                 camera_id,

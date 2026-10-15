@@ -55,10 +55,6 @@ class TalkbackError(Exception):
     """Base exception for talkback errors."""
 
 
-class TalkbackSessionError(TalkbackError):
-    """Raised when a talkback session is invalid."""
-
-
 class TalkbackSchemeError(TalkbackError):
     """Raised when the talkback destination URL scheme is unsupported."""
 
@@ -211,10 +207,7 @@ def _transcode_and_stream(
                 target_time = start_time + played_duration
                 delay = target_time - time.monotonic()
 
-                if delay > 0:
-                    if stop_event.wait(delay):
-                        break
-                elif stop_event.is_set():
+                if delay > 0 and stop_event.wait(delay):
                     break
 
                 played_duration += frame_duration
@@ -231,9 +224,9 @@ def _transcode_and_stream(
             for packet in output_stream.encode(None):
                 output_container.mux(packet)
 
-    except (TalkbackError, Exception) as err:
-        if isinstance(err, TalkbackError):
-            raise
+    except TalkbackError:
+        raise
+    except Exception as err:
         raise TalkbackStreamError(f"Error during talkback stream: {err}") from err
     finally:
         if output_container is not None:
@@ -252,7 +245,8 @@ class TalkbackStream:
     """
     Talkback audio stream runner.
 
-    Executes audio streaming in a Home Assistant executor thread. Stop is
+    Executes audio streaming in a dedicated daemon thread rather than
+    blocking Home Assistant's shared default executor pool. Stop is
     cooperative: between frames the worker checks a threading.Event and uses
     Event.wait() for pacing. A blocked input open or read call ends only when
     its I/O timeout expires.
@@ -269,18 +263,19 @@ class TalkbackStream:
         self.media_url = media_url
         self.hass = hass
         self._stop_event = threading.Event()
-        self._worker_task: asyncio.Future[None] | None = None
+        self._worker_future: asyncio.Future[None] | None = None
+        self._thread: threading.Thread | None = None
         self._error: Exception | None = None
         self._started = False
 
     @property
     def running(self) -> bool:
         """Return True if the stream worker is currently running."""
-        return self._worker_task is not None and not self._worker_task.done()
+        return self._worker_future is not None and not self._worker_future.done()
 
     async def start(self) -> None:
         """
-        Validate session and start worker in executor.
+        Validate session and start worker in dedicated daemon thread.
 
         Raises:
             TalkbackSchemeError: If destination URL scheme is unsupported.
@@ -292,27 +287,35 @@ class TalkbackStream:
             return
         self._started = True
 
-        # Pre-validate before submitting to executor
+        # Pre-validate before starting thread
         validate_talkback_session(self.session)
 
         loop = asyncio.get_running_loop()
-        self._worker_task = loop.run_in_executor(
-            None,
-            self._run_worker,
-        )
+        future: asyncio.Future[None] = loop.create_future()
+        self._worker_future = future
 
-    def _run_worker(self) -> None:
-        """Execute audio transcoding in the worker thread."""
-        try:
-            _transcode_and_stream(
-                self.session,
-                self.media_url,
-                self._stop_event,
-            )
-        except Exception as err:
-            self._error = err
-            _LOGGER.debug("Talkback stream worker encountered error: %s", err)
-            raise
+        def _run() -> None:
+            try:
+                _transcode_and_stream(
+                    self.session,
+                    self.media_url,
+                    self._stop_event,
+                )
+            except Exception as err:
+                self._error = err
+                _LOGGER.debug("Talkback stream worker encountered error: %s", err)
+                if not future.done():
+                    loop.call_soon_threadsafe(future.set_exception, err)
+            else:
+                if not future.done():
+                    loop.call_soon_threadsafe(future.set_result, None)
+
+        self._thread = threading.Thread(
+            target=_run,
+            name=f"unifi_insights_talkback_{self.session.codec}",
+            daemon=True,
+        )
+        self._thread.start()
 
     async def stop(self) -> None:
         """
@@ -321,9 +324,9 @@ class TalkbackStream:
         Idempotent; does not raise if the stream is already finished.
         """
         self._stop_event.set()
-        if self._worker_task is not None:
+        if self._worker_future is not None:
             try:
-                await asyncio.shield(self._worker_task)
+                await asyncio.shield(self._worker_future)
             except Exception:
                 pass
 
@@ -335,9 +338,9 @@ class TalkbackStream:
             Exception: Any exception raised by the worker thread.
 
         """
-        if self._worker_task is not None:
+        if self._worker_future is not None:
             try:
-                await self._worker_task
+                await self._worker_future
             except Exception as err:
                 raise self._error or err
         elif self._error is not None:

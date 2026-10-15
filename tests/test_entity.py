@@ -27,6 +27,7 @@ from custom_components.unifi_insights.entity import (
     UnifiProtectEntity,
     async_call_coordinator_action,
     camera_supports_ptz,
+    camera_supports_speaker,
     device_has_feature,
     first_not_none,
     get_field,
@@ -256,6 +257,68 @@ class TestCameraSupportsPtz:
             is False
         )
         assert camera_supports_ptz({"isPtz": "invalid", "featureFlags": None}) is False
+
+
+class TestCameraSupportsSpeaker:
+    """Tests for camera_supports_speaker helper."""
+
+    def test_camera_supports_speaker_non_dict(self) -> None:
+        """Test non-dict inputs return False."""
+        assert camera_supports_speaker(None) is False
+        assert camera_supports_speaker("invalid") is False
+        assert camera_supports_speaker(123) is False
+        assert camera_supports_speaker([]) is False
+
+    def test_camera_supports_speaker_top_level_flag(self) -> None:
+        """Test top-level hasSpeaker flags."""
+        assert camera_supports_speaker({"hasSpeaker": True}) is True
+        assert camera_supports_speaker({"has_speaker": True}) is True
+        assert camera_supports_speaker({"hasSpeaker": False}) is False
+        assert camera_supports_speaker({"has_speaker": False}) is False
+
+    def test_camera_supports_speaker_nested_flags(self) -> None:
+        """Test nested featureFlags flags."""
+        assert (
+            camera_supports_speaker(
+                {"hasSpeaker": False, "featureFlags": {"hasSpeaker": True}}
+            )
+            is True
+        )
+        assert camera_supports_speaker({"feature_flags": {"has_speaker": True}}) is True
+        assert (
+            camera_supports_speaker({"featureFlags": {"hasRemovableSpeaker": True}})
+            is True
+        )
+        assert (
+            camera_supports_speaker({"feature_flags": {"has_removable_speaker": True}})
+            is True
+        )
+        assert (
+            camera_supports_speaker(
+                {
+                    "hasSpeaker": False,
+                    "featureFlags": {
+                        "hasSpeaker": False,
+                        "hasRemovableSpeaker": False,
+                    },
+                }
+            )
+            is False
+        )
+
+    def test_camera_supports_speaker_invalid_feature_flags(self) -> None:
+        """Test featureFlags with non-dict values or empty dict."""
+        assert camera_supports_speaker({}) is False
+        assert camera_supports_speaker({"featureFlags": "not_a_dict"}) is False
+        assert camera_supports_speaker({"featureFlags": None}) is False
+        assert camera_supports_speaker({"featureFlags": []}) is False
+        assert camera_supports_speaker({"hasSpeaker": "truthy"}) is False
+        assert camera_supports_speaker({"hasSpeaker": 1}) is False
+        assert camera_supports_speaker({"featureFlags": {"hasSpeaker": "yes"}}) is False
+        assert (
+            camera_supports_speaker({"featureFlags": {"hasRemovableSpeaker": 1}})
+            is False
+        )
 
 
 class TestAsyncCallCoordinatorAction:

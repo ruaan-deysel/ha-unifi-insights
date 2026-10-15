@@ -411,6 +411,11 @@
       "voucher_qr_code": {
         "default": "mdi:qrcode"
       }
+    },
+    "media_player": {
+      "speaker": {
+        "default": "mdi:speaker"
+      }
     }
   },
   "services": {

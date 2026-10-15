@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- UniFi Protect `media_player` platform for cameras with speaker support (`hasSpeaker: true`). Plays audio via camera talkback transport (RTP/Opus/AAC/Vorbis) with real-time PyAV audio transcoding and pacing, reports read-only volume level, and supports media playback, media stop, and media browsing. ([#221](https://github.com/tinkerologie/ha-unifi-insights/issues/221))
+
 - Optional UniFi Access support on Local entries, using a separate bearer token and Access developer port. Adds door locks and unlock buttons, Gate Hub covers, Lockdown and Evacuation switches, doorbell notifications, signed access-result webhooks, and administrator-only user PIN and status actions. Access failures are isolated from other console applications; security state is read back after commands, and credentials are redacted from diagnostics. [#283](https://github.com/tinkerologie/ha-unifi-insights/issues/283)
 
 - Hotspot voucher management entities and QR code ([#279](https://github.com/tinkerologie/ha-unifi-insights/issues/279)):

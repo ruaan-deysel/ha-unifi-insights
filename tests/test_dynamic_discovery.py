@@ -29,6 +29,9 @@ from custom_components.unifi_insights.image import (
 from custom_components.unifi_insights.light import (
     async_setup_entry as async_setup_light,
 )
+from custom_components.unifi_insights.media_player import (
+    async_setup_entry as async_setup_media_player,
+)
 from custom_components.unifi_insights.number import (
     async_setup_entry as async_setup_number,
 )
@@ -219,6 +222,7 @@ class TestDynamicProtectDeviceDiscovery:
             ("event", async_setup_event),
             ("button", async_setup_button),
             ("switch", async_setup_switch),
+            ("media_player", async_setup_media_player),
         ]
 
         callbacks = {}
@@ -255,6 +259,19 @@ class TestDynamicProtectDeviceDiscovery:
             "ptz": {"presets": [{"id": 1, "name": "Entrance"}]},
             "isMicEnabled": True,
             "isLedEnabled": True,
+        }
+        # Speaker-less camera to prove negative capability gating
+        mock_coordinator.data["protect"]["cameras"]["cam_2"] = {
+            "id": "cam_2",
+            "name": "Backyard Camera",
+            "state": "CONNECTED",
+            "type": "camera",
+            "modelKey": "camera",
+            "hasSpeaker": False,
+            "featureFlags": {
+                "hasSpeaker": False,
+                "hasRemovableSpeaker": False,
+            },
         }
         mock_coordinator.data["protect"]["lights"]["light_1"] = {
             "id": "light_1",
@@ -304,6 +321,12 @@ class TestDynamicProtectDeviceDiscovery:
             assert len(entities) > 0, (
                 f"Platform {name} added empty entity list on Protect update"
             )
+
+        # Specifically assert media_player discovered speaker camera cam_1 and not cam_2
+        media_player_entities = add_mocks["media_player"].call_args[0][0]
+        discovered_camera_ids = {e._device_id for e in media_player_entities}
+        assert "cam_1" in discovered_camera_ids
+        assert "cam_2" not in discovered_camera_ids
 
         # Subsequent updates must not add duplicate entities
         post_counts = {k: m.call_count for k, m in add_mocks.items()}
@@ -641,6 +664,7 @@ class TestDynamicDiscoveryResilience:
         [
             ("camera", async_setup_camera),
             ("light", async_setup_light),
+            ("media_player", async_setup_media_player),
             ("number", async_setup_number),
         ],
     )

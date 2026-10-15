@@ -976,9 +976,29 @@
       "access_gate": {
         "name": "Gate"
       }
+    },
+    "media_player": {
+      "speaker": {
+        "name": "Speaker"
+      }
     }
   },
   "exceptions": {
+    "media_not_audio": {
+      "message": "Only audio media is supported for camera talkback."
+    },
+    "talkback_session_invalid": {
+      "message": "Failed to create a talkback session for the camera."
+    },
+    "talkback_unsupported_codec_or_scheme": {
+      "message": "The camera talkback stream URL scheme or codec is not supported."
+    },
+    "talkback_stream_failure": {
+      "message": "An error occurred while streaming audio to the camera."
+    },
+    "protect_not_available_for_talkback": {
+      "message": "UniFi Protect is not available for talkback."
+    },
     "cannot_connect": {
       "message": "Unable to connect to UniFi controller at {host}. Please check the host address and network connectivity."
     },

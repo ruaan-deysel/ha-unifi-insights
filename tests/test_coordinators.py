@@ -53,6 +53,11 @@ from custom_components.unifi_insights.api.protect.models import (
     Fob,
     LinkStation,
     Siren,
+    TalkbackSession,
+)
+from custom_components.unifi_insights.api.protect.talkback import (
+    TalkbackSchemeError,
+    TalkbackStreamError,
 )
 from custom_components.unifi_insights.const import (
     CONF_CONNECTION_TYPE,
@@ -7233,6 +7238,115 @@ class TestUnifiFacadeCoordinator:
         facade_coordinator.protect_client.cameras.set_microphone_volume.assert_called_once_with(
             "cam1", 50
         )
+
+    @pytest.mark.asyncio
+    async def test_async_start_camera_talkback_success(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Test async_start_camera_talkback creates session and starts stream."""
+        session = TalkbackSession(
+            url="rtp://192.168.1.10:7004",
+            codec="opus",
+            samplingRate=24000,
+            bitsPerSample=16,
+        )
+        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
+            return_value=session
+        )
+        with patch(
+            "custom_components.unifi_insights.coordinators.facade.TalkbackStream"
+        ) as mock_stream_cls:
+            mock_stream = mock_stream_cls.return_value
+            mock_stream.start = AsyncMock()
+            result = await facade_coordinator.async_start_camera_talkback(
+                "cam1", "http://media.local/audio.mp3"
+            )
+            assert result is mock_stream
+            facade_coordinator.protect_client.cameras.create_talkback_session.assert_called_once_with(
+                "cam1"
+            )
+            mock_stream_cls.assert_called_once_with(
+                session, "http://media.local/audio.mp3", facade_coordinator.hass
+            )
+            mock_stream.start.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_start_camera_talkback_no_protect(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Test async_start_camera_talkback raises when protect client is None."""
+        facade_coordinator.protect_client = None
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await facade_coordinator.async_start_camera_talkback(
+                "cam1", "http://media.local/audio.mp3"
+            )
+        assert exc_info.value.translation_key == "protect_not_available_for_talkback"
+
+    @pytest.mark.asyncio
+    async def test_async_start_camera_talkback_session_failure(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Test async_start_camera_talkback raises when session creation fails."""
+        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
+            side_effect=ValueError("Session failed")
+        )
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await facade_coordinator.async_start_camera_talkback(
+                "cam1", "http://media.local/audio.mp3"
+            )
+        assert exc_info.value.translation_key == "talkback_session_invalid"
+
+    @pytest.mark.asyncio
+    async def test_async_start_camera_talkback_unsupported_params(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Test async_start_camera_talkback raises for unsupported stream parameters."""
+        session = TalkbackSession(
+            url="rtp://192.168.1.10:7004",
+            codec="opus",
+            samplingRate=24000,
+            bitsPerSample=16,
+        )
+        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
+            return_value=session
+        )
+
+        with patch(
+            "custom_components.unifi_insights.coordinators.facade.TalkbackStream.start",
+            side_effect=TalkbackSchemeError("Bad scheme"),
+        ):
+            with pytest.raises(HomeAssistantError) as exc_info:
+                await facade_coordinator.async_start_camera_talkback(
+                    "cam1", "http://media.local/audio.mp3"
+                )
+            assert (
+                exc_info.value.translation_key == "talkback_unsupported_codec_or_scheme"
+            )
+
+    @pytest.mark.asyncio
+    async def test_async_start_camera_talkback_stream_failure(
+        self, facade_coordinator: UnifiFacadeCoordinator
+    ) -> None:
+        """Test async_start_camera_talkback raises for stream start failure."""
+        session = TalkbackSession(
+            url="rtp://192.168.1.10:7004",
+            codec="opus",
+            samplingRate=24000,
+            bitsPerSample=16,
+        )
+        facade_coordinator.protect_client.cameras.create_talkback_session = AsyncMock(
+            return_value=session
+        )
+
+        with patch(
+            "custom_components.unifi_insights.coordinators.facade.TalkbackStream.start",
+            side_effect=TalkbackStreamError("Stream failed"),
+        ):
+            with pytest.raises(HomeAssistantError) as exc_info:
+                await facade_coordinator.async_start_camera_talkback(
+                    "cam1", "http://media.local/audio.mp3"
+                )
+            assert exc_info.value.translation_key == "talkback_stream_failure"
 
     @pytest.mark.asyncio
     async def test_async_set_light_brightness(

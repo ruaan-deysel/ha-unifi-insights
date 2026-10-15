@@ -187,6 +187,34 @@ def camera_supports_ptz(camera_data: dict[str, Any]) -> bool:
     return False
 
 
+def camera_supports_speaker(camera_data: Any) -> bool:
+    """Return True if a Protect camera advertises speaker support."""
+    if not isinstance(camera_data, dict):
+        return False
+
+    has_speaker = get_field(camera_data, "hasSpeaker", "has_speaker", default=False)
+    if has_speaker is True:
+        return True
+
+    feature_flags = get_field(camera_data, "featureFlags", "feature_flags", default={})
+    if isinstance(feature_flags, dict):
+        nested_speaker = get_field(
+            feature_flags, "hasSpeaker", "has_speaker", default=False
+        )
+        if nested_speaker is True:
+            return True
+        removable_speaker = get_field(
+            feature_flags,
+            "hasRemovableSpeaker",
+            "has_removable_speaker",
+            default=False,
+        )
+        if removable_speaker is True:
+            return True
+
+    return False
+
+
 async def async_call_coordinator_action[ActionResult](
     coordinator: Any,
     method_name: str,
@@ -565,6 +593,7 @@ __all__ = [
     "UnifiInnerSpaceEntity",
     "UnifiInsightsEntity",
     "UnifiProtectEntity",
+    "camera_supports_speaker",
     "get_field",
     "is_device_online",
 ]

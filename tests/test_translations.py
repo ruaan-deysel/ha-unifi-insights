@@ -451,3 +451,32 @@ def test_export_network_rules_action_strings_and_icon() -> None:
 
     icons = json.loads(_ICONS_JSON.read_text())
     assert icons["services"]["export_network_rules"].startswith("mdi:")
+
+
+def test_media_player_speaker_translations_and_icon() -> None:
+    """The media_player speaker entity has matching translations and icons."""
+    strings_data = json.loads(_STRINGS_JSON.read_text())
+    en_data = json.loads(_EN_JSON.read_text())
+    icons = json.loads(_ICONS_JSON.read_text())["entity"]
+
+    strings = strings_data["entity"]
+    en = en_data["entity"]
+
+    assert "media_player" in strings
+    assert "speaker" in strings["media_player"]
+    assert strings["media_player"]["speaker"]["name"] == "Speaker"
+    assert strings["media_player"] == en["media_player"]
+    assert "media_player" in icons
+    assert icons["media_player"]["speaker"]["default"].startswith("mdi:")
+
+    for exc_key in (
+        "media_not_audio",
+        "talkback_session_invalid",
+        "talkback_unsupported_codec_or_scheme",
+        "talkback_stream_failure",
+        "protect_not_available_for_talkback",
+    ):
+        assert exc_key in strings_data["exceptions"]
+        assert exc_key in en_data["exceptions"]
+        assert strings_data["exceptions"][exc_key] == en_data["exceptions"][exc_key]
+        assert strings_data["exceptions"][exc_key]["message"]

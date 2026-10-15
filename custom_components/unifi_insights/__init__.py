@@ -156,6 +156,7 @@ PLATFORMS: list[Platform] = [
     Platform.LOCK,
     Platform.SWITCH,
     Platform.SELECT,
+    Platform.MEDIA_PLAYER,
     Platform.NUMBER,
     Platform.UPDATE,
     Platform.SIREN,

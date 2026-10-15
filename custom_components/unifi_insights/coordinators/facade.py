@@ -40,6 +40,13 @@ from custom_components.unifi_insights.api import (
     UniFiRuleNotEditableError,
 )
 from custom_components.unifi_insights.api.exceptions import UniFiUnsupportedError
+from custom_components.unifi_insights.api.protect.talkback import (
+    TalkbackCodecError,
+    TalkbackError,
+    TalkbackSamplingRateError,
+    TalkbackSchemeError,
+    TalkbackStream,
+)
 from custom_components.unifi_insights.api.validation import sanitized_validation_fields
 from custom_components.unifi_insights.client_wake import (
     WAKE_ON_LAN_DOMAIN,
@@ -1322,6 +1329,74 @@ class UnifiFacadeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             camera_id,
             volume,
         )
+
+    async def async_start_camera_talkback(
+        self, camera_id: str, media_url: str
+    ) -> TalkbackStream:
+        """
+        Start talkback audio streaming to a camera.
+
+        Args:
+            camera_id: Camera identifier.
+            media_url: Resolved media URL or local path.
+
+        Returns:
+            Running TalkbackStream instance.
+
+        Raises:
+            HomeAssistantError: If Protect is unavailable, session creation fails,
+                or parameters/streaming fail.
+
+        """
+        if self.protect_client is None:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="protect_not_available_for_talkback",
+            )
+
+        try:
+            session = await self.protect_client.cameras.create_talkback_session(
+                camera_id
+            )
+        except (ValueError, Exception) as err:
+            _LOGGER.warning(
+                "Failed to create talkback session for camera %s: %s",
+                camera_id,
+                err,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="talkback_session_invalid",
+            ) from err
+
+        try:
+            stream = TalkbackStream(session, media_url, self.hass)
+            await stream.start()
+            return stream
+        except (
+            TalkbackSchemeError,
+            TalkbackCodecError,
+            TalkbackSamplingRateError,
+        ) as err:
+            _LOGGER.warning(
+                "Unsupported talkback parameters for camera %s: %s",
+                camera_id,
+                err,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="talkback_unsupported_codec_or_scheme",
+            ) from err
+        except (TalkbackError, Exception) as err:
+            _LOGGER.warning(
+                "Failed to start talkback stream for camera %s: %s",
+                camera_id,
+                err,
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="talkback_stream_failure",
+            ) from err
 
     async def async_set_light_brightness(self, light_id: str, led_level: int) -> None:
         """Set light brightness for a Protect light."""

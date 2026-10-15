@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.const import CONF_API_KEY, CONF_HOST
+from homeassistant.const import CONF_API_KEY, CONF_HOST, Platform
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from pytest_homeassistant_custom_component.typing import WebSocketGenerator
 
 from custom_components.unifi_insights import (
+    PLATFORMS,
     SETUP_PROBE_RETRIES,
     UnifiInsightsData,
     _raise_for_setup_probes,
@@ -1252,3 +1253,8 @@ async def test_setup_entry_innerspace_only_console(
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     mock_innerspace_client.close.assert_awaited()
+
+
+def test_platforms_include_media_player() -> None:
+    """Test that PLATFORMS includes Platform.MEDIA_PLAYER."""
+    assert Platform.MEDIA_PLAYER in PLATFORMS

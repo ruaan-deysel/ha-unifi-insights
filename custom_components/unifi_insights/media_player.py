@@ -169,10 +169,15 @@ class UnifiProtectCameraSpeaker(UnifiProtectEntity, MediaPlayerEntity):
     ) -> None:
         """Play media on the camera speaker via talkback."""
         if media_source.is_media_source_id(media_id):
-            media_type = MediaType.MUSIC
             play_item = await media_source.async_resolve_media(
                 self.hass, media_id, self.entity_id
             )
+            if not play_item.mime_type.lower().startswith("audio/"):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="media_not_audio",
+                )
+            media_type = MediaType.MUSIC
             media_id = play_item.url
 
         if str(media_type).lower() != MediaType.MUSIC.lower():

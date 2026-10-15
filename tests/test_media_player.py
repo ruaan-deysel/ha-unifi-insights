@@ -438,7 +438,7 @@ class TestUnifiProtectCameraSpeaker:
             return_value=mock_stream
         )
 
-        resolved_item = MagicMock(url="/local/audio.mp3")
+        resolved_item = MagicMock(url="/local/audio.mp3", mime_type="audio/mpeg")
 
         with (
             patch(
@@ -463,6 +463,33 @@ class TestUnifiProtectCameraSpeaker:
             "cam1", "http://127.0.0.1:8123/local/audio.mp3"
         )
         await entity._completion_task
+
+    @pytest.mark.asyncio
+    async def test_play_media_source_non_audio_rejected(
+        self, mock_coordinator: MagicMock
+    ) -> None:
+        """Test media_source resolving to non-audio MIME type is rejected."""
+        entity = UnifiProtectCameraSpeaker(mock_coordinator, "cam1")
+        resolved_item = MagicMock(url="/local/video.mp4", mime_type="video/mp4")
+
+        with (
+            patch(
+                "homeassistant.components.media_source.is_media_source_id",
+                return_value=True,
+            ),
+            patch(
+                "homeassistant.components.media_source.async_resolve_media",
+                AsyncMock(return_value=resolved_item),
+            ),
+            pytest.raises(ServiceValidationError) as exc_info,
+        ):
+            await entity.async_play_media(
+                media_type=MediaType.MUSIC,
+                media_id="media-source://camera/front_door",
+            )
+
+        assert exc_info.value.translation_key == "media_not_audio"
+        mock_coordinator.async_start_camera_talkback.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_play_media_non_music_rejected(

@@ -728,3 +728,46 @@ class TestUnifiProtectCameraSpeaker:
         await entity._async_wait_for_completion(stream1)
         assert entity._current_stream is stream2
         entity.async_write_ha_state.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_play_media_when_removing(
+        self, hass: Any, mock_coordinator: MagicMock
+    ) -> None:
+        """Test async_play_media rejects playback when entity removal has begun."""
+        entity = UnifiProtectCameraSpeaker(mock_coordinator, "cam1")
+        entity.hass = hass
+        entity._removing = True
+
+        with patch(
+            "custom_components.unifi_insights.media_player.async_process_play_media_url",
+            return_value="http://media.local/test.mp3",
+        ):
+            await entity.async_play_media(
+                media_type=MediaType.MUSIC,
+                media_id="http://media.local/test.mp3",
+            )
+
+        mock_coordinator.async_start_camera_talkback.assert_not_called()
+        assert entity._current_stream is None
+
+    @pytest.mark.asyncio
+    async def test_media_stop_mismatched_stream(
+        self, mock_coordinator: MagicMock
+    ) -> None:
+        """Test async_media_stop does not clear reference if stream changed."""
+        entity = UnifiProtectCameraSpeaker(mock_coordinator, "cam1")
+        entity.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+        stream1 = MagicMock()
+        stream1.running = True
+
+        async def _mock_stop() -> None:
+            # Simulate a concurrent play setting a new stream during await stop()
+            stream2 = MagicMock()
+            entity._current_stream = stream2
+
+        stream1.stop = AsyncMock(side_effect=_mock_stop)
+        entity._current_stream = stream1
+
+        await entity.async_media_stop()
+        assert entity._current_stream is not None
+        assert entity._current_stream is not stream1

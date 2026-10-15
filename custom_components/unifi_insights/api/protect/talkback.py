@@ -228,7 +228,8 @@ def _transcode_and_stream(
     except TalkbackError:
         raise
     except Exception as err:
-        raise TalkbackStreamError(f"Error during talkback stream: {err}") from err
+        msg = f"Error during talkback stream: {type(err).__name__}"
+        raise TalkbackStreamError(msg) from err
     finally:
         if output_container is not None:
             try:

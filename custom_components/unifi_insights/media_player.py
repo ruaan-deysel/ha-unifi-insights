@@ -112,6 +112,7 @@ class UnifiProtectCameraSpeaker(UnifiProtectEntity, MediaPlayerEntity):
         self._current_stream: TalkbackStream | None = None
         self._completion_task: asyncio.Task[None] | None = None
         self._play_lock = asyncio.Lock()
+        self._removing = False
 
     @property
     def available(self) -> bool:
@@ -183,6 +184,9 @@ class UnifiProtectCameraSpeaker(UnifiProtectEntity, MediaPlayerEntity):
         media_url = async_process_play_media_url(self.hass, media_id)
 
         async with self._play_lock:
+            if self._removing:
+                return
+
             if self._current_stream is not None and self._current_stream.running:
                 await self._current_stream.stop()
                 self._current_stream = None
@@ -213,10 +217,13 @@ class UnifiProtectCameraSpeaker(UnifiProtectEntity, MediaPlayerEntity):
 
     async def async_media_stop(self) -> None:
         """Stop current talkback stream."""
-        if self._current_stream is not None and self._current_stream.running:
-            await self._current_stream.stop()
-            self._current_stream = None
-            self.async_write_ha_state()
+        async with self._play_lock:
+            stream = self._current_stream
+            if stream is not None and stream.running:
+                await stream.stop()
+                if self._current_stream is stream:
+                    self._current_stream = None
+                self.async_write_ha_state()
 
     async def async_browse_media(
         self,
@@ -235,9 +242,11 @@ class UnifiProtectCameraSpeaker(UnifiProtectEntity, MediaPlayerEntity):
 
     async def async_will_remove_from_hass(self) -> None:
         """Clean up when entity is removed from Home Assistant."""
-        if self._completion_task is not None and not self._completion_task.done():
-            self._completion_task.cancel()
-        if self._current_stream is not None and self._current_stream.running:
-            await self._current_stream.stop()
-            self._current_stream = None
+        self._removing = True
+        async with self._play_lock:
+            if self._completion_task is not None and not self._completion_task.done():
+                self._completion_task.cancel()
+            if self._current_stream is not None and self._current_stream.running:
+                await self._current_stream.stop()
+                self._current_stream = None
         await super().async_will_remove_from_hass()

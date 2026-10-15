@@ -632,7 +632,7 @@ def test_transcode_and_stream_generic_runtime_error_during_mux() -> None:
             sys.modules, {"av": mock_av, "av.audio.resampler": mock_av.audio.resampler}
         ),
         pytest.raises(
-            TalkbackStreamError, match="Error during talkback stream: Broken pipe"
+            TalkbackStreamError, match="Error during talkback stream: RuntimeError"
         ),
     ):
         _transcode_and_stream(session, "media.mp3", stop_event)

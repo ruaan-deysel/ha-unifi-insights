@@ -28,6 +28,7 @@ import {
   type SiteTopology,
   type TopologySource,
 } from "./contract";
+import { NodeDetailsFetcher, type NodeDetailsKey } from "./data/node-details";
 import { Announcer } from "./data/announcer";
 import {
   deriveState,
@@ -39,6 +40,7 @@ import {
 } from "./data/state";
 import { TopologySubscription, backoffDelay } from "./data/subscription";
 import {
+  isAdmin,
   navigate,
   toWsError,
   type Connection,
@@ -67,6 +69,7 @@ import {
 import { controlStyles, themeTokens } from "./styles";
 import { KIND_KEYS, VIEW_KEYS } from "./views/describe";
 import "./views/detail-panel";
+import type { UitDetailPanel } from "./views/detail-panel";
 import "./views/graph-view";
 import type { UitGraphView } from "./views/graph-view";
 import "./views/list-view";
@@ -107,6 +110,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
     ui: { state: true },
     view: { state: true },
     selectedId: { state: true },
+    menuRequest: { state: true },
     siteOverride: { state: true },
     narrow: { state: true },
     reducedMotion: { state: true },
@@ -127,6 +131,8 @@ export class UnifiInsightsTopologyCard extends LitElement {
   declare ui: UiState;
   declare view: ViewMode;
   declare selectedId?: string;
+  /** A fresh object asks the detail panel to open the menu of that node. */
+  declare menuRequest?: NodeDetailsKey | undefined;
   declare siteOverride?: SiteBinding;
   declare narrow: boolean;
   declare reducedMotion: boolean;
@@ -148,6 +154,8 @@ export class UnifiInsightsTopologyCard extends LitElement {
       if (this.hass) void this.loadSources(this.hass);
     },
   });
+  private readonly details = new NodeDetailsFetcher(() => this.requestUpdate());
+  private selectionScope: string | undefined;
   private readonly buildModel = createModelBuilder();
   private readonly announcer = new Announcer((message) => {
     this.announcement = message;
@@ -241,6 +249,8 @@ export class UnifiInsightsTopologyCard extends LitElement {
   override disconnectedCallback(): void {
     super.disconnectedCallback();
     this.subscription.stop();
+    this.details.stop();
+    this.menuRequest = undefined;
     this.announcer.dispose();
     this.resizeObserver?.disconnect();
     this.resizeObserver = undefined;
@@ -249,7 +259,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
     this.clearSourcesRetry();
   }
 
-  /** HA replaces `hass` on every entity state change; only its connection and language matter here. */
+  /** HA replaces `hass` on every entity state change; only its connection, language and the user's admin right matter here. */
   protected override shouldUpdate(changed: PropertyValues<this>): boolean {
     if (changed.size !== 1 || !changed.has("hass")) return true;
     const previous = changed.get("hass") as HomeAssistant | undefined;
@@ -259,7 +269,9 @@ export class UnifiInsightsTopologyCard extends LitElement {
       !hass ||
       previous.connection !== hass.connection ||
       (previous.locale?.language ?? previous.language) !==
-        (hass.locale?.language ?? hass.language)
+        (hass.locale?.language ?? hass.language) ||
+      // The node menu offers addresses to administrators only.
+      isAdmin(previous) !== isAdmin(hass)
     );
   }
 
@@ -291,8 +303,20 @@ export class UnifiInsightsTopologyCard extends LitElement {
       selected !== undefined &&
       !(this.model?.visuals.has(selected) || this.model?.nodes.has(selected))
     ) {
-      this.selectedId = undefined;
+      this.deselect();
     }
+    const binding = this.binding;
+    const key =
+      binding && this.selectedId !== undefined
+        ? { ...binding, node_id: this.selectedId }
+        : undefined;
+    const scope = JSON.stringify(key);
+    if (scope !== this.selectionScope) {
+      this.selectionScope = scope;
+      if (JSON.stringify(this.menuRequest) !== scope)
+        this.menuRequest = undefined;
+    }
+    this.details.select(this.isConnected ? this.hass : undefined, key);
   }
 
   private get binding(): SiteBinding | undefined {
@@ -337,7 +361,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
       this.error = undefined;
       this.sourcesError = undefined;
       this.incompatible = false;
-      this.selectedId = undefined;
+      this.deselect();
     }
     this.subscription.update(
       hass.connection,
@@ -455,16 +479,43 @@ export class UnifiInsightsTopologyCard extends LitElement {
     this.toggleGroup((e as CustomEvent<{ id: string }>).detail.id);
   };
 
+  /**
+   * A context click, the ContextMenu key or Shift+F10 on a node: select it
+   * and open its action menu. Client groups have no menu, so they are only
+   * selected.
+   */
+  private readonly onContext = (e: Event): void => {
+    const id = (e as CustomEvent<{ id: string }>).detail.id;
+    if (!this.model?.visuals.has(id) && !this.model?.nodes.has(id)) return;
+    this.onSelect(e);
+    const binding = this.binding;
+    this.menuRequest =
+      binding && !id.startsWith("group:")
+        ? { ...binding, node_id: id }
+        : undefined;
+  };
+
   private readonly onClose = (): void => {
-    this.selectedId = undefined;
+    this.deselect();
   };
 
   private readonly onKeydown = (e: KeyboardEvent): void => {
-    if (e.key === "Escape" && this.selectedId !== undefined) {
+    if (
+      e.key === "Escape" &&
+      this.selectedId !== undefined &&
+      !this.renderRoot.querySelector<UitDetailPanel>("uit-detail-panel")
+        ?.menuOpen
+    ) {
       e.stopPropagation();
-      this.selectedId = undefined;
+      this.deselect();
     }
   };
+
+  /** Close the details, and forget any request to open the menu. */
+  private deselect(): void {
+    this.selectedId = undefined;
+    this.menuRequest = undefined;
+  }
 
   private toggleGroup(id: string): void {
     const toggled = new Set(this.ui.toggledGroups);
@@ -512,6 +563,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
         @keydown=${this.onKeydown}
         @uit-activate=${this.onActivate}
         @uit-select=${this.onSelect}
+        @uit-context=${this.onContext}
         @uit-toggle-group=${this.onToggleGroup}
         @uit-close=${this.onClose}
       >
@@ -721,6 +773,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
             .model=${model}
             .density=${density}
             .orientation=${config.orientation}
+            .layoutMode=${config.layout}
             .showLabels=${config.show_labels}
             .selectedId=${this.selectedId}
             .localize=${localize}
@@ -737,6 +790,11 @@ export class UnifiInsightsTopologyCard extends LitElement {
       <uit-detail-panel
         .model=${model}
         .selectedId=${this.selectedId}
+        .hass=${this.hass}
+        .menuRequest=${this.menuRequest}
+        .details=${this.details.state.status === "ready"
+          ? this.details.state.details
+          : undefined}
         .localize=${localize}
         ?narrow=${this.narrow}
       ></uit-detail-panel>
@@ -841,7 +899,7 @@ export class UnifiInsightsTopologyCard extends LitElement {
       }
       .icon-button {
         padding: 0;
-        border-radius: 50%;
+        justify-content: center;
       }
       .notices {
         list-style: none;

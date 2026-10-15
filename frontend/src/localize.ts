@@ -89,6 +89,14 @@ const en = {
   "detail.via_hidden": "Via hidden",
   "detail.open_device": "Open device",
   "detail.search_members": "Search clients",
+  "menu.label": "Actions",
+  "menu.copy_ip": "Copy IP address",
+  "menu.copy_mac": "Copy MAC address",
+  "menu.open_entity": "Open entity",
+  "menu.copied_ip": "IP address copied to the clipboard.",
+  "menu.copied_mac": "MAC address copied to the clipboard.",
+  "menu.copy_failed":
+    "Couldn't copy. Select the value below to copy it by hand.",
   "announce.updated": "Topology updated.",
   "announce.offline": "{count} devices offline.",
   "editor.site": "Site",
@@ -99,6 +107,7 @@ const en = {
   "editor.kinds": "Show node types",
   "editor.density": "Density",
   "editor.orientation": "Orientation",
+  "editor.layout": "Layout",
   "editor.show_site_selector": "Show site selector",
   "editor.show_labels": "Show labels",
   "editor.max_clients": "Maximum clients",
@@ -110,6 +119,8 @@ const en = {
   "density.compact": "Compact",
   "orientation.vertical": "Top to bottom",
   "orientation.horizontal": "Left to right",
+  "layout.tree": "Tree",
+  "layout.tiered": "Tiered by role",
 } as const;
 
 export type LocalizeKey = keyof typeof en;

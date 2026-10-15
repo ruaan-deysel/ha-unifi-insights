@@ -2,12 +2,14 @@ import { LitElement, html, nothing, type TemplateResult } from "lit";
 import {
   CLIENT_MODES,
   DENSITIES,
+  LAYOUTS,
   ORIENTATIONS,
   VIEWS,
   allSites,
   sameBinding,
   type ClientsMode,
   type Density,
+  type LayoutMode,
   type Orientation,
   type SiteOption,
   type TopologyCardConfig,
@@ -34,6 +36,7 @@ export interface EditorFormData {
   clients: string;
   density: string;
   orientation: string;
+  layout: string;
   kinds: string[];
   show_site_selector: boolean;
   show_labels: boolean;
@@ -61,6 +64,10 @@ const ORIENTATION_KEYS: Record<Orientation, LocalizeKey> = {
   vertical: "orientation.vertical",
   horizontal: "orientation.horizontal",
 };
+const LAYOUT_KEYS: Record<LayoutMode, LocalizeKey> = {
+  tree: "layout.tree",
+  tiered: "layout.tiered",
+};
 const LABEL_KEYS: Record<string, LocalizeKey> = {
   site: "editor.site",
   title: "editor.title",
@@ -69,6 +76,7 @@ const LABEL_KEYS: Record<string, LocalizeKey> = {
   kinds: "editor.kinds",
   density: "editor.density",
   orientation: "editor.orientation",
+  layout: "editor.layout",
   show_site_selector: "editor.show_site_selector",
   show_labels: "editor.show_labels",
   max_clients: "editor.max_clients",
@@ -167,6 +175,15 @@ export function buildSchema(
             },
           },
         },
+        {
+          name: "layout",
+          selector: {
+            select: {
+              mode: "dropdown",
+              options: options(LAYOUTS, LAYOUT_KEYS, localize),
+            },
+          },
+        },
       ],
     },
     {
@@ -201,6 +218,7 @@ export function toFormData(
     clients: config.clients ?? "collapsed",
     density: config.density ?? "auto",
     orientation: config.orientation ?? "vertical",
+    layout: config.layout ?? "tree",
     kinds: config.kinds ? [...config.kinds] : [...NODE_KINDS],
     show_site_selector: config.show_site_selector ?? false,
     show_labels: config.show_labels ?? true,
@@ -232,6 +250,8 @@ export function fromFormData(
   if (isOneOf(data.clients, CLIENT_MODES)) next.clients = data.clients;
   if (isOneOf(data.orientation, ORIENTATIONS))
     next.orientation = data.orientation;
+  if (data.layout === "tree") delete next.layout;
+  else if (isOneOf(data.layout, LAYOUTS)) next.layout = data.layout;
   if (isOneOf(data.density, DENSITIES)) next.density = data.density;
   else if (data.density === "auto") delete next.density;
   const kinds = (data.kinds ?? []).filter((k): k is NodeKind =>

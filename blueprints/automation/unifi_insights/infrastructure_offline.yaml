@@ -1,0 +1,150 @@
+blueprint:
+  name: UniFi Insights - Infrastructure offline alert
+  description: |-
+    Run your actions when a UniFi device (access point, switch, gateway) stays
+    offline, and optionally when it comes back.
+
+    The blueprint watches the connectivity sensors (named **Status**) that
+    UniFi Insights creates for each device. A sensor counts as offline when it is `off`, or `unavailable`
+    (unless you turn that off below), for the chosen time.
+
+    **Limits you should know about:** a confirmed offline device currently
+    reports `unavailable`, not `off`. A controller or API outage also
+    makes every sensor report `unavailable`. The blueprint cannot tell a lost
+    device from a lost controller, so one controller outage alerts for every
+    selected device.
+
+    The actions can use `trigger.id` (`offline`, `unavailable` or `recovery`),
+    `trigger.entity_id` and `trigger.to_state`.
+  domain: automation
+  homeassistant:
+    min_version: "2026.6.0"
+  input:
+    connectivity_sensors:
+      name: Connectivity sensors
+      description: >-
+        The **Status** connectivity sensors of the devices to watch.
+      selector:
+        entity:
+          integration: unifi_insights
+          domain: binary_sensor
+          device_class: connectivity
+          multiple: true
+    offline_delay:
+      name: Offline delay
+      description: >-
+        How long a sensor must stay offline before the offline actions run.
+      default:
+        hours: 0
+        minutes: 5
+        seconds: 0
+      selector:
+        duration: {}
+    treat_unavailable_as_offline:
+      name: Treat unavailable as offline
+      description: >-
+        A confirmed offline device reports `unavailable`, so leave this on to be
+        alerted about it. Turn it off to alert only when a sensor is `off`; you
+        then miss devices that report `unavailable`.
+      default: true
+      selector:
+        boolean: {}
+    offline_actions:
+      name: Offline actions
+      description: >-
+        What to do when a device has been offline for the chosen time.
+      selector:
+        action: {}
+    recovery_actions:
+      name: Recovery actions (optional)
+      description: >-
+        What to do when a sensor returns to `on` from `off` or `unavailable`.
+        Only runs when the previous offline state lasted at least the offline
+        delay. Unavailable recovery also requires treating unavailable as offline.
+      default: []
+      selector:
+        action: {}
+
+mode: queued
+max: 100
+
+variables:
+  offline_delay: !input offline_delay
+  treat_unavailable_as_offline: !input treat_unavailable_as_offline
+
+triggers:
+  - trigger: state
+    id: offline
+    entity_id: !input connectivity_sensors
+    to: "off"
+    for: !input offline_delay
+  - trigger: state
+    id: unavailable
+    entity_id: !input connectivity_sensors
+    to: unavailable
+    for: !input offline_delay
+  - trigger: state
+    id: recovery
+    entity_id: !input connectivity_sensors
+    to: "on"
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none }}
+  - condition: template
+    value_template: >-
+      {{ trigger.id != 'unavailable' or treat_unavailable_as_offline }}
+  - condition: template
+    value_template: >-
+      {% if offline_delay is mapping %}
+        {% set delay_seconds = offline_delay.get('days', 0) * 86400
+             + offline_delay.get('hours', 0) * 3600
+             + offline_delay.get('minutes', 0) * 60
+             + offline_delay.get('seconds', 0)
+             + offline_delay.get('milliseconds', 0) / 1000 %}
+      {% elif offline_delay is string and ':' in offline_delay %}
+        {% set delay_parts = offline_delay.split(':') %}
+        {% if delay_parts | length == 3 %}
+          {% set delay_seconds = (delay_parts[0] | float) * 3600
+               + (delay_parts[1] | float) * 60
+               + (delay_parts[2] | float) %}
+        {% else %}
+          {% set delay_seconds = (delay_parts[0] | float) * 3600
+               + (delay_parts[1] | float) * 60 %}
+        {% endif %}
+      {% else %}
+        {% set delay_seconds = offline_delay | float %}
+      {% endif %}
+      {% if trigger.id == 'recovery' %}
+        {{ (trigger.from_state.state == 'off'
+            or (trigger.from_state.state == 'unavailable'
+                and treat_unavailable_as_offline))
+           and (trigger.to_state.last_changed
+                - trigger.from_state.last_changed).total_seconds()
+               >= delay_seconds }}
+      {% else %}
+        {% set prev = trigger.from_state %}
+        {% set prev_seconds = (trigger.to_state.last_changed
+                               - trigger.from_state.last_changed).total_seconds() %}
+        {% set already_alerted = (prev.state == 'off'
+                                  or (prev.state == 'unavailable'
+                                      and treat_unavailable_as_offline))
+                                 and prev_seconds >= delay_seconds %}
+        {{ prev.state == 'on'
+           or prev.attributes.get('restored', false)
+           or not already_alerted }}
+      {% endif %}
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - offline
+              - unavailable
+        sequence: !input offline_actions
+      - conditions:
+          - condition: trigger
+            id: recovery
+        sequence: !input recovery_actions

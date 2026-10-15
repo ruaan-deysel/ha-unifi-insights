@@ -32,6 +32,12 @@ export interface HomeAssistant {
   callWS<T>(message: MessageBase): Promise<T>;
   language?: string;
   locale?: { language: string };
+  user?: { is_admin: boolean };
+}
+
+/** Whether the signed-in user is an administrator; anything unknown counts as no. */
+export function isAdmin(hass: HomeAssistant | undefined): boolean {
+  return hass?.user?.is_admin === true;
 }
 
 /** Rejection shape of home-assistant-js-websocket commands. */
@@ -65,6 +71,11 @@ export function fireEvent(
   node.dispatchEvent(
     new CustomEvent(type, { detail, bubbles: true, composed: true }),
   );
+}
+
+/** Ask Home Assistant to open the more-info dialog of an entity. */
+export function fireMoreInfo(node: EventTarget, entityId: string): void {
+  fireEvent(node, "hass-more-info", { entityId });
 }
 
 /** Navigate inside the HA frontend without a page load. */

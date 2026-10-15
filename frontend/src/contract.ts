@@ -108,6 +108,28 @@ export interface SiteTopology {
   truncation: TopologyTruncation | null;
 }
 
+/**
+ * Result of `topology/node_details` (admin only). Every optional key is absent
+ * when the value is unknown or ambiguous; the server sends neither null nor "".
+ * Kept apart from TopologyNode on purpose: the snapshot never carries IP or
+ * MAC addresses.
+ */
+export interface NodeDetails {
+  kind: NodeKind;
+  ip_address?: string;
+  mac_address?: string;
+  /** Home Assistant device registry id. */
+  device_id?: string;
+  entity_id?: string;
+}
+
+export type NodeDetailsRequest = {
+  type: typeof WS_NODE_DETAILS;
+  entry_id: string;
+  site_id: string;
+  node_id: string;
+};
+
 export interface TopologySite {
   id: string;
   name: string;
@@ -122,6 +144,7 @@ export interface TopologySource {
 
 export const WS_SOURCES = "unifi_insights/topology/sources";
 export const WS_SUBSCRIBE = "unifi_insights/topology/subscribe";
+export const WS_NODE_DETAILS = "unifi_insights/topology/node_details";
 
 export const ISSUE_ENTRY_UNLOADED = "entry_unloaded";
 export const ISSUE_SITE_UNAVAILABLE = "site_unavailable";

@@ -1,3 +1,4 @@
+import { ContextGesture } from "./context-gesture";
 import { select } from "d3-selection";
 import "d3-transition";
 import {
@@ -18,7 +19,7 @@ import {
   type TemplateResult,
 } from "lit";
 import { repeat } from "lit/directives/repeat.js";
-import type { Density, Orientation } from "../config";
+import type { Density, LayoutMode, Orientation } from "../config";
 import { defineOnce } from "../define";
 import { fireEvent } from "../ha-types";
 import { GROUP_ICON, iconFor } from "../icons";
@@ -81,6 +82,7 @@ export class UitGraphView extends LitElement {
     model: { attribute: false },
     density: { attribute: false },
     orientation: { attribute: false },
+    layoutMode: { attribute: false },
     showLabels: { attribute: false },
     selectedId: { attribute: false },
     localize: { attribute: false },
@@ -94,6 +96,7 @@ export class UitGraphView extends LitElement {
   declare model?: GraphModel;
   declare density: Density;
   declare orientation: Orientation;
+  declare layoutMode: LayoutMode;
   declare showLabels: boolean;
   declare selectedId?: string;
   declare localize?: LocalizeFunc;
@@ -115,11 +118,14 @@ export class UitGraphView extends LitElement {
   private fitted = false;
   private zoomBehavior: ZoomBehavior<SVGSVGElement, unknown> | undefined;
   private resizeObserver: ResizeObserver | undefined;
+  /** Pointers now down, and whether this gesture has panned or pinched. */
+  private gesture = new ContextGesture();
 
   constructor() {
     super();
     this.density = "comfortable";
     this.orientation = "vertical";
+    this.layoutMode = "tree";
     this.showLabels = true;
     this.siteName = "";
     this.ctrlZoom = true;
@@ -162,13 +168,20 @@ export class UitGraphView extends LitElement {
   }
 
   protected override willUpdate(changed: PropertyValues<this>): void {
+    if (changed.has("layoutMode")) this.fitted = false;
     if (!this.model) return;
     if (
       changed.has("model") ||
       changed.has("density") ||
-      changed.has("orientation")
+      changed.has("orientation") ||
+      changed.has("layoutMode")
     ) {
-      const next = layoutModel(this.model, this.density, this.orientation);
+      const next = layoutModel(
+        this.model,
+        this.density,
+        this.orientation,
+        this.layoutMode,
+      );
       const previous = this.layout;
       this.entering = new Set(
         previous
@@ -354,7 +367,35 @@ export class UitGraphView extends LitElement {
     } else if (e.key === "0") {
       e.preventDefault();
       this.fit();
+    } else if (
+      (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) &&
+      this.focusId !== undefined
+    ) {
+      e.preventDefault();
+      fireEvent(this, "uit-context", { id: this.focusId });
     }
+  }
+
+  private onPointerDown(e: PointerEvent): void {
+    this.gesture.down(e);
+  }
+
+  private onPointerMove(e: PointerEvent): void {
+    this.gesture.move(e);
+  }
+
+  private onPointerEnd(e: PointerEvent): void {
+    this.gesture.end(e);
+  }
+
+  /**
+   * A context click or a long press on a node asks the card for its action
+   * menu. The browser's own menu never shows. After a pan or a pinch the
+   * press is not a long press, so the node menu stays shut.
+   */
+  private onContextMenu(e: Event, id: string): void {
+    e.preventDefault();
+    if (this.gesture.allowsMenu) fireEvent(this, "uit-context", { id });
   }
 
   protected override render(): TemplateResult | typeof nothing {
@@ -384,6 +425,10 @@ export class UitGraphView extends LitElement {
           clients: model.stats.clients,
         })}
         @keydown=${this.onKeydown}
+        @pointerdown=${this.onPointerDown}
+        @pointermove=${this.onPointerMove}
+        @pointerup=${this.onPointerEnd}
+        @pointercancel=${this.onPointerEnd}
       >
         <g class="viewport" transform=${this.transformAttr()}>
           <g class="links">
@@ -484,6 +529,7 @@ export class UitGraphView extends LitElement {
       aria-expanded=${interactive && visual.type === "group" ? String(visual.expanded) : nothing}
       style=${`transform: translate(${p.x}px, ${p.y}px)`}
       @click=${interactive ? () => fireEvent(this, "uit-activate", { id }) : nothing}
+      @contextmenu=${interactive ? (e: Event) => this.onContextMenu(e, id) : nothing}
       @focus=${
         interactive
           ? () => {

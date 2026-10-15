@@ -1,38 +1,38 @@
-import{B as e,Dt as t,R as n,X as r,a as i,h as a,j as o,k as s,m as c,n as l,t as u,tt as d,v as f,w as p}from"./chunks/register-dashboard-card-DwsWPKMB.js";u({tag:c,editorTag:a,card:class extends l{static editorTag=a;get cardType(){return`custom:${c}`}get sourceCommand(){return t}get subscribeCommand(){return`unifi_insights/timeline/subscribe`}get defaultTitle(){return`Event Timeline`}get headerIcon(){return d}renderHeaderBadge(){if(!this.snapshot)return s;let e=Array.isArray(this.snapshot.items)?this.snapshot.items:[];return o`<span class="chip ${e.length>0?`warning`:`ok`}">
+import{Ft as e,M as t,P as n,T as r,U as i,V as a,g as o,h as s,n as c,nt as l,o as u,st as d,t as f,y as p}from"./chunks/register-dashboard-card-C7zfXImU.js";f({tag:s,editorTag:o,card:class extends c{static editorTag=o;get cardType(){return`custom:${s}`}get sourceCommand(){return e}get subscribeCommand(){return`unifi_insights/timeline/subscribe`}get defaultTitle(){return`Event Timeline`}get headerIcon(){return d}renderHeaderBadge(){if(!this.snapshot)return t;let e=Array.isArray(this.snapshot.items)?this.snapshot.items:[];return n`<span class="chip ${e.length>0?`warning`:`ok`}">
       ${e.length} Events
-    </span>`}renderContent(){let t=this.snapshot;if(!t)return o`<div class="state">No events</div>`;let i=Array.isArray(t.items)?t.items:[];return i.length===0?o`
+    </span>`}renderContent(){let e=this.snapshot;if(!e)return n`<div class="state">No events</div>`;let o=Array.isArray(e.items)?e.items:[];return o.length===0?n`
         <div class="empty-hero">
-          <div class="icon-badge">${p(e)}</div>
+          <div class="icon-badge">${r(i)}</div>
           <div class="empty-title">All Quiet · 0 Events</div>
           <div class="empty-sub">
             No security or motion detections in the recent window.
           </div>
         </div>
-      `:o`
+      `:n`
       <div class="list">
-        ${i.slice(0,6).map(e=>{let t=e.source??{},i=String(e.kind??`event`),a=String(e.severity??`info`),c=f(e.timestamp);return o`
+        ${o.slice(0,6).map(e=>{let i=e.source??{},o=String(e.kind??`event`),s=String(e.severity??`info`),c=p(e.timestamp);return n`
             <div class="item-card">
               <div
-                class="item-icon ${a===`warning`?`offline`:`online`}"
+                class="item-icon ${s===`warning`?`offline`:`online`}"
               >
-                ${p(i===`ring`?n:r)}
+                ${r(o===`ring`?a:l)}
               </div>
               <div class="item-body">
                 <div class="item-top">
                   <span class="item-name">
-                    ${String(t.name??`Src`)}
+                    ${String(i.name??`Src`)}
                   </span>
                   <span
-                    class="chip ${a===`warning`?`warning`:`ok`}"
+                    class="chip ${s===`warning`?`warning`:`ok`}"
                   >
-                    ${i}
+                    ${o}
                   </span>
                 </div>
-                ${c?o`<div class="item-meta">
+                ${c?n`<div class="item-meta">
                       <span>${c}</span>
-                    </div>`:s}
+                    </div>`:t}
               </div>
             </div>
           `})}
       </div>
-    `}},editor:class extends i{constructor(){super(c,t)}},name:`UniFi Event Timeline`,description:`Recent UniFi Protect security and device activity timeline.`});
+    `}},editor:class extends u{constructor(){super(s,e)}},name:`UniFi Event Timeline`,description:`Recent UniFi Protect security and device activity timeline.`});

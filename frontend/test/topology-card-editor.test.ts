@@ -42,6 +42,7 @@ describe("form mapping", () => {
       clients: "collapsed",
       density: "auto",
       orientation: "vertical",
+      layout: "tree",
       kinds: [...NODE_KINDS],
       show_site_selector: false,
       show_labels: true,
@@ -92,6 +93,37 @@ describe("form mapping", () => {
     expect(next).not.toHaveProperty("title");
     expect(next).not.toHaveProperty("density");
     expect(next).not.toHaveProperty("kinds");
+  });
+
+  it("writes the tiered layout and drops the key again for the default", () => {
+    const previous = { type: TYPE, grid_options: { columns: 12 } };
+    const tiered = fromFormData(
+      { ...toFormData(previous, sites), layout: "tiered" },
+      previous,
+      sites,
+    );
+    expect(tiered).toMatchObject({
+      layout: "tiered",
+      grid_options: { columns: 12 },
+    });
+    expect(toFormData(tiered, sites).layout).toBe("tiered");
+    const back = fromFormData(
+      { ...toFormData(tiered, sites), layout: "tree" },
+      tiered,
+      sites,
+    );
+    expect(back).not.toHaveProperty("layout");
+    expect(back).toMatchObject({ grid_options: { columns: 12 } });
+  });
+
+  it("ignores a layout value the card does not know", () => {
+    const previous = { type: TYPE, layout: "tiered" as const };
+    const next = fromFormData(
+      { ...toFormData(previous, sites), layout: "isometric" },
+      previous,
+      sites,
+    );
+    expect(next.layout).toBe("tiered");
   });
 
   it("never saves an empty kind list or an out-of-range client cap", () => {
@@ -150,7 +182,19 @@ describe("form mapping", () => {
     });
     expect(
       schema.find((f) => f.type === "grid")!.schema!.map((f) => f.name),
-    ).toEqual(["view", "clients", "density", "orientation"]);
+    ).toEqual(["view", "clients", "density", "orientation", "layout"]);
+    const layout = schema
+      .find((f) => f.type === "grid")!
+      .schema!.find((f) => f.name === "layout")!;
+    expect(layout.selector).toEqual({
+      select: {
+        mode: "dropdown",
+        options: [
+          { value: "tree", label: "Tree" },
+          { value: "tiered", label: "Tiered by role" },
+        ],
+      },
+    });
   });
 });
 
@@ -193,6 +237,7 @@ describe("<unifi-insights-topology-card-editor>", () => {
       },
     });
     expect(form.computeLabel!({ name: "max_clients" })).toBe("Maximum clients");
+    expect(form.computeLabel!({ name: "layout" })).toBe("Layout");
   });
 
   it("fires config-changed with the merged config", async () => {
@@ -214,6 +259,32 @@ describe("<unifi-insights-topology-card-editor>", () => {
         site_id: "default",
       }),
     );
+  });
+
+  it("saves a chosen layout through config-changed", async () => {
+    const el = await editor({ entry_id: "entry-1", site_id: "site-1" });
+    const changed = vi.fn();
+    el.addEventListener("config-changed", (e) =>
+      changed((e as CustomEvent).detail.config),
+    );
+    const form = el.shadowRoot!.querySelector("ha-form") as FakeHaForm;
+    expect(form.data?.layout).toBe("tree");
+    form.dispatchEvent(
+      new CustomEvent("value-changed", {
+        detail: { value: { ...form.data, layout: "tiered" } },
+      }),
+    );
+    expect(changed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ layout: "tiered" }),
+    );
+    await settle(el);
+    expect(form.data?.layout).toBe("tiered");
+    form.dispatchEvent(
+      new CustomEvent("value-changed", {
+        detail: { value: { ...form.data, layout: "tree" } },
+      }),
+    );
+    expect(changed.mock.lastCall![0]).not.toHaveProperty("layout");
   });
 });
 

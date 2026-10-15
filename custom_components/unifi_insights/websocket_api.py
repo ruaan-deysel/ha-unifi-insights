@@ -6,6 +6,10 @@ WebSocket API exposing the network topology graph to the frontend.
 Commands are available to any authenticated user (dashboards are used by
 non-admins); privacy comes from the topology builder's field allowlist and
 from scoping every request to one loaded entry and one selected site.
+
+The one exception is ``unifi_insights/topology/node_details``: it returns the
+IP and MAC addresses the snapshot never carries, so it is admin-only, and it
+serves a single node resolved on the server.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ from .carrier_fabric_data import CarrierFabricData
 from .console_identity import resolve_console_namespace
 from .const import DOMAIN
 from .dashboard_contract_utils import as_dict, content_revision
+from .device_tracker import _client_tracker_entries, _mac_from_unique_id
+from .entity import get_field
 from .helpers import async_get_device_entry
 from .internet_activity_snapshot import (
     build_internet_activity_snapshot,
@@ -39,7 +45,12 @@ from .protect_snapshot import (
 from .site_health import build_site_health_snapshot, build_unavailable_site_health
 from .timeline import build_timeline_snapshot, build_unavailable_timeline
 from .topology import build_site_topology, build_unavailable_topology
-from .topology_contract import MAX_CLIENTS_PER_SITE, site_display_name
+from .topology_contract import (
+    MAX_CLIENTS_PER_SITE,
+    device_kind,
+    opaque_node_id,
+    site_display_name,
+)
 from .topology_keys import async_get_node_key
 
 # Schemas are typed against probatio, the library HA 2026.10 annotates its schema
@@ -56,13 +67,14 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from . import UnifiInsightsConfigEntry
-    from .topology_contract import SiteTopology
+    from .topology_contract import NodeKind, SiteTopology
 
 _LOGGER = logging.getLogger(__name__)
 
 ERR_ENTRY_NOT_FOUND = "entry_not_found"
 ERR_ENTRY_NOT_LOADED = "entry_not_loaded"
 ERR_SITE_NOT_SELECTED = "site_not_selected"
+ERR_NODE_NOT_FOUND = "node_not_found"
 
 _MAX_CLIENTS = vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_CLIENTS_PER_SITE))
 _SNAPSHOT_SCHEMA: dict[str | vol.Marker, Any] = {
@@ -70,6 +82,14 @@ _SNAPSHOT_SCHEMA: dict[str | vol.Marker, Any] = {
     vol.Required("site_id"): str,
     vol.Optional("max_clients", default=MAX_CLIENTS_PER_SITE): _MAX_CLIENTS,
 }
+
+# Node ids are "<prefix>:<id>" (see topology.build_site_topology), one prefix per
+# coordinator section.
+_NODE_SECTIONS = (("dev", "devices"), ("cli", "clients"))
+# Key spellings the coordinators' device and client records use (see entity.py
+# and device_tracker.py).
+_IP_KEYS = ("ipAddress", "ip_address", "ip")
+_MAC_KEYS = ("macAddress", "mac_address", "mac")
 
 
 class _RequestError(Exception):
@@ -86,6 +106,22 @@ def async_register_websocket_commands(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_topology_sources)
     websocket_api.async_register_command(hass, ws_topology_get)
     websocket_api.async_register_command(hass, ws_topology_subscribe)
+    # Extend HA's native schema so required fields work with both Voluptuous
+    # (HA 2026.6/9) and Probatio (HA 2026.10+).
+    websocket_api.async_register_command(
+        hass,
+        "unifi_insights/topology/node_details",
+        ws_topology_node_details,
+        websocket_api.BASE_COMMAND_MESSAGE_SCHEMA.extend(
+            {
+                "type": "unifi_insights/topology/node_details",
+                "entry_id": str,
+                "site_id": str,
+                "node_id": str,
+            },
+            required=True,
+        ),
+    )
     websocket_api.async_register_command(hass, ws_site_health_get)
     websocket_api.async_register_command(hass, ws_site_health_subscribe)
     websocket_api.async_register_command(hass, ws_internet_activity_get)
@@ -113,6 +149,27 @@ def _resolve_entry(hass: HomeAssistant, entry_id: str) -> UnifiInsightsConfigEnt
         msg = f"UniFi Insights config entry {entry_id} is not loaded"
         raise _RequestError(ERR_ENTRY_NOT_LOADED, msg)
     return entry
+
+
+def _require_selected_site(entry: UnifiInsightsConfigEntry, site_id: str) -> None:
+    """Raise _RequestError unless the entry has the site selected."""
+    if site_id not in entry.runtime_data.config_coordinator.get_site_ids():
+        msg = f"Site {site_id} is not enabled for this UniFi Insights entry"
+        raise _RequestError(ERR_SITE_NOT_SELECTED, msg)
+
+
+def _device_in_entry(device: dr.DeviceEntry, entry_id: str) -> bool:
+    """
+    Return whether a registry device belongs to the config entry.
+
+    Home Assistant 2026.9+ gives a device a single owner (``config_entry_id``);
+    earlier versions list every owner in ``config_entries``, which 2026.9+
+    reports as deprecated, so it is only read when the single owner is absent.
+    """
+    owner = getattr(device, "config_entry_id", None)
+    if owner is not None:
+        return bool(owner == entry_id)
+    return entry_id in device.config_entries
 
 
 def _ha_device_ids(
@@ -146,11 +203,8 @@ def _build_snapshot(
     max_clients: int,
 ) -> SiteTopology:
     """Build one site's snapshot, enforcing that the site is selected."""
-    runtime = entry.runtime_data
-    if site_id not in runtime.config_coordinator.get_site_ids():
-        msg = f"Site {site_id} is not enabled for this UniFi Insights entry"
-        raise _RequestError(ERR_SITE_NOT_SELECTED, msg)
-    facade = runtime.coordinator
+    _require_selected_site(entry, site_id)
+    facade = entry.runtime_data.coordinator
     return build_site_topology(
         facade.data,
         entry.entry_id,
@@ -160,6 +214,129 @@ def _build_snapshot(
         max_clients=max_clients,
         devices_available=facade.device_available,
     )
+
+
+def _find_node(
+    data: dict[str, Any], site_id: str, node_key: bytes, node_id: str
+) -> tuple[NodeKind, str, dict[str, Any]]:
+    """
+    Return (kind, raw id, record) of the one device or client ``node_id`` names.
+
+    The id is never decoded: each record of the validated site is given the id
+    the snapshot would give it and compared. A node id that matches no record,
+    or more than one (two ids that normalise to the same MAC share a hash),
+    names no node.
+    """
+    matches: list[tuple[NodeKind, str, dict[str, Any]]] = []
+    for prefix, section in _NODE_SECTIONS:
+        records = as_dict(as_dict(data.get(section)).get(site_id))
+        for raw_id, record in records.items():
+            if (
+                isinstance(record, dict)
+                and opaque_node_id(prefix, node_key, raw_id) == node_id
+            ):
+                kind = device_kind(record) if section == "devices" else "client"
+                matches.append((kind, raw_id, record))
+    if len(matches) != 1:
+        msg = f"No node {node_id} in site {site_id}"
+        raise _RequestError(ERR_NODE_NOT_FOUND, msg)
+    return matches[0]
+
+
+def _device_targets(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry, site_id: str, device_id: str
+) -> dict[str, str]:
+    """
+    Return the registry device and connectivity entity of an infrastructure node.
+
+    Each registry row must belong to this config entry: the device lookup's
+    older-Home-Assistant fallbacks match on identifier alone, and an entity's
+    unique id is unique across entries, so the row found may be another
+    console's. A target that is absent or foreign is left out.
+    """
+    targets: dict[str, str] = {}
+    device = async_get_device_entry(
+        dr.async_get(hass), (DOMAIN, f"{site_id}_{device_id}"), entry.entry_id
+    )
+    if device is not None and _device_in_entry(device, entry.entry_id):
+        targets["device_id"] = device.id
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "binary_sensor", DOMAIN, f"{site_id}_{device_id}_device_status"
+    )
+    entity = registry.async_get(entity_id) if entity_id is not None else None
+    if entity is not None and entity.config_entry_id == entry.entry_id:
+        targets["entity_id"] = entity.entity_id
+    return targets
+
+
+def _client_targets(
+    hass: HomeAssistant, entry: UnifiInsightsConfigEntry, mac: str | None
+) -> dict[str, str]:
+    """
+    Return the tracker entity and own device of a client node.
+
+    Prefer the current tracker unique id, falling back to a legacy bare MAC.
+    Each target must belong to this entry. The standalone client device is
+    resolved independently: the tracker's own device may be its uplink.
+    """
+    if mac is None:
+        return {}
+    mac = mac.lower()
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id(
+        "device_tracker", DOMAIN, f"{DOMAIN}_{mac}"
+    )
+    tracker = registry.async_get(entity_id) if entity_id is not None else None
+    if tracker is None or tracker.config_entry_id != entry.entry_id:
+        # Older ScannerEntity rows used the MAC as the API spelled it, so
+        # preserve the existing case-insensitive legacy lookup.
+        legacy = [
+            candidate
+            for candidate in _client_tracker_entries(registry, entry.entry_id)
+            if not candidate.unique_id.startswith(f"{DOMAIN}_")
+            and _mac_from_unique_id(candidate.unique_id) == mac
+        ]
+        tracker = legacy[0] if len(legacy) == 1 else None
+    targets: dict[str, str] = {}
+    if tracker is not None and tracker.config_entry_id == entry.entry_id:
+        targets["entity_id"] = tracker.entity_id
+    device = async_get_device_entry(
+        dr.async_get(hass), (DOMAIN, f"client_{mac}"), entry.entry_id
+    )
+    if device is not None and _device_in_entry(device, entry.entry_id):
+        targets["device_id"] = device.id
+    return targets
+
+
+def _build_node_details(
+    hass: HomeAssistant,
+    entry: UnifiInsightsConfigEntry,
+    site_id: str,
+    node_id: str,
+) -> dict[str, str]:
+    """
+    Resolve one node of a selected site to its addresses and registry targets.
+
+    Every key but ``kind`` is left out when its value is absent or ambiguous.
+    """
+    _require_selected_site(entry, site_id)
+    kind, raw_id, record = _find_node(
+        entry.runtime_data.coordinator.data,
+        site_id,
+        async_get_node_key(hass, entry.entry_id),
+        node_id,
+    )
+    details: dict[str, str] = {"kind": kind}
+    for key, spellings in (("ip_address", _IP_KEYS), ("mac_address", _MAC_KEYS)):
+        value = get_field(record, *spellings)
+        if isinstance(value, str) and value.strip():
+            details[key] = value.lower() if key == "mac_address" else value
+    if kind == "client":
+        details.update(_client_targets(hass, entry, details.get("mac_address")))
+    else:
+        details.update(_device_targets(hass, entry, site_id, raw_id))
+    return details
 
 
 def _snapshot_inputs(
@@ -428,6 +605,23 @@ def ws_topology_get(
         connection.send_error(msg["id"], err.code, str(err))
         return
     connection.send_result(msg["id"], snapshot)
+
+
+@websocket_api.require_admin
+@callback
+def ws_topology_node_details(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the addresses and registry targets of one topology node."""
+    try:
+        entry = _resolve_entry(hass, msg["entry_id"])
+        details = _build_node_details(hass, entry, msg["site_id"], msg["node_id"])
+    except _RequestError as err:
+        connection.send_error(msg["id"], err.code, str(err))
+        return
+    connection.send_result(msg["id"], details)
 
 
 ISSUE_ENTRY_UNLOADED = "entry_unloaded"

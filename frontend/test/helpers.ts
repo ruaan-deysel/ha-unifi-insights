@@ -1,5 +1,10 @@
 import fixture from "./fixtures/site-topology.json";
-import type { SiteTopology, TopologySource } from "../src/contract";
+import {
+  WS_NODE_DETAILS,
+  type NodeDetails,
+  type SiteTopology,
+  type TopologySource,
+} from "../src/contract";
 
 /** A fresh deep copy of the Python-generated snapshot, with optional overrides. */
 export function fixtureSnapshot(
@@ -92,12 +97,16 @@ export interface FakeSub {
   unsubscribe: ReturnType<typeof vi.fn>;
 }
 
-/** A hass object whose sources call and subscribe command are scripted. */
+/** A hass object whose sources call, subscribe and node details commands are scripted. */
 export function fakeHass(
   opts: {
     sources?: TopologySource[];
     sourcesError?: unknown;
     subscribeError?: unknown;
+    /** Sets `hass.user.is_admin`; without it the hass has no user at all. */
+    admin?: boolean;
+    /** Answer to `topology/node_details` by node id: details, or a rejection. */
+    details?: Record<string, NodeDetails | { code: string; message: string }>;
   } = {},
 ) {
   const subs: FakeSub[] = [];
@@ -122,11 +131,18 @@ export function fakeHass(
   };
   const hass = {
     connection,
-    callWS: vi.fn(async () => {
+    callWS: vi.fn(async (message?: MessageBase) => {
+      if (message?.type === WS_NODE_DETAILS) {
+        const answer = opts.details?.[String(message.node_id)];
+        if (answer === undefined) throw { code: "node_not_found", message: "" };
+        if ("code" in answer) throw answer;
+        return answer;
+      }
       if (opts.sourcesError !== undefined) throw opts.sourcesError;
       return opts.sources ?? SOURCES_ONE;
     }),
     locale: { language: "en" },
+    ...(opts.admin === undefined ? {} : { user: { is_admin: opts.admin } }),
   } as unknown as HomeAssistant;
   return {
     hass,

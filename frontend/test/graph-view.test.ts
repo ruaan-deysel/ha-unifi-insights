@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeLocalize } from "../src/localize";
 import { describeVisual } from "../src/views/describe";
+import {
+  SPACING,
+  fitTransform,
+  layoutModel,
+  layoutTiered,
+} from "../src/model/layout";
 import { zoomFilter, type UitGraphView } from "../src/views/graph-view";
 import { cleanup, fixtureModel, fixtureSnapshot, mount } from "./helpers";
 
@@ -175,6 +181,223 @@ describe("<uit-graph-view> interaction", () => {
   });
 });
 
+describe("<uit-graph-view> context requests", () => {
+  const contexts = (el: UitGraphView) => {
+    const seen: CustomEvent[] = [];
+    el.addEventListener("uit-context", (e) => seen.push(e as CustomEvent));
+    return seen;
+  };
+  const contextmenu = (target: Element) => {
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    target.dispatchEvent(event);
+    return event;
+  };
+  const pointer = (
+    target: Element,
+    type: string,
+    init: PointerEventInit = {},
+  ) =>
+    target.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true,
+        composed: true,
+        pointerId: 1,
+        // The first finger or the mouse is the primary pointer.
+        isPrimary: (init.pointerId ?? 1) === 1,
+        ...init,
+      }),
+    );
+  const key = (el: UitGraphView, k: string, init: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent("keydown", {
+      key: k,
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    svgOf(el).dispatchEvent(event);
+    return event;
+  };
+
+  it("asks for the node's actions on a context click and hides the browser menu", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const event = contextmenu(byId(el, "dev:uuid-ap"));
+    expect(event.defaultPrevented).toBe(true);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.detail).toEqual({ id: "dev:uuid-ap" });
+    expect(seen[0]!.bubbles && seen[0]!.composed).toBe(true);
+  });
+
+  it("also reports client groups, which the card then keeps menu-less", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    contextmenu(byId(el, "group:dev:uuid-ap"));
+    expect(seen.map((e) => e.detail)).toEqual([{ id: "group:dev:uuid-ap" }]);
+  });
+
+  it("leaves the browser menu alone away from the nodes", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const event = contextmenu(svgOf(el));
+    expect(event.defaultPrevented).toBe(false);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("asks on the ContextMenu key and on Shift+F10 for the focused node", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    byId(el, "dev:uuid-gw").focus();
+    await el.updateComplete;
+    const viaKey = key(el, "ContextMenu");
+    const viaShift = key(el, "F10", { shiftKey: true });
+    expect(viaKey.defaultPrevented && viaShift.defaultPrevented).toBe(true);
+    expect(seen.map((e) => e.detail)).toEqual([
+      { id: "dev:uuid-gw" },
+      { id: "dev:uuid-gw" },
+    ]);
+    // Follows the focus.
+    byId(el, "dev:uuid-core").focus();
+    await el.updateComplete;
+    key(el, "ContextMenu");
+    expect(seen.at(-1)!.detail).toEqual({ id: "dev:uuid-core" });
+  });
+
+  it("ignores F10 without Shift and keeps the existing keys", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const activated = vi.fn();
+    el.addEventListener("uit-activate", (e) =>
+      activated((e as CustomEvent).detail),
+    );
+    byId(el, "dev:uuid-gw").focus();
+    await el.updateComplete;
+    const plain = key(el, "F10");
+    key(el, "Enter");
+    key(el, " ");
+    expect(plain.defaultPrevented).toBe(false);
+    expect(seen).toHaveLength(0);
+    expect(activated).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not open the menu after a pan", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const node = byId(el, "dev:uuid-ap");
+    pointer(node, "pointerdown", { clientX: 100, clientY: 100 });
+    pointer(node, "pointermove", { clientX: 140, clientY: 100 });
+    const event = contextmenu(node);
+    // The browser menu is still hidden; only the node menu is skipped.
+    expect(event.defaultPrevented).toBe(true);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("tolerates a little jitter and a stationary long press", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const node = byId(el, "dev:uuid-ap");
+    pointer(node, "pointerdown", { clientX: 100, clientY: 100 });
+    pointer(node, "pointermove", { clientX: 103, clientY: 102 });
+    contextmenu(node);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("does not open the menu after a pinch, and recovers on the next press", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const node = byId(el, "dev:uuid-ap");
+    pointer(node, "pointerdown", {
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+    });
+    pointer(node, "pointerdown", {
+      pointerId: 2,
+      clientX: 60,
+      clientY: 60,
+    });
+    pointer(node, "pointerup", { pointerId: 2 });
+    // One finger is still down, but the gesture was a pinch.
+    contextmenu(node);
+    expect(seen).toHaveLength(0);
+
+    pointer(node, "pointerup", { pointerId: 1 });
+    pointer(node, "pointerdown", {
+      pointerId: 1,
+      clientX: 10,
+      clientY: 10,
+    });
+    contextmenu(node);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("does not count a pointer that moves after its press ended", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const node = byId(el, "dev:uuid-ap");
+    pointer(node, "pointerdown", { clientX: 0, clientY: 0 });
+    pointer(node, "pointerup");
+    // A hovering mouse keeps sending moves; that is not a pan.
+    pointer(node, "pointermove", { clientX: 200, clientY: 0 });
+    contextmenu(node);
+    expect(seen).toHaveLength(1);
+  });
+
+  it("forgets a cancelled press", async () => {
+    const el = await graph();
+    const seen = contexts(el);
+    const node = byId(el, "dev:uuid-ap");
+    pointer(node, "pointerdown", { clientX: 0, clientY: 0 });
+    pointer(node, "pointermove", { clientX: 90, clientY: 0 });
+    pointer(node, "pointercancel");
+    pointer(node, "pointerdown", { clientX: 0, clientY: 0 });
+    contextmenu(node);
+    expect(seen).toHaveLength(1);
+  });
+});
+
+describe("<uit-graph-view> layout mode", () => {
+  const translate = (el: UitGraphView, id: string) =>
+    byId(el, id).getAttribute("style");
+
+  it("draws the tree by default and the tiered rows on request", async () => {
+    const tree = await graph();
+    expect(tree.layoutMode).toBe("tree");
+    const tiered = await graph({ layoutMode: "tiered" });
+    const model = fixtureModel();
+    const depth = SPACING.comfortable.depth;
+    const treeLayout = layoutModel(model, "comfortable", "vertical");
+    const tieredLayout = layoutTiered(model, "comfortable", "vertical");
+    const at = (p: { x: number; y: number }) =>
+      `transform: translate(${p.x}px, ${p.y}px)`;
+    for (const id of ["dev:uuid-ap", "dev:uuid-flex"]) {
+      expect(translate(tree, id)).toBe(at(treeLayout.positions.get(id)!));
+      expect(translate(tiered, id)).toBe(at(tieredLayout.positions.get(id)!));
+    }
+    // The tree puts the AP two levels down, the tiers put it on row three.
+    expect(tieredLayout.positions.get("dev:uuid-ap")!.y).toBe(3 * depth);
+    expect(treeLayout.positions.get("dev:uuid-ap")!.y).toBe(2 * depth);
+  });
+
+  it("recomputes the positions when the layout changes", async () => {
+    const el = await graph();
+    const before = translate(el, "dev:uuid-ap");
+    el.layoutMode = "tiered";
+    await el.updateComplete;
+    const after = translate(el, "dev:uuid-ap");
+    expect(after).not.toBe(before);
+    expect(after).toBe(
+      `transform: translate(0px, ${3 * SPACING.comfortable.depth}px)`,
+    );
+    el.layoutMode = "tree";
+    await el.updateComplete;
+    expect(translate(el, "dev:uuid-ap")).toBe(before);
+  });
+});
+
 describe("<uit-graph-view> updates", () => {
   it("fades new nodes in and removed nodes out, unless motion is reduced", async () => {
     const el = await graph({ reducedMotion: false });
@@ -197,5 +420,47 @@ describe("<uit-graph-view> updates", () => {
     el.model = fixtureModel({ clients: "hidden" });
     await el.updateComplete;
     expect(el.shadowRoot!.querySelectorAll("g.exits g.node")).toHaveLength(0);
+  });
+});
+
+describe("plan v3 layout refit", () => {
+  it("starts a fresh fit when the mode changes after zooming", async () => {
+    const el = await graph();
+    el.zoomBy(2);
+    const fit = vi.spyOn(el, "fit");
+    el.layoutMode = "tiered";
+    await el.updateComplete;
+    expect(fit).toHaveBeenCalledExactlyOnceWith(false);
+    const next = layoutTiered(fixtureModel(), "comfortable", "vertical");
+    const t = fitTransform(next.bounds, 800, 600);
+    expect(
+      el.shadowRoot!.querySelector("g.viewport")!.getAttribute("transform"),
+    ).toBe(`translate(${t.x},${t.y}) scale(${t.k})`);
+    fit.mockClear();
+    el.model = fixtureModel({ clients: "expanded" });
+    await el.updateComplete;
+    el.setViewportSize(900, 700);
+    expect(fit).not.toHaveBeenCalled();
+    fit.mockRestore();
+  });
+
+  it("keeps logical tree keyboard movement in tiered mode", async () => {
+    const el = await graph({ layoutMode: "tiered" });
+    byId(el, "dev:uuid-core").focus();
+    for (const [key, id] of [
+      ["ArrowDown", "dev:uuid-flex"],
+      ["ArrowRight", "dev:uuid-lite"],
+      ["ArrowUp", "dev:uuid-core"],
+      ["Home", "dev:uuid-core"],
+      ["ArrowUp", "dev:uuid-gw"],
+    ]) {
+      svgOf(el).dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true }),
+      );
+      await el.updateComplete;
+      await el.updateComplete;
+      expect(el.focusId).toBe(id);
+      expect(el.shadowRoot!.activeElement?.getAttribute("data-id")).toBe(id);
+    }
   });
 });

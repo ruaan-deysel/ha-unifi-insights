@@ -1,0 +1,120 @@
+blueprint:
+  name: UniFi Insights - AP overload alert
+  description: |-
+    Run your actions when an access point is overloaded: too many wireless
+    clients, or (optionally) too high a channel utilisation, for a set time.
+
+    The client count comes from the **Wireless Clients** sensor that UniFi
+    Insights creates for each access point.
+
+    **Channel utilisation:** UniFi Insights does not currently supply a channel
+    utilisation sensor. If you want the utilisation alert, select a utilisation
+    sensor from another source. Leave that input empty to alert on the client
+    count only.
+
+    A reading that follows `unknown` or `unavailable` (for example after a
+    restart or an outage) is ignored, so a recovering sensor does not raise a
+    false alert. The actions can use `trigger.id` (`client_overload` or
+    `utilisation`), `trigger.entity_id` and `trigger.to_state`. The inputs are
+    available as `client_sensors`, `client_threshold`, `utilisation_sensors`,
+    `utilisation_threshold` and `duration`. The trigger values are available as
+    `trigger_id`, `entity_id`, `from_state` and `to_state`, alongside Home
+    Assistant's `trigger` object.
+  domain: automation
+  homeassistant:
+    min_version: "2026.6.0"
+  input:
+    client_sensors:
+      name: Access point client sensors
+      description: >-
+        The `wireless_clients` (**Wireless Clients**) sensors of the access points to watch.
+      selector:
+        entity:
+          integration: unifi_insights
+          domain: sensor
+          multiple: true
+    client_threshold:
+      name: Client threshold
+      description: >-
+        Alert when an access point has more wireless clients than this.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 500
+          mode: box
+    utilisation_sensors:
+      name: Channel utilisation sensors (optional)
+      description: >-
+        Channel utilisation sensors, in percent, from another source. UniFi
+        Insights does not currently supply one. Leave empty to skip the
+        utilisation alert.
+      default: []
+      selector:
+        entity:
+          domain: sensor
+          multiple: true
+    utilisation_threshold:
+      name: Utilisation threshold
+      description: >-
+        Alert when a channel utilisation sensor is above this value. Only used
+        when you select utilisation sensors.
+      default: 80
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+          mode: box
+    duration:
+      name: Duration
+      description: >-
+        How long a sensor must stay above its threshold before the actions run.
+      default:
+        hours: 0
+        minutes: 5
+        seconds: 0
+      selector:
+        duration: {}
+    alert_actions:
+      name: Actions
+      description: >-
+        What to do when an access point is overloaded, for example send a
+        notification.
+      selector:
+        action: {}
+
+mode: queued
+max: 100
+
+variables:
+  client_sensors: !input client_sensors
+  client_threshold: !input client_threshold
+  utilisation_sensors: !input utilisation_sensors
+  utilisation_threshold: !input utilisation_threshold
+  duration: !input duration
+  trigger_id: "{{ trigger.id }}"
+  entity_id: "{{ trigger.entity_id }}"
+  from_state: >-
+    {{ trigger.from_state.as_dict() if trigger.from_state is not none else none }}
+  to_state: "{{ trigger.to_state.as_dict() }}"
+
+triggers:
+  - trigger: numeric_state
+    id: client_overload
+    entity_id: !input client_sensors
+    above: !input client_threshold
+    for: !input duration
+  - trigger: numeric_state
+    id: utilisation
+    entity_id: !input utilisation_sensors
+    above: !input utilisation_threshold
+    for: !input duration
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unknown', 'unavailable'] }}
+
+actions: !input alert_actions

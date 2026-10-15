@@ -1,6 +1,7 @@
 import { hierarchy, tree } from "d3-hierarchy";
-import type { Density, Orientation } from "../config";
-import type { GraphModel } from "./graph-model";
+import type { Density, LayoutMode, Orientation } from "../config";
+import type { NodeKind } from "../contract";
+import type { GraphModel, Visual } from "./graph-model";
 
 export interface Point {
   x: number;
@@ -36,15 +37,55 @@ export const CULL_THRESHOLD = 300;
 
 const SUPER_ROOT = "\u0000root";
 
-/** Tidy-tree layout of the model; a synthetic super-root turns the forest into one tree. */
+const emptyLayout = (): Layout => ({
+  positions: new Map(),
+  bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 },
+});
+
+/** The layout axes are `along` a level and `down` through the levels; horizontal swaps them. */
+const toPoint = (
+  along: number,
+  down: number,
+  orientation: Orientation,
+): Point =>
+  orientation === "vertical" ? { x: along, y: down } : { x: down, y: along };
+
+/** Layout from positions, with the bounds that enclose them. */
+function layoutOf(positions: Map<string, Point>): Layout {
+  const bounds: Bounds = {
+    minX: Infinity,
+    minY: Infinity,
+    maxX: -Infinity,
+    maxY: -Infinity,
+  };
+  for (const p of positions.values()) {
+    bounds.minX = Math.min(bounds.minX, p.x);
+    bounds.minY = Math.min(bounds.minY, p.y);
+    bounds.maxX = Math.max(bounds.maxX, p.x);
+    bounds.maxY = Math.max(bounds.maxY, p.y);
+  }
+  return { positions, bounds };
+}
+
+/** Both modes use the same positions-and-bounds contract. */
 export function layoutModel(
   model: GraphModel,
   density: Density,
   orientation: Orientation,
+  mode: LayoutMode = "tree",
 ): Layout {
-  const positions = new Map<string, Point>();
-  if (model.roots.length === 0)
-    return { positions, bounds: { minX: 0, minY: 0, maxX: 0, maxY: 0 } };
+  return mode === "tiered"
+    ? layoutTiered(model, density, orientation)
+    : layoutTree(model, density, orientation);
+}
+
+/** Tidy-tree layout of the model; a synthetic super-root turns the forest into one tree. */
+function layoutTree(
+  model: GraphModel,
+  density: Density,
+  orientation: Orientation,
+): Layout {
+  if (model.roots.length === 0) return emptyLayout();
   const { breadth, depth } = SPACING[density];
   const root = hierarchy<string>(SUPER_ROOT, (id) =>
     id === SUPER_ROOT ? model.roots : model.children.get(id),
@@ -52,27 +93,82 @@ export function layoutModel(
   const laidOut = tree<string>()
     .nodeSize([breadth, depth])
     .separation((a, b) => (a.parent === b.parent ? 1 : 1.25))(root);
-  const bounds: Bounds = {
-    minX: Infinity,
-    minY: Infinity,
-    maxX: -Infinity,
-    maxY: -Infinity,
-  };
+  const positions = new Map<string, Point>();
   for (const n of laidOut.descendants()) {
     if (n.data === SUPER_ROOT) continue;
-    const along = n.x;
-    const down = (n.depth - 1) * depth;
-    const p =
-      orientation === "vertical"
-        ? { x: along, y: down }
-        : { x: down, y: along };
-    positions.set(n.data, p);
-    bounds.minX = Math.min(bounds.minX, p.x);
-    bounds.minY = Math.min(bounds.minY, p.y);
-    bounds.maxX = Math.max(bounds.maxX, p.x);
-    bounds.maxY = Math.max(bounds.maxY, p.y);
+    positions.set(n.data, toPoint(n.x, (n.depth - 1) * depth, orientation));
   }
-  return { positions, bounds };
+  return layoutOf(positions);
+}
+
+/** Tier of each node kind, top row first; client groups share the clients' tier. */
+const TIER: Record<NodeKind, number> = {
+  gateway: 0,
+  switch: 1,
+  access_point: 2,
+  other: 3,
+  client: 4,
+};
+const TIER_COUNT = TIER.client + 1;
+const tierOf = (visual: Visual): number =>
+  visual.type === "group"
+    ? TIER.client
+    : (TIER[visual.node.kind] ?? TIER.other);
+
+/**
+ * Role tiers with parent-relative sub-rows, stacked without empty tiers.
+ * Forest pre-order keeps siblings adjacent within each occupied row.
+ */
+export function layoutTiered(
+  model: GraphModel,
+  density: Density,
+  orientation: Orientation,
+): Layout {
+  if (model.roots.length === 0) return emptyLayout();
+  const { breadth, depth } = SPACING[density];
+
+  // Pre-order: each parent gets its slot before its children.
+  const slots = new Map<string, { tier: number; sub: number }>();
+  const pending = [...model.roots].reverse();
+  const preorder: string[] = [];
+  const subRows = new Array<number>(TIER_COUNT).fill(0);
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    preorder.push(id);
+    const tier = tierOf(model.visuals.get(id)!);
+    const parent = model.parentOf.get(id);
+    const above = parent === undefined ? undefined : slots.get(parent)!;
+    const effectiveTier = Math.max(tier, above?.tier ?? tier);
+    const slot = {
+      tier: effectiveTier,
+      sub: above?.tier === effectiveTier ? above.sub + 1 : 0,
+    };
+    slots.set(id, slot);
+    subRows[slot.tier] = Math.max(subRows[slot.tier]!, slot.sub + 1);
+    pending.push(...[...(model.children.get(id) ?? [])].reverse());
+  }
+
+  const firstRow: number[] = [];
+  let rowCount = 0;
+  for (const count of subRows) {
+    firstRow.push(rowCount);
+    rowCount += count;
+  }
+  const rows: string[][] = Array.from({ length: rowCount }, () => []);
+  for (const id of preorder) {
+    const { tier, sub } = slots.get(id)!;
+    rows[firstRow[tier]! + sub]!.push(id);
+  }
+
+  const positions = new Map<string, Point>();
+  rows.forEach((ids, row) => {
+    ids.forEach((id, i) => {
+      // All rows share centre zero, including the widest row.
+      const offset = (i - (ids.length - 1) / 2) * breadth;
+      positions.set(id, toPoint(offset, row * depth, orientation));
+    });
+  });
+  return layoutOf(positions);
 }
 
 /** Transform that centres `bounds` in the viewport, scaled into [0.2, 1.5]. */

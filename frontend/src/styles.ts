@@ -83,3 +83,49 @@ export const controlStyles = css`
     }
   }
 `;
+
+export const menuStyles = css`
+  :host {
+    position: relative;
+    display: inline-flex;
+  }
+  .trigger {
+    border: none;
+    padding: 0;
+  }
+  .menu {
+    position: absolute;
+    inset-block-start: calc(100% + 4px);
+    inset-inline-start: 0;
+    z-index: 3;
+    box-sizing: border-box;
+    width: max-content;
+    min-width: 13em;
+    max-width: min(22em, 80vw);
+    padding: 4px;
+    background: var(--card-background-color);
+    border: 1px solid var(--uit-line);
+    border-radius: 12px;
+    box-shadow: var(--ha-card-box-shadow, 0 4px 14px rgba(0, 0, 0, 0.18));
+  }
+  [role="menuitem"] {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: none;
+    border-radius: 8px;
+    font: inherit;
+    color: var(--primary-text-color);
+    background: none;
+    text-align: start;
+    cursor: pointer;
+  }
+  button[role="menuitem"]:hover,
+  button[role="menuitem"]:focus {
+    background: color-mix(in srgb, var(--uit-focus) 14%, transparent);
+  }
+`;

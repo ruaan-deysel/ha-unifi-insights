@@ -163,4 +163,110 @@ describe("<uit-list-view>", () => {
     expect(names[0]!.textContent).toBe(hostile);
     expect(names[1]!.title).toBe(long);
   });
+
+  describe("context requests", () => {
+    const contexts = (el: UitListView) => {
+      const seen: CustomEvent[] = [];
+      el.addEventListener("uit-context", (e) => seen.push(e as CustomEvent));
+      return seen;
+    };
+    const keydown = (
+      el: UitListView,
+      k: string,
+      init: KeyboardEventInit = {},
+    ) => {
+      const event = new KeyboardEvent("keydown", {
+        key: k,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      el.shadowRoot!.querySelector('[role="tree"]')!.dispatchEvent(event);
+      return event;
+    };
+
+    it("asks for the row's actions on a context click and hides the browser menu", async () => {
+      const el = await mount<UitListView>("uit-list-view", props());
+      const seen = contexts(el);
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      });
+      rowsOf(el)[3]!.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(seen.map((e) => e.detail)).toEqual([{ id: "dev:uuid-lite" }]);
+      expect(seen[0]!.bubbles && seen[0]!.composed).toBe(true);
+    });
+
+    it("asks on the ContextMenu key and on Shift+F10 for the focused row", async () => {
+      const el = await mount<UitListView>("uit-list-view", props());
+      const seen = contexts(el);
+      rowsOf(el)[1]!.focus();
+      const viaKey = keydown(el, "ContextMenu");
+      const viaShift = keydown(el, "F10", { shiftKey: true });
+      expect(viaKey.defaultPrevented && viaShift.defaultPrevented).toBe(true);
+      expect(seen.map((e) => e.detail)).toEqual([
+        { id: "dev:uuid-core" },
+        { id: "dev:uuid-core" },
+      ]);
+    });
+
+    it("reports a client group row too", async () => {
+      const el = await mount<UitListView>("uit-list-view", props());
+      const seen = contexts(el);
+      rowsOf(el)[6]!.focus();
+      keydown(el, "ContextMenu");
+      expect(seen.map((e) => e.detail)).toEqual([{ id: "group:dev:uuid-u1" }]);
+    });
+
+    it("keeps F10 without Shift and the type-ahead keys as they were", async () => {
+      const el = await mount<UitListView>("uit-list-view", props());
+      const seen = contexts(el);
+      rowsOf(el)[0]!.focus();
+      const plain = keydown(el, "F10");
+      expect(plain.defaultPrevented).toBe(false);
+      expect(seen).toHaveLength(0);
+      keydown(el, "l");
+      await el.updateComplete;
+      expect(el.shadowRoot!.activeElement?.getAttribute("data-id")).toBe(
+        "dev:uuid-lite",
+      );
+    });
+  });
+});
+
+describe("plan v3 list gestures", () => {
+  it.each(["pan", "pinch"])(
+    "suppresses contextmenu during %s",
+    async (gesture) => {
+      const el = await mount<UitListView>("uit-list-view", {
+        model: fixtureModel(),
+        localize,
+      });
+      const row = rowsOf(el)[0]!;
+      const emitted = vi.fn();
+      el.addEventListener("uit-context", emitted);
+      const pointer = (type: string, id: number, x: number) => {
+        const event = new Event(type, { bubbles: true });
+        Object.assign(event, {
+          pointerId: id,
+          isPrimary: id === 1,
+          clientX: x,
+          clientY: 0,
+        });
+        row.dispatchEvent(event);
+      };
+      pointer("pointerdown", 1, 0);
+      if (gesture === "pan") pointer("pointermove", 1, 20);
+      else pointer("pointerdown", 2, 0);
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+      });
+      row.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(emitted).not.toHaveBeenCalled();
+    },
+  );
 });

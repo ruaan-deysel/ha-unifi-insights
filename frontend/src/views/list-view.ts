@@ -1,3 +1,4 @@
+import { ContextGesture } from "./context-gesture";
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { defineOnce } from "../define";
@@ -107,6 +108,7 @@ export class UitListView extends LitElement {
   declare focusId?: string;
 
   private rows: ListRow[] = [];
+  private gesture = new ContextGesture();
   private typeahead = "";
   private typeaheadTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -179,6 +181,15 @@ export class UitListView extends LitElement {
       tabindex=${row.id === this.focusId ? 0 : -1}
       style=${`--level: ${row.level}`}
       @click=${() => fireEvent(this, "uit-activate", { id: row.id })}
+      @pointerdown=${(e: PointerEvent) => this.gesture.down(e)}
+      @pointermove=${(e: PointerEvent) => this.gesture.move(e)}
+      @pointerup=${(e: PointerEvent) => this.gesture.end(e)}
+      @pointercancel=${(e: PointerEvent) => this.gesture.end(e)}
+      @contextmenu=${(e: Event) => {
+        e.preventDefault();
+        if (this.gesture.allowsMenu)
+          fireEvent(this, "uit-context", { id: row.id });
+      }}
       @focus=${() => {
         this.focusId = row.id;
       }}
@@ -224,6 +235,11 @@ export class UitListView extends LitElement {
     const index = rows.findIndex((r) => r.id === this.focusId);
     const row = rows[index];
     if (!row) return;
+    if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+      e.preventDefault();
+      fireEvent(this, "uit-context", { id: row.id });
+      return;
+    }
     let target: string | undefined;
     switch (e.key) {
       case "ArrowDown":

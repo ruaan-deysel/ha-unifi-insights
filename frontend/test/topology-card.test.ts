@@ -1,10 +1,14 @@
+import type { MessageBase } from "../src/ha-types";
 import type { TopologyCardConfig } from "../src/config";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import "../src/index";
 import { WS_SUBSCRIBE } from "../src/contract";
 import { BACKOFF_BASE_MS } from "../src/data/subscription";
 import { UnifiInsightsTopologyCard } from "../src/topology-card";
+import type { UitDetailPanel } from "../src/views/detail-panel";
 import type { UitGraphView } from "../src/views/graph-view";
+import type { UitListView } from "../src/views/list-view";
+import type { UitNodeMenu } from "../src/views/node-menu";
 import {
   SOURCES_MULTI,
   SOURCES_ONE,
@@ -306,12 +310,299 @@ describe("interaction", () => {
     ).toBe(true);
   });
 
+  it("passes the configured layout to the graph", async () => {
+    const { el } = await loaded();
+    expect(graphOf(el).layoutMode).toBe("tree");
+    const tiered = await loaded({ layout: "tiered" });
+    expect(graphOf(tiered.el).layoutMode).toBe("tiered");
+  });
+
   it("lets the wheel zoom directly only in panel view", async () => {
     const { el } = await loaded();
     expect(graphOf(el).ctrlZoom).toBe(true);
     el.layout = "panel";
     await settle(el);
     expect(graphOf(el).ctrlZoom).toBe(false);
+  });
+});
+
+describe("node action menu", () => {
+  const DETAILS = {
+    "dev:uuid-core": {
+      kind: "switch" as const,
+      ip_address: "192.0.2.10",
+      mac_address: "aa:bb:cc:dd:ee:ff",
+      device_id: "reg-core",
+      entity_id: "sensor.core_status",
+    },
+    "cli:cli-tv": {
+      kind: "client" as const,
+      ip_address: "192.0.2.77",
+    },
+  };
+
+  async function loaded(admin: boolean | undefined = true) {
+    const fake = fakeHass({ admin, details: DETAILS });
+    const { el } = await card({}, fake);
+    fake.push(fixtureSnapshot());
+    await settle(el);
+    return { el, fake };
+  }
+  const panelOf = (el: Element) => q<UitDetailPanel>(el, "uit-detail-panel")!;
+  const menuOf = (el: Element) =>
+    panelOf(el).shadowRoot!.querySelector<UitNodeMenu>("uit-node-menu");
+  const menuList = (el: Element) =>
+    menuOf(el)?.shadowRoot!.querySelector('[role="menu"]') ?? null;
+  const nodeIn = (el: Element, id: string) =>
+    [...graphOf(el).shadowRoot!.querySelectorAll<SVGGElement>("g.node")].find(
+      (n) => n.getAttribute("data-id") === id,
+    )!;
+  const contextClick = (target: Element) =>
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+      }),
+    );
+  const escapeOn = (target: Element) =>
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        composed: true,
+        cancelable: true,
+      }),
+    );
+
+  it("hands the panel the user and the site's session", async () => {
+    const { el, fake } = await loaded();
+    expect(panelOf(el).hass).toBe(fake.hass);
+  });
+
+  it("hands the panel a changed administrator flag even though nothing else changed", async () => {
+    const { el, fake } = await loaded();
+    dispatch(el, "uit-activate", "dev:uuid-core");
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuOf(el)!.actions).toContain("copy_ip");
+
+    // Same connection and language: only the user's rights differ.
+    const demoted = {
+      ...fake.hass,
+      user: { is_admin: false },
+    } as typeof fake.hass;
+    el.hass = demoted;
+    await settle(el);
+    await settle(panelOf(el));
+    expect(panelOf(el).hass).toBe(demoted);
+    expect(menuOf(el)).toBeNull();
+  });
+
+  it("waits for fetched details and drops a stale context token after selection changes", async () => {
+    const { el, fake } = await loaded();
+    let answer!: (details: unknown) => void;
+    const previous = fake.hass.callWS;
+    fake.hass.callWS = ((message: MessageBase) =>
+      message.type === "unifi_insights/topology/node_details"
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : previous(message)) as never;
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    expect(menuOf(el)).toBeNull();
+    dispatch(el, "uit-select", "dev:uuid-flex");
+    await settle(el);
+    expect(el.menuRequest).toBeUndefined();
+    answer({ kind: "switch", device_id: "reg-flex" });
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuList(el)).toBeNull();
+    expect(menuOf(el)!.actions).toEqual(["open_device"]);
+  });
+
+  it("opens only after the details for the context node arrive", async () => {
+    const { el, fake } = await loaded();
+    let answer!: (details: unknown) => void;
+    const previous = fake.hass.callWS;
+    fake.hass.callWS = ((message: MessageBase) =>
+      message.type === "unifi_insights/topology/node_details"
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : previous(message)) as never;
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    expect(panelOf(el).selectedId).toBe("dev:uuid-core");
+    expect(menuOf(el)).toBeNull();
+    answer(DETAILS["dev:uuid-core"]);
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuList(el)).not.toBeNull();
+  });
+
+  it("expands the containing group for context selection without toggling it again", async () => {
+    const { el } = await loaded();
+    dispatch(el, "uit-context", "cli:cli-tv");
+    await settle(el);
+    expect(el.ui.toggledGroups.has("group:dev:uuid-u1")).toBe(true);
+    expect(el.selectedId).toBe("cli:cli-tv");
+    dispatch(el, "uit-context", "cli:cli-tv");
+    await settle(el);
+    expect(el.ui.toggledGroups.has("group:dev:uuid-u1")).toBe(true);
+  });
+
+  it("drops fetched details after the card is detached", async () => {
+    const { el, fake } = await loaded();
+    let answer!: (details: unknown) => void;
+    const previous = fake.hass.callWS;
+    fake.hass.callWS = ((message: MessageBase) =>
+      message.type === "unifi_insights/topology/node_details"
+        ? new Promise((resolve) => {
+            answer = resolve;
+          })
+        : previous(message)) as never;
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    el.remove();
+    answer(DETAILS["dev:uuid-core"]);
+    await settle(el);
+    expect(panelOf(el).details).toBeUndefined();
+    expect(el.menuRequest).toBeUndefined();
+  });
+
+  it("selects the node and opens its menu on the first item after a context click", async () => {
+    const { el } = await loaded();
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    await settle(panelOf(el));
+    expect(el.selectedId).toBe("dev:uuid-core");
+    expect(panelOf(el).selectedId).toBe("dev:uuid-core");
+    const menu = menuOf(el)!;
+    expect(menuList(el)).not.toBeNull();
+    expect(menu.shadowRoot!.activeElement).toBe(
+      menu.shadowRoot!.querySelector('[data-action="copy_ip"]'),
+    );
+  });
+
+  it("does the same from a list row", async () => {
+    const { el } = await loaded();
+    button(el, "List").click();
+    await settle(el);
+    const list = q<UitListView>(el, "uit-list-view")!;
+    const row = list.shadowRoot!.querySelector<HTMLElement>(
+      '[data-id="dev:uuid-core"]',
+    )!;
+    contextClick(row);
+    await settle(el);
+    await settle(panelOf(el));
+    expect(el.selectedId).toBe("dev:uuid-core");
+    expect(menuList(el)).not.toBeNull();
+  });
+
+  it("selects a client group without a menu or a toggle", async () => {
+    const { el } = await loaded();
+    const group = "group:dev:uuid-ap";
+    contextClick(nodeIn(el, group));
+    await settle(el);
+    await settle(panelOf(el));
+    expect(el.selectedId).toBe(group);
+    expect(panelOf(el).menuRequest).toBeUndefined();
+    expect(menuOf(el)).toBeNull();
+    expect(graphOf(el).model?.visuals.has("cli:cli-phone")).toBe(false);
+  });
+
+  it("selects a client for a non-administrator without any menu", async () => {
+    const { el, fake } = await loaded(false);
+    button(el, "List").click();
+    await settle(el);
+    dispatch(el, "uit-select", "cli:cli-tv");
+    await settle(el);
+    dispatch(el, "uit-context", "cli:cli-tv");
+    await settle(el);
+    await settle(panelOf(el));
+    expect(el.selectedId).toBe("cli:cli-tv");
+    expect(menuOf(el)).toBeNull();
+    expect(
+      vi
+        .mocked(fake.hass.callWS)
+        .mock.calls.some(
+          ([message]) =>
+            (message as { type: string }).type ===
+            "unifi_insights/topology/node_details",
+        ),
+    ).toBe(false);
+  });
+
+  it("ignores a context request for a node that is not drawn", async () => {
+    const { el } = await loaded();
+    dispatch(el, "uit-context", "dev:gone");
+    await settle(el);
+    expect(el.selectedId).toBeUndefined();
+  });
+
+  it("opens again on every context request, not only the first", async () => {
+    const { el } = await loaded();
+    const node = nodeIn(el, "dev:uuid-core");
+    contextClick(node);
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuList(el)).not.toBeNull();
+    menuOf(el)!.hide();
+    await settle(panelOf(el));
+    expect(menuList(el)).toBeNull();
+    contextClick(node);
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuList(el)).not.toBeNull();
+  });
+
+  it("does not clear selection for card-level Escape while the menu is open", async () => {
+    const { el } = await loaded();
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuOf(el)!.open).toBe(true);
+    escapeOn(el.shadowRoot!.querySelector("ha-card")!);
+    await settle(el);
+    expect(el.selectedId).toBe("dev:uuid-core");
+  });
+
+  it("closes only the menu on Escape and the details on the next Escape", async () => {
+    const { el } = await loaded();
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    await settle(panelOf(el));
+    const item =
+      menuOf(el)!.shadowRoot!.querySelector<HTMLElement>('[role="menuitem"]')!;
+    escapeOn(item);
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuList(el)).toBeNull();
+    expect(el.selectedId).toBe("dev:uuid-core");
+
+    escapeOn(menuOf(el)!.shadowRoot!.querySelector("button.trigger")!);
+    await settle(el);
+    expect(el.selectedId).toBeUndefined();
+  });
+
+  it("forgets the request when the details close, so a plain selection stays shut", async () => {
+    const { el } = await loaded();
+    contextClick(nodeIn(el, "dev:uuid-core"));
+    await settle(el);
+    await settle(panelOf(el));
+    panelOf(el)
+      .shadowRoot!.querySelector<HTMLButtonElement>("button.close")!
+      .click();
+    await settle(el);
+    expect(el.selectedId).toBeUndefined();
+    expect(panelOf(el).menuRequest).toBeUndefined();
+
+    dispatch(el, "uit-activate", "dev:uuid-core");
+    await settle(el);
+    await settle(panelOf(el));
+    expect(menuList(el)).toBeNull();
   });
 });
 
@@ -455,4 +746,26 @@ describe("lifecycle", () => {
     expect(fake.subs).toHaveLength(2);
     expect(fake.subs[1]!.unsubscribe).not.toHaveBeenCalled();
   });
+});
+
+it("keeps configured tiered layout independent of HA panel layout and refits on config changes", async () => {
+  const fake = fakeHass();
+  const { el } = await card({ layout: "tiered" }, fake);
+  fake.push(fixtureSnapshot());
+  await settle(el);
+  el.layout = "panel";
+  await settle(el);
+  const graph = graphOf(el);
+  graph.setViewportSize(800, 600);
+  expect(graph.layoutMode).toBe("tiered");
+  expect(graph.ctrlZoom).toBe(false);
+  const fit = vi.spyOn(graph, "fit");
+  el.setConfig({ type: TYPE, layout: "tree" });
+  await settle(el);
+  await settle(graph);
+  expect(graph.layoutMode).toBe("tree");
+  expect(el.layout).toBe("panel");
+  expect(graph.ctrlZoom).toBe(false);
+  expect(fit).toHaveBeenCalledExactlyOnceWith(false);
+  fit.mockRestore();
 });

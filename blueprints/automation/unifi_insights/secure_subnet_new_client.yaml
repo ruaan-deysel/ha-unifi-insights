@@ -1,0 +1,112 @@
+blueprint:
+  name: UniFi Insights - Secure subnet new client alert
+  description: |-
+    Run your actions when a new client appears on a secure VLAN.
+
+    **Prerequisite - client tracking is opt-in.** UniFi Insights only creates a
+    device tracker for each client when you turn on **Track WiFi Clients** or
+    **Track Wired Clients** in the integration options. This blueprint reacts
+    to the creation of a new tracker, so it does nothing until client tracking
+    is on. Enabling client tracking for the first time creates many trackers
+    at once, and each one that matches your secure prefixes runs the actions,
+    but only 100 runs can be active at the same time. Runs beyond 100
+    concurrent runs are dropped, so a large burst can miss clients. Enable
+    tracking first and add this automation afterwards if you do not want that
+    burst.
+
+    **How the VLAN is found:** trackers carry no VLAN or network name, so the
+    VLAN is inferred from the client IP address. Each secure VLAN needs its own
+    IP prefix, such as `10.0.50.`, and a client counts as being on it when its
+    IP address starts with that prefix.
+
+    Only the first creation of a tracker causes an alert, so returning clients
+    do not. The 10-second wait is fixed, and a missing IP address after the wait
+    causes no alert. Home Assistant logs a warning when more than 100 concurrent
+    runs are dropped.
+
+    The actions can use `tracker` (the tracker entity ID), `ip_address` and
+    `matched_prefix`. The blueprint does not pass the MAC address to the actions as a variable.
+  domain: automation
+  homeassistant:
+    min_version: "2026.6.0"
+  input:
+    subnet_prefixes:
+      name: Secure subnet prefixes
+      description: >-
+        IP address prefixes of the secure VLANs. Write each one with its
+        trailing dot, for example `10.0.50.`. Add one entry per VLAN.
+      selector:
+        text:
+          multiple: true
+    allowed_trackers:
+      name: Allowed trackers (optional)
+      description: >-
+        Known clients that should not alert, even on a secure prefix.
+      default: []
+      selector:
+        entity:
+          integration: unifi_insights
+          domain: device_tracker
+          multiple: true
+    alert_actions:
+      name: Actions
+      description: >-
+        What to do when a new client appears on a secure VLAN, for example send
+        a notification.
+      selector:
+        action: {}
+
+mode: parallel
+max: 100
+
+variables:
+  tracker: "{{ trigger.event.data.entity_id }}"
+  subnet_prefixes: !input subnet_prefixes
+  prefixes: "{{ subnet_prefixes | map('trim') | reject('equalto', '') | list }}"
+  allowed_trackers: !input allowed_trackers
+
+triggers:
+  - trigger: event
+    event_type: entity_registry_updated
+    event_data:
+      action: create
+
+conditions:
+  - condition: template
+    value_template: "{{ tracker.startswith('device_tracker.') }}"
+  - condition: template
+    value_template: "{{ tracker in integration_entities('unifi_insights') }}"
+  - condition: template
+    value_template: "{{ tracker not in allowed_trackers }}"
+  - condition: template
+    value_template: "{{ prefixes | length > 0 }}"
+
+actions:
+  # The registry entry precedes the tracker state; this wait is fixed at 10 seconds.
+  - delay: "00:00:10"
+  - condition: template
+    value_template: "{{ state_attr(tracker, 'source_type') == 'router' }}"
+  - variables:
+      # Home Assistant exposes ScannerEntity.ip_address as the state attribute ip.
+      ip_address: "{{ state_attr(tracker, 'ip') }}"
+  - condition: template
+    value_template: |-
+      {% set ns = namespace(matches=false) %}
+      {% if ip_address is string and ip_address %}
+        {% for prefix in prefixes %}
+          {% if ip_address.startswith(prefix) %}
+            {% set ns.matches = true %}
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+      {{ ns.matches }}
+  - variables:
+      matched_prefix: |-
+        {% set ns = namespace(prefix='') %}
+        {% for prefix in prefixes %}
+          {% if not ns.prefix and ip_address.startswith(prefix) %}
+            {% set ns.prefix = prefix %}
+          {% endif %}
+        {% endfor %}
+        {{ ns.prefix }}
+  - sequence: !input alert_actions

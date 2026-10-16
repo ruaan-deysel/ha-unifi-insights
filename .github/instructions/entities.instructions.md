@@ -1,5 +1,5 @@
 ---
-applyTo: "custom_components/unifi_insights/sensor.py, custom_components/unifi_insights/binary_sensor.py, custom_components/unifi_insights/switch.py, custom_components/unifi_insights/button.py, custom_components/unifi_insights/device_tracker.py, custom_components/unifi_insights/camera.py, custom_components/unifi_insights/light.py, custom_components/unifi_insights/number.py, custom_components/unifi_insights/select.py, custom_components/unifi_insights/event.py, custom_components/unifi_insights/update.py, custom_components/unifi_insights/entity.py"
+applyTo: "custom_components/unifi_insights/alarm_control_panel.py, custom_components/unifi_insights/binary_sensor.py, custom_components/unifi_insights/button.py, custom_components/unifi_insights/camera.py, custom_components/unifi_insights/cover.py, custom_components/unifi_insights/device_tracker.py, custom_components/unifi_insights/event.py, custom_components/unifi_insights/image.py, custom_components/unifi_insights/light.py, custom_components/unifi_insights/lock.py, custom_components/unifi_insights/media_player.py, custom_components/unifi_insights/number.py, custom_components/unifi_insights/select.py, custom_components/unifi_insights/sensor.py, custom_components/unifi_insights/siren.py, custom_components/unifi_insights/switch.py, custom_components/unifi_insights/update.py, custom_components/unifi_insights/entity.py, custom_components/unifi_insights/access_entity.py, custom_components/unifi_insights/carrier_fabric_entity.py, custom_components/unifi_insights/carrier_fabric_sensor.py, custom_components/unifi_insights/innerspace_entity.py, custom_components/unifi_insights/mobility_entity.py, custom_components/unifi_insights/network_rule_audit_event.py, custom_components/unifi_insights/network_rule_switch.py, custom_components/unifi_insights/protect_security_entity.py, custom_components/unifi_insights/site_internet_activity_sensor.py, custom_components/unifi_insights/storage_entity.py, custom_components/unifi_insights/voucher_sensor.py"
 ---
 
 # Entity Instructions
@@ -8,29 +8,31 @@ applyTo: "custom_components/unifi_insights/sensor.py, custom_components/unifi_in
 
 ## Base Entity Classes
 
-Two base classes in `entity.py`:
+- **`UnifiInsightsEntity`** (`entity.py`) — Network devices; availability via `is_device_online` helper.
+- **`UnifiProtectEntity`** (`entity.py`) — Protect devices; availability via `state == CONNECTED`.
+- **`UnifiAccessEntity` / `UnifiAccessDoorEntity`** (`access_entity.py`) — UniFi Access doors, readers, and hubs.
+- **`UnifiInnerSpaceEntity`** (`innerspace_entity.py`) — UniFi InnerSpace floor plans and spatial sensors.
+- **`UnifiCarrierFabricEntity` / `UnifiCarrierFabricSubscriberEntity`** (`carrier_fabric_entity.py`) — UniFi Carrier Fabric OLTs, ONUs, and subscribers.
+- **Specialized Entity Mixins/Helpers:** `mobility_entity.py`, `protect_security_entity.py`, `storage_entity.py`, `site_internet_activity_sensor.py`, `voucher_sensor.py`, `network_rule_switch.py`, `network_rule_audit_event.py`.
 
-- **`UnifiInsightsEntity`** — For network devices. Availability via `is_device_online` helper.
-- **`UnifiProtectEntity`** — For Protect devices. Availability via `state == CONNECTED`.
-
-Both handle camelCase/snake_case field mapping via `get_field()`.
+All base classes handle camelCase/snake_case field mapping via `get_field()` and `first_not_none()` (`data_transforms.py`).
 
 ## MRO (Method Resolution Order)
 
-**CRITICAL:** Platform base class MUST come first:
+**CRITICAL:** Custom integration base class (`CoordinatorEntity` subclass) MUST come before the Home Assistant platform entity class:
 
 ```python
 # Correct
 class MySwitch(UnifiInsightsEntity, SwitchEntity): ...
 
 
-# Wrong - will cause MRO errors
+# Wrong - will cause MRO / CoordinatorEntity initialization errors
 class MySwitch(SwitchEntity, UnifiInsightsEntity): ...
 ```
 
 ## EntityDescription Pattern
 
-Use dataclasses for static entity metadata:
+Use frozen, keyword-only dataclasses for static entity metadata:
 
 ```python
 @dataclass(frozen=True, kw_only=True)
@@ -40,6 +42,10 @@ class UnifiInsightsSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any]], StateType] | None = None
 ```
 
+- Assign `EntityCategory.DIAGNOSTIC` or `EntityCategory.CONFIG` appropriately (Gold `entity-category`).
+- Set `entity_registry_enabled_default = False` on noisy, advanced, or high-frequency diagnostic entities (Gold `entity-disabled-by-default`).
+- Use `suggested_unit_of_measurement` and `suggested_display_precision` where appropriate.
+
 ## Platform Setup
 
 Every platform file must implement:
@@ -47,44 +53,61 @@ Every platform file must implement:
 ```python
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: UnifiInsightsConfigEntry,
+    entry: UnifiInsightsConfigEntry,  # or UnifiInsightsConfigEntry | CarrierFabricConfigEntry
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up UniFi Insights sensors from a config entry."""
+    """Set up UniFi Insights entities from a config entry."""
 ```
 
-## Data Access
+- Use `UnifiInsightsConfigEntry` for standard console platforms and `CarrierFabricConfigEntry` (or `UnifiInsightsConfigEntry | CarrierFabricConfigEntry` on shared platforms such as `sensor.py`) when the platform supports Carrier Fabric entries.
+- Declare `PARALLEL_UPDATES = 0` for read-only coordinator-driven platforms and `PARALLEL_UPDATES = 1` for action-based platforms (Silver `parallel-updates`).
 
-- ALWAYS read from `coordinator.data` — never call API directly
-- Use `get_field()` for field access (handles camelCase tolerance)
-- Set `PARALLEL_UPDATES = 0` for coordinator-driven entities
-- Set `PARALLEL_UPDATES = 1` for action-based Protect entities
+## Data Access & Availability
 
-## Availability
+- ALWAYS read from `coordinator.data` — never call API clients directly from entity state properties.
+- Use `get_field(data, "camelCase", "snake_case")` and `first_not_none(...)` so falsy values (`0`, `False`, `0.0`) are preserved instead of falling back via `or`.
+- Never raise exceptions inside `@property` methods; return `None` when a value is unknown/unavailable.
 
-- Network entities: Use `is_device_online` helper
-- Protect entities: Check `state == CONNECTED`
-- Don't raise exceptions from `@property` methods
-- Return `None` for unavailable state values
+## Entity Naming & Translations
 
-## Entity Naming
+- Set `_attr_has_entity_name = True` on all entities (Bronze `has-entity-name`).
+- Set `_attr_translation_key` (or `EntityDescription.translation_key`) and define matching entries in `strings.json` and `translations/en.json` (Gold `entity-translations`).
+- Define icon translations in `icons.json` (including `range` state icons where applicable; Gold `icon-translations`).
 
-- Use `translation_key` for translatable names (not hardcoded strings)
-- Use `has_entity_name = True` for proper entity naming
-- Disabled-by-default for diagnostic entities: `entity_registry_enabled_default = False`
+## Entity Lifecycle Hooks (HA 2026.10–2026.11+)
 
-## Existing Platforms
+- **`async_prepare_to_add_to_hass(self) -> None` (HA 2026.10+):** Runs before entity registry entry processing; use it if initialization affects how the entity is registered. Never override `add_to_platform_start`.
+- **`async_added_to_hass(self) -> None`:** Register event/dispatcher/coordinator listeners via `self.async_on_remove(...)` rather than manually cleaning up in `async_will_remove_from_hass`.
+- **`async_entity_id_changed(self, old_entity_id: str) -> None` (`@callback`, HA 2026.10/2026.11+):** From HA 2026.11, renaming an `entity_id` updates the entity in place instead of removing and re-adding it. Any custom entity class that overrides `async_prepare_to_add_to_hass`, `async_added_to_hass`, or `async_will_remove_from_hass` MUST also implement `async_entity_id_changed` (calling `super().async_entity_id_changed(old_entity_id)`) to opt in to in-place `entity_id` updates.
+- **State restoration (HA 2026.11+):** Never access `RestoreStateData.last_states` (removed in 2026.11). Use `RestoreEntity.async_get_last_state()` or `RestoreStateData.async_get_stored_state(entity_id)`.
 
-| Platform            | Purpose                                      | Key patterns                                  |
-| ------------------- | -------------------------------------------- | --------------------------------------------- |
-| `sensor.py`         | CPU, memory, uptime, TX/RX, port stats       | Per-port metrics only for ports with state UP |
-| `binary_sensor.py`  | Online/offline, motion, smart detection      | Uses `lastMotion*`, `lastSmartDetectTypes`    |
-| `switch.py`         | Port enable/disable, PoE, WiFi, client block | Action-based with API calls                   |
-| `button.py`         | Device restart, port power cycle             | Fire-and-forget actions                       |
-| `select.py`         | Recording mode, HDR, video mode, light mode  | Protect-specific selections                   |
-| `number.py`         | Volume, light level controls                 | Numeric Protect controls                      |
-| `event.py`          | Motion, ring, smart detection events         | Event-driven from coordinator                 |
-| `device_tracker.py` | Client presence tracking                     | Based on client data                          |
-| `update.py`         | Firmware update entities                     | Based on device firmware info                 |
-| `camera.py`         | Live view, snapshots, RTSPS                  | Protect camera streams                        |
-| `light.py`          | Protect light brightness/mode                | Protect light control                         |
+## Device Registry Rules (HA 2026.8–2026.10+)
+
+- **Single config entry per device:** Every device belongs to a single config entry (`DeviceEntry.config_entry_id`) and at most one subentry (`DeviceEntry.config_subentry_id`). Never access deprecated `DeviceEntry.config_entries`, `DeviceEntry.config_entries_subentries`, or `DeviceEntry.primary_config_entry`.
+- **`via_device_id` replaces `via_device`:** `DeviceInfo["via_device"]` and `ATTR_VIA_DEVICE` are deprecated in HA 2026.8+. Link child devices to parent hubs/switches/OLTs using `via_device_id` resolved via `dr.async_get_device_id_by_identifier(hass, entry.entry_id, (DOMAIN, parent_id))` (or `parent_device.id`).
+- **Config-entry-scoped device lookups:** `dev_reg.async_get_device()` is deprecated in HA 2026.8+. Use `dev_reg.async_get_device_by_identifier(entry.entry_id, (DOMAIN, identifier))`, `dev_reg.async_get_device_by_connection(...)`, or `dr.async_get_device_and_config_entry_for_domain(...)`.
+- **`DeviceRegistry` collections:** `dev_reg.devices` and `dev_reg.child_devices` are read-only collections, not raw dicts. Do not call `.get()`, `.values()`, `.keys()`, or `id in dev_reg.devices`, and do not access `dev_reg.deleted_devices`.
+- **`DeviceInfo` fields:** Never use deprecated `default_manufacturer`, `default_model`, or `default_name`. Never read `DeviceEntry.suggested_area` (removed in HA 2026.9; read `DeviceEntry.area_id`).
+- **Requirement for `device_info`:** Attaching a device to an entity requires the entity to have both a `config_entry` and a `unique_id` (HA 2026.8+).
+
+## Existing Platforms (17 Total)
+
+| Platform                 | Purpose                                                                                              | Key patterns                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `alarm_control_panel.py` | Protect security / alarm arming                                                                      | Action-based Protect security control       |
+| `binary_sensor.py`       | Online/offline, motion, smart detection, door/lock state                                             | Network, Protect, Access, InnerSpace        |
+| `button.py`              | Device restart, port power cycle, chime ring, wake-on-LAN                                            | Action-based (`PARALLEL_UPDATES = 1`)       |
+| `camera.py`              | Live view, snapshots, RTSPS streams                                                                  | Protect camera streams                      |
+| `cover.py`               | Garage/gate door control                                                                             | Access door/gate cover control              |
+| `device_tracker.py`      | Wired/wireless client & Mobility device tracking                                                     | Network clients and Mobility devices        |
+| `event.py`               | Motion, doorbell ring, smart detect, Access & rule audit events                                      | Event-driven from coordinator / WS          |
+| `image.py`               | Guest voucher QR codes, InnerSpace floor plan images                                                 | Dynamic image generation / caching          |
+| `light.py`               | Protect floodlight brightness/mode                                                                   | Protect light control                       |
+| `lock.py`                | UniFi Access door lock/unlock                                                                        | Access door lock control                    |
+| `media_player.py`        | Camera speaker / Talkback audio playback                                                             | Protect camera media player                 |
+| `number.py`              | Mic volume, light level, chime volume/repeat, PoE/voucher settings                                   | Numeric configuration controls              |
+| `select.py`              | Recording mode, HDR, video mode, light mode, viewer liveview                                         | Enumerated configuration controls           |
+| `sensor.py`              | CPU, memory, uptime, TX/RX, PoE, SFP, WAN/ISP, Protect, Access, InnerSpace, Mobility, Carrier Fabric | Coordinator-driven (`PARALLEL_UPDATES = 0`) |
+| `siren.py`               | Protect camera alarm siren                                                                           | Protect siren control                       |
+| `switch.py`              | Port/PoE enable, WiFi, firewall/traffic/ACL/NAT/QoS rules, Protect toggles                           | Action-based switches                       |
+| `update.py`              | Network & Protect device firmware updates                                                            | Firmware version & update status            |

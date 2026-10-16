@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Updated `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, and `.github/prompts/*.prompt.md` to reflect Home Assistant 2026.10+ developer best practices, the Integration Quality Scale (Bronze through Platinum), HA 2026.8–2026.11 device registry and entity lifecycle rules (`via_device_id`, `DeviceEntry.config_entry_id`, `async_prepare_to_add_to_hass`, `async_entity_id_changed`), `probatio` schema typing, HA 2026 Web Awesome `--ha-*` frontend custom card standards, current UniFi Developer Portal OpenAPI versions, and all 17 platforms and 15 coordinator modules. [#331](https://github.com/tinkerologie/ha-unifi-insights/issues/331)
+
 ## [2026.10.2] - 2026-10-16
 
 ### Changed

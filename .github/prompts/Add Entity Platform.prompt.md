@@ -6,14 +6,13 @@ description: "Add a new entity platform to the UniFi Insights integration"
 
 # Add Entity Platform
 
-Your goal is to add a new entity platform (e.g., climate, fan, alarm_control_panel) to the UniFi Insights integration.
+Your goal is to add a new entity platform to the UniFi Insights integration following Home Assistant 2026.10+ and Integration Quality Scale standards.
 
 If not provided, ask for:
 
-- Platform type (sensor, binary_sensor, switch, etc.)
-- What data it represents from the UniFi API
-- Whether it's for network devices or Protect devices
-- Entity descriptions (name, icon, device class, state class)
+- Platform type (`sensor`, `binary_sensor`, `switch`, `lock`, `cover`, `media_player`, `siren`, etc.)
+- What data it represents from the UniFi API (Network, Protect, Access, InnerSpace, Mobility, or Carrier Fabric)
+- Entity descriptions (translation key, icon, device class, state class, `EntityCategory`, enabled default)
 
 ## Implementation Steps
 
@@ -21,50 +20,47 @@ If not provided, ask for:
 
 **File:** `custom_components/unifi_insights/<platform>.py`
 
-Follow the pattern from existing platforms (e.g., `sensor.py`):
+Ensure the custom base entity class (`UnifiInsightsEntity`, `UnifiProtectEntity`, `UnifiAccessEntity`, `UnifiInnerSpaceEntity`, or `UnifiCarrierFabricEntity`) comes **before** the Home Assistant platform entity class in the MRO:
 
 ```python
 """UniFi Insights <platform> platform."""
+
+from __future__ import annotations
 
 from homeassistant.components.<platform> import <PlatformEntity>
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import UnifiInsightsConfigEntry
-from .entity import UnifiInsightsEntity  # or UnifiProtectEntity
+from . import CarrierFabricConfigEntry, UnifiInsightsConfigEntry
+from .entity import UnifiInsightsEntity
 
-PARALLEL_UPDATES = 0
+PARALLEL_UPDATES = 0  # Use 1 for action-based platforms
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: UnifiInsightsConfigEntry,
+    entry: UnifiInsightsConfigEntry,  # Use CarrierFabricConfigEntry (or union) for Carrier Fabric platforms
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up UniFi Insights <platform> from a config entry."""
+    """Set up UniFi Insights <platform> entities from a config entry."""
 ```
+
+- If overriding `async_prepare_to_add_to_hass`, `async_added_to_hass`, or `async_will_remove_from_hass`, also implement `@callback def async_entity_id_changed(self, old_entity_id: str) -> None:` calling `super().async_entity_id_changed(old_entity_id)` (HA 2026.10/2026.11).
 
 ### 2. Register the platform
 
-**File:** `custom_components/unifi_insights/__init__.py`
-
-Add the platform to the `PLATFORMS` list.
+- **File:** `custom_components/unifi_insights/const.py` — Add `Platform.<PLATFORM>` to `PLATFORMS` (or `CARRIER_FABRIC_PLATFORMS` if applicable).
+- **File:** `.github/instructions/entities.instructions.md` — Keep the platform list up to date if adding a permanent platform.
 
 ### 3. Add entity descriptions
 
-Define `EntityDescription` dataclasses for each entity in the platform file.
+Define frozen, keyword-only `EntityDescription` dataclasses (`@dataclass(frozen=True, kw_only=True)`) with `translation_key`, `device_class`, `entity_category`, and `entity_registry_enabled_default`.
 
-### 4. Add translations
+### 4. Add translations and icons
 
-**File:** `custom_components/unifi_insights/strings.json`
+- **Files:** `custom_components/unifi_insights/strings.json` and `custom_components/unifi_insights/translations/en.json` (keep both in sync)
+- **File:** `custom_components/unifi_insights/icons.json`
 
-Add entity names under the appropriate platform section.
+### 5. Add tests and validate
 
-### 5. Add icons (optional)
-
-**File:** `custom_components/unifi_insights/icons.json`
-
-### 6. Validation
-
-- Run `pre-commit run --all-files`
-- Run `pytest` to ensure no regressions
-- Verify entities appear in HA after adding the integration
+- Add unit tests in `tests/test_<platform>.py` with ≥95% per-file branch coverage
+- Run `./script/lint`, `./script/mypy`, and `pytest --cov-report=xml && python script/check_coverage_per_file.py coverage.xml --fail-under 95`

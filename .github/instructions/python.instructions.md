@@ -8,21 +8,31 @@ applyTo: "**/*.py"
 
 ## Code Style
 
-- **Python version:** 3.11+ (Home Assistant 2025.9.0+ requirement)
+- **Python version:** 3.14.2+ (`py314`, Home Assistant 2026.10+ requirement)
 - **Indentation:** 4 spaces
 - **Line length:** 88 characters (ruff default)
 - **Quotes:** Double quotes
-- **Formatter/Linter:** Ruff
-- **Type checker:** mypy (strict mode)
+- **Formatter/Linter:** Ruff (`./script/lint`)
+- **Type checker:** mypy in strict mode (`./script/mypy` or `mypy custom_components/unifi_insights`)
 
 ## Type Hints
 
-- Add type hints to ALL functions, methods, and variables
+- Add type hints to ALL functions, methods, and variables (Platinum `strict-typing`)
 - Use modern syntax: `list[str]`, `dict[str, Any]`, `str | None`
-- Use `TypeVar` for generic return types
-- Custom config entry type:
+- Typed `ConfigEntry.runtime_data` aliases in `custom_components/unifi_insights/__init__.py`:
   ```python
-  type UnifiInsightsConfigEntry = ConfigEntry[UnifiInsightsRuntimeData]
+  UnifiInsightsConfigEntry: TypeAlias = ConfigEntry[UnifiInsightsData]
+  CarrierFabricConfigEntry: TypeAlias = ConfigEntry[CarrierFabricData]
+  ```
+- For Voluptuous schemas in config/options flows and services, use `probatio` under `TYPE_CHECKING` (HA 2026.5+):
+
+  ```python
+  from typing import TYPE_CHECKING
+
+  if TYPE_CHECKING:
+      import probatio as vol  # type: ignore[import-not-found]
+  else:
+      import voluptuous as vol
   ```
 
 ## Imports
@@ -42,27 +52,28 @@ applyTo: "**/*.py"
 
 ## Async Patterns
 
-- All external I/O operations must be async
-- Use `gather` instead of awaiting in loops
-- No blocking calls on event loop
-- Use `asyncio.sleep()` instead of `time.sleep()`
-- Use `hass.async_add_executor_job()` for blocking operations
-- Use `@callback` decorator for event loop safe functions
+- All external I/O operations must be async (Platinum `async-dependency`)
+- Inject Home Assistant's shared session via `async_get_clientsession(hass, verify_ssl=...)` (Platinum `inject-websession`)
+- Use `asyncio.gather()` instead of awaiting in sequential loops where independent
+- Never make blocking calls on the event loop (`time.sleep`, sync file/network I/O)
+- Use `hass.async_add_executor_job()` for unavoidable CPU-bound or sync operations
+- Decorate synchronous event-loop-safe callbacks with `@callback`
 
 ## Error Handling
 
 - Catch specific exceptions, not bare `except Exception:`
-- Keep try blocks minimal — process data outside the try block
+- Keep `try` blocks minimal — process data outside the `try` block
 - Use `from err` for exception chaining
-- Allowed broad exceptions: config flows and background tasks only
+- Pass `translation_domain=DOMAIN`, `translation_key="..."`, and `translation_placeholders={...}` when raising `HomeAssistantError` or `ServiceValidationError` (Gold `exception-translations`)
+- Allowed broad exceptions: config flows (`errors["base"] = "unknown"`) and background tasks only
 
 ## Logging
 
 - Use lazy logging: `_LOGGER.debug("Message with %s", variable)`
 - No periods at end of messages
 - No integration names/domains (added automatically by HA)
-- No sensitive data (keys, tokens, passwords)
-- Use debug level for non-user-facing messages
+- Never log sensitive data (API keys, tokens, passwords, raw credentials)
+- Log once at `INFO`/`WARNING` when a device/service transitions to unavailable and once when it recovers (Silver `log-when-unavailable`); do not spam logs on every failed poll
 
 ## Documentation
 

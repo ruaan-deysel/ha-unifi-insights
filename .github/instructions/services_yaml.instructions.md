@@ -8,15 +8,14 @@ applyTo: "custom_components/unifi_insights/services.yaml"
 
 ## Naming Convention
 
-- `services.yaml` is a legacy filename — HA now calls these "service actions"
-- Action names use snake_case: `restart_device`, `authorize_guest`
-- Full format: `unifi_insights.action_name`
+- `services.yaml` defines service action schemas for `unifi_insights.<action_name>`
+- Action and field names use `snake_case`: `restart_device`, `authorize_guest`
 
 ## Schema Structure
 
 ```yaml
 action_name:
-  # Names and descriptions go in strings.json, not here
+  # Names and descriptions belong in strings.json under "services", not here
   fields:
     parameter_name:
       required: true
@@ -32,23 +31,25 @@ action_name:
             - "option2"
   target:
     entity:
-      domain: sensor
+      integration: unifi_insights
+      domain: switch
 ```
 
-## Selectors
+## Selectors (HA 2026.8–2026.11+)
 
 Common selectors used in this integration:
 
-- `text:` — Free text input
-- `select:` — Dropdown with predefined options
-- `number:` — Numeric input with min/max/step
-- `boolean:` — On/off toggle
-- `entity:` — Entity picker
-- `device:` — Device picker
+- `text:` — Text input (supports `pattern` and `validation_message` in HA 2026.8+)
+- `select:` — Dropdown with predefined options (use `translation_key` for translated options)
+- `number:` — Numeric input with `min`, `max`, `step`, `unit_of_measurement`
+- `boolean:` — Toggle switch
+- `entity:` — Entity picker (supports `integration`, `domain`, `device_class`, and `device` filter in HA 2026.8+)
+- `device:` — Device picker (supports `integration`, `manufacturer`, `model`)
+
+**CRITICAL (HA 2026.11):** Never use a `device:` filter inside a `target:` selector block (`target:` supports `entity:`, `device:`, and `area:` target selectors, with `integration`, `domain`, `device_class`, or `supported_features` filters where applicable).
 
 ## Rules
 
-- Define only the schema here, not names/descriptions
-- Names and descriptions go in `strings.json` under `services`
-- Keep schemas in sync with `services.py` implementations
-- Use appropriate selectors for each parameter type
+- Define only schemas and selectors in `services.yaml` — all display names and descriptions belong in `strings.json` and `translations/en.json` under `services`
+- Keep `services.yaml` fields in strict sync with `vol.Schema` definitions in `services.py`
+- Specify `integration: unifi_insights` on `entity:` and `device:` selectors to scope pickers to this integration

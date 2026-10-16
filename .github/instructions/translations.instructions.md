@@ -1,16 +1,18 @@
 ---
-applyTo: "custom_components/unifi_insights/strings.json, custom_components/unifi_insights/translations/**/*.json"
+applyTo: "custom_components/unifi_insights/strings.json, custom_components/unifi_insights/icons.json, custom_components/unifi_insights/translations/**/*.json"
 ---
 
-# Translation Instructions
+# Translation & Icon Instructions
 
-**Applies to:** Translation and string files
+**Applies to:** `strings.json`, `icons.json`, and `translations/*.json`
 
-## Primary File
+## Primary Files
 
-`strings.json` is the source of truth for all translatable strings. Home Assistant uses this to generate language-specific files.
+- **`strings.json` & `translations/en.json`:** `strings.json` is the primary source of truth for English strings, and `translations/en.json` must be kept identical to `strings.json` so Home Assistant runtime lookups work in local development and HACS installs.
+- **Non-English files (`translations/<lang>.json`):** Managed via localization workflows — never edit non-English translation files manually unless explicitly asked.
+- **`icons.json`:** Defines icon translations for entities, state values, and numeric ranges (`icon-translations` Gold rule).
 
-## Structure
+## Structure (`strings.json` / `translations/en.json`)
 
 ```json
 {
@@ -19,41 +21,50 @@ applyTo: "custom_components/unifi_insights/strings.json, custom_components/unifi
       "user": {
         "title": "Set up UniFi Insights",
         "description": "...",
-        "data": { ... },
-        "data_description": { ... }
+        "data": {},
+        "data_description": {}
       }
     },
-    "error": { ... },
-    "abort": { ... }
+    "error": {},
+    "abort": {}
+  },
+  "options": {
+    "step": {}
   },
   "entity": {
     "sensor": {
       "translation_key": {
-        "name": "Sensor name"
+        "name": "Sensor name",
+        "state": {}
       }
     }
   },
   "services": {
     "service_name": {
-      "name": "Service display name",
+      "name": "Action display name",
       "description": "...",
-      "fields": { ... }
+      "fields": {}
+    }
+  },
+  "exceptions": {
+    "exception_key": {
+      "message": "User-facing error message with {placeholder}"
+    }
+  },
+  "issues": {
+    "issue_key": {
+      "title": "Repair issue title",
+      "description": "..."
     }
   }
 }
 ```
 
-## Rules
+## Rules (HA 2026.10+ IQS Gold Tier)
 
-- Use sentence case for all strings (capitalize first word and proper nouns only)
-- Use backticks for technical terms in descriptions
-- Write for non-native English speakers (clear, simple language)
-- Use second-person ("you" and "your") for user-facing messages
-- NEVER update language files in `translations/` manually — only edit `strings.json`
-- Keep `strings.json` as the single source; HA generates translation files
-
-## Adding New Strings
-
-1. Add to appropriate section in `strings.json`
-2. Use `translation_key` in entity code to reference
-3. Test that strings render correctly in the HA UI
+- **Sentence case:** Capitalize only the first word and proper nouns (`UniFi`, `PoE`, `SSID`, `VLAN`, `RTSPS`, `SFP`, `WAN`, `GPON`, `ONU`).
+- **Clear language:** Write for non-native English speakers using second-person (`you` / `your`).
+- **Entity translations (`entity-translations`):** Every entity with a `translation_key` must have a matching entry under `entity.<platform>.<translation_key>`.
+- **Exception translations (`exception-translations`):** Every `HomeAssistantError`, `ServiceValidationError`, and `ConfigEntryAuthFailed` raised with a `translation_key` must have a matching entry under `exceptions.<translation_key>.message`.
+- **Icon translations (`icon-translations`):** Define entity icons in `icons.json` rather than hardcoding `_attr_icon` on standard entities. Numeric state range icons (`range` key) are supported in HA 2026.9+.
+- **Sync check:** Whenever you update `strings.json`, mirror the exact changes to `custom_components/unifi_insights/translations/en.json`.

@@ -7,7 +7,7 @@ agent: "agent"
 #
 # Terminal tool constraints:
 #   Allowed commands: pytest, ruff, mypy, pre-commit, ./script/lint,
-#     ./script/develop, pip, git (read-only: log, diff, status, show)
+#     ./script/mypy, ./script/develop, pip, git (read-only: log, diff, status, show)
 #   Allowed command prefixes: python -m pytest, python -m ruff, python -m mypy
 #   Working directory: must remain within the workspace root
 #   Prohibited operations: rm -rf, mv (destructive), network-modifying commands,
@@ -23,87 +23,64 @@ tools:
     "execute/runInTerminal",
     "execute/getTerminalOutput",
   ]
-description: "Perform a comprehensive quality review of the UniFi Insights integration"
+description: "Perform a comprehensive quality review of the UniFi Insights integration against HA 2026.10+ standards"
 ---
 
 # Review Integration
 
-Your goal is to perform a comprehensive quality review of the UniFi Insights integration against Home Assistant standards.
+Your goal is to perform a comprehensive quality review of the UniFi Insights integration against Home Assistant 2026.10+ standards and the Integration Quality Scale (Bronze through Platinum).
 Treat the official Quality Scale rules as mandatory review criteria:
 <https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>
 
 ## Review Checklist
 
-### Quality Scale Compliance
+### Integration Quality Scale (Bronze → Platinum)
 
-- [ ] Applicable rules from the official Quality Scale rules page have been reviewed
-- [ ] All applicable rules are satisfied or clearly documented as not applicable
+- [ ] **Bronze:** `config-flow`, `test-before-configure`, `unique-config-entry`, `has-entity-name`, `entity-unique-id`, `runtime-data` (`entry.runtime_data`), `action-setup` (services registered in `async_setup`), `config-entry-unloading`
+- [ ] **Silver:** `action-exceptions`, `IntegrationOwner`, `log-when-unavailable` (log once on offline/online transitions), `parallel-updates` (`PARALLEL_UPDATES` in all 17 platforms), `reauthentication-flow`, `test-before-setup`
+- [ ] **Gold:** `devices` (`DeviceInfo`), `diagnostics` (`async_redact_data` + `_anonymize_macs`), `discovery` / `discovery-update-info` (SSDP), `dynamic-devices` & `stale-devices`, `entity-category`, `entity-disabled-by-default`, `entity-translations`, `exception-translations` (`translation_domain=DOMAIN`, `translation_key` in `strings.json`), `icon-translations` (`icons.json`), `reconfiguration-flow`, `repair-issues`
+- [ ] **Platinum:** `async-dependency`, `inject-websession` (`async_get_clientsession(hass)`), `strict-typing` (`mypy` strict + `probatio` schema typing)
 
-### Architecture
+### Architecture & HA 2026.8–2026.11+ Core Rules
 
-- [ ] Entities → Coordinator → API Client pattern followed (no layer skipping)
-- [ ] Multi-coordinator system properly structured
-- [ ] Data transforms handle all API response formats
-- [ ] No direct API calls from entities
+- [ ] Entities → Coordinator → API Client pattern followed strictly (no layer skipping)
+- [ ] Custom base entity class precedes platform entity class in MRO (`class X(UnifiInsightsEntity, SensorEntity):`)
+- [ ] `first_not_none()` and `get_field()` used for camelCase/snake_case field resolution without dropping falsy `0`/`False`
+- [ ] **Device Registry (HA 2026.8–2026.10):**
+  - Single config entry per device (`DeviceEntry.config_entry_id`; no `config_entries`, `config_entries_subentries`, or `primary_config_entry`)
+  - `via_device_id` used instead of deprecated `via_device` / `ATTR_VIA_DEVICE`
+  - Config-entry-scoped lookups (`async_get_device_by_identifier`, not deprecated `async_get_device`)
+  - No dict methods (`.get()`, `.values()`, `.keys()`) called on `dev_reg.devices` or `dev_reg.child_devices`
+  - No `default_manufacturer`, `default_model`, or `default_name` in `DeviceInfo`; no reads of removed `DeviceEntry.suggested_area`
+- [ ] **Entity Lifecycle (HA 2026.10–2026.11):**
+  - `async_prepare_to_add_to_hass` used instead of overriding `add_to_platform_start`
+  - Custom entities overriding `async_prepare_to_add_to_hass`, `async_added_to_hass`, or `async_will_remove_from_hass` also implement `@callback def async_entity_id_changed(self, old_entity_id: str) -> None:` calling `super().async_entity_id_changed(old_entity_id)`
+  - No access to removed `RestoreStateData.last_states`
 
-### Config Flow
+### Config Flow & Service Actions
 
-- [ ] User setup works for both local and remote modes
-- [ ] Reauth flow handles expired credentials
-- [ ] Reconfigure flow allows changing settings
-- [ ] Unique ID properly set and checked
-- [ ] Validation errors shown to user clearly
+- [ ] Local, Remote, and Carrier Fabric flows validate via `probe.py` and set deterministic `unique_id`
+- [ ] Config flow step handlers never raise `ConfigEntryNotReady` or `ConfigEntryAuthFailed` (caught and mapped to `errors["base"]`)
+- [ ] No deprecated `FlowHandler.show_advanced_options` or double-reload listener combinations
+- [ ] Service helpers (`async_extract_entities`, `extract_entity_ids`, etc.) called without deprecated `hass` argument (HA 2026.10+)
+- [ ] `services.yaml` `target:` selectors do not contain the removed `device:` filter (HA 2026.11+)
 
-### Entity Quality
+### Frontend Custom Cards (`frontend/`)
 
-- [ ] All entities use `EntityDescription` pattern
-- [ ] `has_entity_name = True` set on all entities
-- [ ] `translation_key` used (no hardcoded names)
-- [ ] Proper `device_class` and `state_class` assigned
-- [ ] Availability handled correctly (network vs Protect)
-- [ ] `PARALLEL_UPDATES` set appropriately per platform
+- [ ] Uses `--ha-*` Web Awesome CSS tokens (no deprecated `--mdc-*` or `--switch-*` variables; short button/slider size names `xs`, `s`, `m`, `l`, `xl`)
+- [ ] Implements `getGridOptions()` for Sections view layouts
+- [ ] Keyboard-accessible interactive controls (`button`, `tabindex`, `aria-label`)
+- [ ] Compiled bundles in `custom_components/unifi_insights/frontend/` match `frontend/src/`
 
-### Error Handling
+### Testing & Translations
 
-- [ ] `ConfigEntryNotReady` for temporary setup failures
-- [ ] `ConfigEntryAuthFailed` for authentication issues
-- [ ] `UpdateFailed` for coordinator fetch failures
-- [ ] `HomeAssistantError` for service call failures
-- [ ] No bare `except Exception:` outside config flows
-
-### Security
-
-- [ ] Diagnostics use `async_redact_data()`
-- [ ] No sensitive data in logs
-- [ ] API keys not exposed in entity attributes
-- [ ] SSL verification configurable
-
-### Code Quality
-
-- [ ] Full type hints on all public methods
-- [ ] Module docstrings on all files
-- [ ] Async patterns correctly applied
-- [ ] No blocking calls on event loop
-- [ ] Ruff and mypy pass cleanly
-
-### Testing
-
-- [ ] 95%+ coverage maintained
-- [ ] Config flow tested (success + error paths)
-- [ ] Coordinator tested (success + failure paths)
-- [ ] Entity state and availability tested
-- [ ] Service actions tested
-
-### Translations
-
-- [ ] All user-facing strings in `strings.json`
-- [ ] Sentence case used consistently
-- [ ] No hardcoded strings in Python code
+- [ ] ≥95% branch coverage per file (`python script/check_coverage_per_file.py coverage.xml --fail-under 95`)
+- [ ] `strings.json` and `translations/en.json` are in sync and include `config`, `options`, `entity`, `services`, `exceptions`, and `issues`
 
 ## Output
 
-Provide a summary with:
+Provide a structured review summary with:
 
-1. **Critical issues** — Must fix before release
-2. **Improvements** — Should fix for quality
-3. **Suggestions** — Nice to have
+1. **Critical issues** — Must fix before release (with file and line references)
+2. **Quality Scale / HA 2026.10+ gaps** — Deprecations or rule violations to address
+3. **Suggestions** — Optional maintainability or UX improvements

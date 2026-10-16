@@ -4,67 +4,43 @@ applyTo: "tests/**/*.py"
 
 # Testing Instructions
 
-**Applies to:** All test files
+**Applies to:** All Python test files under `tests/`
 
-## Framework
+## Framework & Coverage Requirements
 
-- **pytest** with `pytest-homeassistant-custom-component`
-- **pytest-asyncio** for async test support
-- **Coverage:** Every module, including the vendored `api/` client, must be ≥95% (branch coverage enabled, checked per file in CI with `python script/check_coverage_per_file.py coverage.xml --fail-under 95`)
-
-Local `pytest` enforces only the 95% total coverage threshold. To check per-file coverage locally, run `pytest --cov-report=xml`, then `python script/check_coverage_per_file.py coverage.xml --fail-under 95`.
+- **Framework:** `pytest` with `pytest-homeassistant-custom-component` and `pytest-asyncio`
+- **Per-file coverage (≥95%):** Every module in `custom_components/unifi_insights/` (including the vendored `api/` package) must maintain **≥95% branch coverage**, enforced in CI via:
+  ```bash
+  pytest --cov-report=xml
+  python script/check_coverage_per_file.py coverage.xml --fail-under 95
+  ```
+- **Quality Scale coverage rules:**
+  - `test-before-configure` & `config-flow-test-coverage` (Bronze): 100% coverage of `config_flow.py` (user, local, remote, carrier_fabric, SSDP discovery, reauth, reconfigure, options flow).
+  - `test-before-setup` (Silver): Test `ConfigEntryNotReady` and `ConfigEntryAuthFailed` during `async_setup_entry`.
+  - `Integration Quality Scale` Gold: Full test coverage of coordinator refreshes, dynamic/stale device handling, entity states/actions, diagnostics redaction, repairs, and service actions.
 
 ## Running Tests
 
 ```bash
-pytest                       # All tests with coverage
-pytest tests/test_sensor.py  # Specific test file
-pytest -vvs                  # Verbose output
-pytest --no-cov              # Without coverage
+pytest                                                          # All tests with total coverage check
+pytest tests/test_sensor.py                                     # Single test file
+pytest -vvs                                                     # Verbose output
+pytest --no-cov                                                 # Fast run without coverage
+pytest --cov-report=xml && python script/check_coverage_per_file.py coverage.xml --fail-under 95
 ```
 
-## Test Structure
+## Fixtures & Setup Patterns
 
-Tests mirror the integration structure:
+- Use shared fixtures in `tests/conftest.py`
+- Mock at the API client boundary (`network_client`, `protect_client`, `access_client`, `innerspace_client`, `site_manager_client`, `mobility_client`, `carrier_fabric_client`, or `probe.py`), not internal coordinator methods
+- Access runtime state via `entry.runtime_data`, never `hass.data[DOMAIN]`
 
-```
-tests/
-├── conftest.py              # Shared fixtures
-├── fixtures/                # Mock data fixtures
-├── test_init.py             # Integration setup tests
-├── test_config_flow.py      # Config flow tests
-├── test_coordinator.py      # Legacy coordinator tests
-├── test_coordinators.py     # Multi-coordinator tests
-├── test_sensor.py           # Sensor platform tests
-├── test_binary_sensor.py    # Binary sensor tests
-├── test_switch.py           # Switch tests
-├── test_services.py         # Service tests
-├── test_entity.py           # Base entity tests
-├── test_data_transforms.py  # Data transform tests
-└── ...
-```
+## HA 2026.8–2026.11 Test Assertions
 
-## Fixtures
-
-- Use `conftest.py` for shared fixtures
-- Mock API responses, not internal functions
-- Use `pytest-homeassistant-custom-component` fixtures for HA setup
-- Set up integration through proper config entry flow
-
-```python
-@pytest.fixture
-async def init_integration(hass, mock_config_entry, mock_api):
-    """Set up the integration for testing."""
-    mock_config_entry.add_to_hass(hass)
-    await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-```
-
-## Best Practices
-
-- Test through the integration's public API (config entries, entities, services)
-- Don't access `hass.data` directly in tests
-- Mock at the API boundary, not at internal layers
-- Test error paths and edge cases
-- Use `freeze_time` for time-dependent tests
-- Group related tests in classes when it improves readability
+- When asserting device registry entries:
+  - Check `device_entry.config_entry_id == entry.entry_id` (single config entry per device; never check `config_entries` or `primary_config_entry`).
+  - Check `device_entry.via_device_id` (not `via_device`).
+  - Look up devices via `dev_reg.async_get_device_by_identifier(entry.entry_id, (DOMAIN, device_id))`.
+  - Check `device_entry.area_id` (never `device_entry.suggested_area`, which was removed in HA 2026.9).
+- When asserting service action errors:
+  - Verify `pytest.raises(ServiceValidationError)` or `pytest.raises(HomeAssistantError)` and assert `err.value.translation_domain == DOMAIN` and `err.value.translation_key == "..."`.

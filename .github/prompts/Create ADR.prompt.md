@@ -13,11 +13,11 @@ If not provided, ask for:
 - What decision was made
 - What alternatives were considered
 - Why this option was chosen
-- What trade-offs exist
+- What trade-offs and Home Assistant Quality Scale impacts exist
 
 ## ADR Template
 
-Write the ADR in `.ai-scratch/` first for review, then move to `docs/development/` if the developer approves.
+Draft the ADR in `.ai-scratch/` first for review, then move it to `docs/` only if the developer approves.
 
 ```markdown
 # ADR-NNN: [Decision Title]
@@ -27,7 +27,7 @@ Write the ADR in `.ai-scratch/` first for review, then move to `docs/development
 
 ## Context
 
-[What is the issue we're facing? What constraints exist?]
+[What problem or constraint are we solving? Which HA 2026.10+ / IQS rules or UniFi API constraints apply?]
 
 ## Decision
 
@@ -60,10 +60,10 @@ Write the ADR in `.ai-scratch/` first for review, then move to `docs/development
 - ...
 ```
 
-## Existing Decisions to Reference
+## Existing Architectural Foundations to Reference
 
-- Multi-coordinator architecture (config/device/protect/facade)
-- Vendored API package based on `unifi-official-api` (no custom HTTP client)
-- Calendar versioning (YYYY.MM.PATCH)
-- camelCase tolerance via `get_field()`
-- WebSocket for Protect, polling for Network
+- Multi-coordinator system (`config`, `device`, `protect`, `access`, `innerspace`, `site_manager`, `mobility`, `carrier_fabric`, `internet_activity`, `rule_audit`, `rule_export`, `facade`) stored on `entry.runtime_data`
+- Vendored `unifi-official-api` client package in `custom_components/unifi_insights/api/` using injected `async_get_clientsession(hass)`
+- Application capability probing in `probe.py` across Local, Remote, and Carrier Fabric connection modes
+- camelCase/snake_case tolerance and falsy-safe resolution via `get_field()` and `first_not_none()`
+- Bundled TypeScript Lovelace custom cards in `frontend/` using Home Assistant Web Awesome `--ha-*` design tokens and `getGridOptions()`

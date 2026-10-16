@@ -6,62 +6,57 @@ description: "Create a structured implementation plan for a feature or change"
 
 # Create Implementation Plan
 
-Your goal is to create a structured implementation plan before starting a complex feature or change.
+Your goal is to create a structured implementation plan before starting a complex feature or refactoring, aligned with the repository's Mandatory Development Workflow and Home Assistant 2026.10+ Integration Quality Scale rules.
 
 If not provided, ask for:
 
+- GitHub Issue number (required before writing code)
 - Feature description and user story
-- Scope (which parts of the integration are affected)
-- Any constraints or requirements
+- Scope (which UniFi applications, coordinators, platforms, or frontend cards are affected)
+- Any constraints or backwards-compatibility considerations
 
 ## Planning Steps
 
-### 1. Research existing code
+### 1. Research existing code and specs
 
-- Read relevant files to understand current implementation
-- Check `const.py` for existing constants and patterns
-- Look at similar features for patterns to follow
-- Review coordinator data schema for available data
+- Read relevant integration files and check `const.py`
+- Verify API schemas against `https://developer.ui.com/llms.txt` and `https://developer.ui.com/{service}/{version}/openapi.json`
+- Check applicable Home Assistant Integration Quality Scale rules (Bronze → Platinum) and HA 2026.8–2026.11 deprecations (`via_device_id`, `DeviceEntry.config_entry_id`, `async_entity_id_changed`, `probatio`)
 
-### 2. Create plan in `.ai-scratch/`
+### 2. Draft plan in `.ai-scratch/`
 
-Write a temporary plan file (never committed):
+Write a temporary plan file in `.ai-scratch/` (never committed to git):
 
 ```markdown
-# Implementation Plan: [Feature Name]
+# Implementation Plan: [Feature Name] (Issue #NNN)
 
 ## Goal
 
-[What we're building and why]
+[What we are building and why]
 
 ## Affected Files
 
-- [ ] `file1.py` — What changes
-- [ ] `file2.py` — What changes
+- [ ] `custom_components/unifi_insights/...` — Description of change
+- [ ] `tests/test_...` — Unit tests (≥95% branch coverage per file)
 
-## Data Flow
+## Data Flow & Quality Scale Compliance
 
-[How data moves through the system]
+- **Data flow:** API Client → Coordinator (`entry.runtime_data`) → Entity / Service / Frontend Card
+- **IQS & HA 2026.10+ rules:** (`has-entity-name`, `entity-translations`, `exception-translations`, `icon-translations`, `via_device_id`, `strict-typing`, etc.)
 
 ## Implementation Order
 
-1. [First change — lowest dependency]
-2. [Second change — builds on first]
-3. [Third change — integrates everything]
+1. API models / `data_transforms.py`
+2. Coordinator / `probe.py`
+3. Entities / Services / Frontend cards
+4. `strings.json`, `translations/en.json`, `icons.json`
+5. Unit tests (`≥95%` per-file coverage) and `CHANGELOG.md`
 
 ## Breaking Changes
 
-[Any impacts on existing users]
-
-## Open Questions
-
-[Things to clarify before starting]
+[Any impact on entity IDs, unique IDs, config entries, or service schemas]
 ```
 
-### 3. Review with developer
+### 3. Review with developer and execute
 
-Present the plan and get confirmation before proceeding.
-
-### 4. Execute
-
-Implement changes in the planned order, committing logical units together.
+Present the plan for confirmation, then implement on a dedicated `feat/<issue-id>-...` or `fix/<issue-id>-...` branch.

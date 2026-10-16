@@ -33,13 +33,16 @@ This is **UniFi Insights**, a Home Assistant custom integration that provides mo
 
 - `custom_components/unifi_insights/` — Main integration code
 - `custom_components/unifi_insights/coordinators/` — Multi-coordinator system
+- `custom_components/unifi_insights/api/` — Vendored `unifi-official-api` async clients (Network, Protect, Access, InnerSpace, Site Manager, Mobility, Carrier Fabric)
+- `custom_components/unifi_insights/frontend/` — Built Lovelace card bundles served by `frontend.py`
+- `frontend/` — TypeScript + Lit source for the custom Lovelace dashboard cards
 - `config/` — Home Assistant configuration for local testing
 - `tests/` — Unit and integration tests
 - `script/` — Development and validation scripts
 
 **Local Home Assistant instance:**
 
-**Use the project's scripts whenever available** (`./script/develop`, `./script/lint`, `./script/setup/bootstrap`). For checks that do not have a wrapper script, use the documented commands (`pre-commit run --all-files`, `mypy`, `pytest`).
+**Use the project's scripts whenever available** (`./script/develop`, `./script/lint`, `./script/mypy`, `./script/setup/bootstrap`). For checks that do not have a wrapper script, use the documented commands (`pre-commit run --all-files`, `pytest`).
 
 **Start Home Assistant:**
 
@@ -67,13 +70,13 @@ pkill -f "hass --config" || true && ./script/develop
 
 **Context-specific instructions:**
 
-If you're using GitHub Copilot, path-specific instructions in `.github/instructions/*.instructions.md` provide additional guidance for specific file types. This document serves as the primary reference for all agents.
+Path-specific instructions in `.github/instructions/*.instructions.md` provide targeted guidance by file glob (`applyTo`). This document serves as the primary reference for all agents.
 
 **Other agent entry points:**
 
 - **Claude Code:** See [`CLAUDE.md`](CLAUDE.md) (pointer to this file)
 - **Gemini:** See [`GEMINI.md`](GEMINI.md) (pointer to this file)
-- **GitHub Copilot:** See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) (compact version of this file)
+- **GitHub Copilot:** See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) (compact reference and PR review guidelines)
 
 ## Working With Developers
 
@@ -134,24 +137,30 @@ When a task completes and the developer moves to a new topic, suggest committing
 **Vendored API package:**
 
 - The upstream `unifi-official-api` project is vendored locally under `custom_components/unifi_insights/api`
-- Reuse its client methods (`network_client`/`protect_client`) rather than manual HTTP calls
-- NEVER create a custom API client — extend or reuse the vendored package instead
+- Reuse its client methods (`network_client`, `protect_client`, `access_client`, `innerspace_client`, `carrier_fabric_client`) rather than manual HTTP calls
+- Pass Home Assistant's shared aiohttp session (`async_get_clientsession(hass)`) into clients (Quality Scale: `inject-websession`)
+- NEVER create a custom HTTP client — extend or reuse the vendored package instead
 
-**Quality Scale requirements (strict):**
+**Quality Scale requirements (strict — Bronze through Platinum):**
 
 As an AI agent, **strictly follow the current Home Assistant Integration Quality Scale rules** for every applicable change:
 
 - Canonical rules: <https://developers.home-assistant.io/docs/core/integration-quality-scale/rules>
-- Treat applicable rules as mandatory, not aspirational
+- Full checklist: <https://developers.home-assistant.io/docs/core/integration-quality-scale/checklist>
+- Treat applicable Bronze, Silver, Gold, and Platinum rules as mandatory, not aspirational:
+  - **Bronze:** `action-setup` (register actions in `async_setup`), `appropriate-polling`, `brands`, `common-modules`, `config-flow` (with `data_description`), `config-flow-test-coverage`, `dependency-transparency`, `entity-event-setup` (`async_added_to_hass` + `self.async_on_remove`), `entity-unique-id`, `has-entity-name`, `runtime-data` (`entry.runtime_data`), `test-before-configure`, `test-before-setup`, `unique-config-entry`, and documentation rules
+  - **Silver:** `action-exceptions` (`HomeAssistantError` / `ServiceValidationError`), `config-entry-unloading`, `entity-unavailable`, `integration-owner`, `log-when-unavailable` (log once at `INFO` when unavailable and once when back online), `parallel-updates` (`PARALLEL_UPDATES` in every platform), `reauthentication-flow`, `test-coverage` (≥95%)
+  - **Gold:** `devices`, `diagnostics` (`async_redact_data`), `discovery`, `discovery-update-info`, `dynamic-devices`, `entity-category`, `entity-device-class`, `entity-disabled-by-default`, `entity-translations`, `exception-translations` (`translation_domain=DOMAIN`, `translation_key=...`), `icon-translations` (`icons.json`), `reconfiguration-flow`, `repair-issues`, `stale-devices`
+  - **Platinum:** `async-dependency`, `inject-websession`, `strict-typing` (`py.typed` + strict `mypy` + typed `ConfigEntry`)
 - Validate changed behavior against applicable rules before considering work complete
 - If a rule is not applicable, call that out briefly in the final summary
 - If a request conflicts with a rule, explicitly flag the conflict and ask for direction
 
-**Developer expectation:** Generate production-ready code that meets HA standards and applicable Quality Scale rules.
+**Developer expectation:** Generate production-ready code that meets HA 2026.10+ standards and applicable Quality Scale rules.
 
 ## Code Style and Quality
 
-**Python:** 4 spaces, 88 char lines, double quotes, full type hints, async for all I/O
+**Python:** Python 3.14.2+ (`py314`), 4 spaces, 88 char lines, double quotes, full type hints, async for all I/O
 
 **YAML:** 2 spaces, modern HA syntax (no legacy `platform:` style)
 
@@ -164,16 +173,9 @@ As an AI agent, **strictly follow the current Home Assistant Integration Quality
 pre-commit run --all-files
 
 # Or individually:
-ruff check .          # Linting
-ruff format .         # Formatting
-mypy custom_components/unifi_insights   # Type checking
+./script/lint         # Ruff format + check --fix
+./script/mypy         # Strict mypy type checking with HA venv
 pytest                # Tests (95% total coverage enforced locally)
-```
-
-**Shortcut scripts:**
-
-```bash
-script/lint           # Ruff format + check --fix
 ```
 
 **For comprehensive standards, see:**
@@ -203,166 +205,187 @@ This integration uses the following identifiers consistently:
 
 **Package organization:**
 
-- `coordinators/` — Multi-coordinator system (base, config, device, protect, facade)
-- `config_flow.py` — Config flow (local and remote modes)
-- `entity.py` — Base entity classes (`UnifiInsightsEntity`, `UnifiProtectEntity`)
-- `data_transforms.py` — API response to internal data mapping
-- `services.py` — Service action implementations
-- `services.yaml` — Service schema definitions
+- `coordinators/` — Multi-coordinator system (`base`, `config`, `config_sections`, `device`, `protect`, `facade`, `access`, `carrier_fabric`, `innerspace`, `internet_activity`, `mobility`, `rule_audit`, `rule_export`, `site_manager`, `voucher_state`)
+- `config_flow.py` — Config and options flows (`local`, `remote`, and `carrier_fabric` connection modes; reauth and reconfigure)
+- `console_identity.py` — Console identity resolution and namespace normalization
+- `probe.py` — Service availability probing (Network, Protect, Access, InnerSpace, Carrier Fabric)
+- `entity.py` — Core base entity classes (`UnifiInsightsEntity`, `UnifiProtectEntity`) and field helpers (`get_field`, `first_not_none`)
+- Specialized entity modules: `access_entity.py`, `carrier_fabric_entity.py`, `carrier_fabric_sensor.py`, `innerspace_entity.py`, `mobility_entity.py`, `protect_security_entity.py`, `storage_entity.py`, `site_internet_activity_sensor.py`, `voucher_sensor.py`, `network_rule_switch.py`, `network_rule_audit_event.py`
+- `data_transforms.py` & `innerspace_transforms.py` — API response to internal data mapping
+- `services.py` & `services.yaml` — Service action implementations and schema definitions
+- `websocket_api.py`, `topology.py`, `topology_contract.py`, `topology_keys.py`, `frontend.py` — WebSocket commands and Lovelace card bundle registration
+- `access_webhook.py` — UniFi Access webhook lifecycle management
 - `const.py` — Constants and endpoint paths
-- `diagnostics.py` — Diagnostic data export
-- `repairs.py` — Repair flows
-- Platform files: `sensor.py`, `binary_sensor.py`, `switch.py`, `button.py`, `device_tracker.py`, `camera.py`, `light.py`, `number.py`, `select.py`, `event.py`, `update.py`
+- `diagnostics.py` — Three-layer redacted diagnostic data export
+- `repairs.py` — Repair issue helpers and `RepairsFlow`
+- Platform files (17 platforms): `alarm_control_panel.py`, `binary_sensor.py`, `button.py`, `camera.py`, `cover.py`, `device_tracker.py`, `event.py`, `image.py`, `light.py`, `lock.py`, `media_player.py`, `number.py`, `select.py`, `sensor.py`, `siren.py`, `switch.py`, `update.py`
 
 **Do NOT create:**
 
-- `helpers/`, `ha_helpers/`, or similar packages — use existing modules
+- `helpers/`, `ha_helpers/`, or similar packages — use existing modules (`helpers.py` is a single module, not a package)
 - `common/`, `shared/`, `lib/` — use existing modules
 - New top-level packages without explicit approval
 
 **Key patterns:**
 
 - Entities → Coordinator → API Client (never skip layers)
-- Use `EntityDescription` dataclasses for static entity metadata
-- Use `get_field()` for mixed camelCase/snake_case field access
-- `PARALLEL_UPDATES = 0` for coordinator-driven entities, `1` for action-based Protect entities
+- Store runtime state in `entry.runtime_data` (`UnifiInsightsData` or `CarrierFabricData`); never store per-entry runtime state in `hass.data[DOMAIN]` (use typed `HassKey` only for component-singleton state like frontend registration)
+- Use `EntityDescription` dataclasses (`frozen=True, kw_only=True`) for static entity metadata
+- Use `get_field()` for mixed camelCase/snake_case field access and `first_not_none()` when chaining numeric/boolean candidates so legitimate `0` or `False` values are never dropped
+- `PARALLEL_UPDATES = 0` for coordinator-driven read-only platforms, `1` for action-based platforms
 
 **Code organization principles:**
 
-- Keep files focused (200-400 lines per file)
-- One class per file for entity implementations where practical
-- Split large modules into smaller ones when needed
+- Keep files focused (200-400 lines per file where practical)
+- Split large domain features into dedicated modules (e.g., `storage_entity.py`, `mobility_entity.py`) when needed
 
 ### Multi-Coordinator Architecture
 
-The integration uses a multi-coordinator pattern:
+The integration uses a multi-coordinator pattern stored in `entry.runtime_data`:
 
-- **Config Coordinator** (`coordinators/config.py`) — Site and configuration data (minimal polling)
-- **Device Coordinator** (`coordinators/device.py`) — Network device metrics
-- **Protect Coordinator** (`coordinators/protect.py`) — Camera, light, sensor, NVR data (WebSocket + polling)
-- **Facade Coordinator** (`coordinators/facade.py`) — Unified view for backward compatibility
-- **Base Coordinator** (`coordinators/base.py`) — Abstract base with common patterns
+- **Base Coordinator** (`coordinators/base.py`) — Abstract base with common patterns and error handling
+- **Config Coordinator** (`coordinators/config.py` & `config_sections.py`) — Site, WiFi, network, firewall, ACL, DNS, voucher, and VPN configuration data (slow polling, 5 min)
+- **Device Coordinator** (`coordinators/device.py`) — Network device and client metrics (30s polling)
+- **Protect Coordinator** (`coordinators/protect.py`) — Camera, light, sensor, NVR, chime, viewer, doorlock, speaker, alarm hub, link station, fob, and liveview data (WebSocket + polling)
+- **Facade Coordinator** (`coordinators/facade.py`) — Unified view combining Config, Device, Protect, InnerSpace, and Site Manager coordinators for entities and services
+- **Feature Coordinators:**
+  - `coordinators/access.py` — UniFi Access doors, users, emergency status, and webhook events
+  - `coordinators/innerspace.py` — UniFi InnerSpace floor plans and device placements
+  - `coordinators/site_manager.py` — Shared cloud-key Site Manager console/ISP metrics
+  - `coordinators/mobility.py` — UniFi Mobility workspaces and mobile routers
+  - `coordinators/carrier_fabric.py` — UniFi Carrier Fabric organizations, subscribers, and fabrics (standalone config entry)
 
 **Data flow:**
 
 ```
-UniFi Network API → Network Client ↘
-UniFi Protect API → Protect Client → Config Coordinator → Device Coordinator → Protect Coordinator → Facade → Entities
+UniFi APIs → Vendored Clients → Specialized Coordinators (Config / Device / Protect / Access / InnerSpace / Site Manager / Mobility) → Facade Coordinator → Entities
 ```
 
-### Device Info
+### Device Info & Home Assistant 2026.10+ Device Registry Rules
 
-All entities should provide consistent device info via the base entity class (manufacturer, model, serial number, configuration URL, firmware version). Use the base classes in `entity.py`.
+All entities must provide consistent `DeviceInfo` via the base entity classes in `entity.py` (or domain-specific bases) and adhere to Home Assistant 2026.8–2026.10+ device registry rules:
+
+- **Single config entry per device (HA 2026.8+):** A device belongs to a single config entry and at most one config subentry. Devices are no longer merged across config entries.
+- **Use `DeviceEntry.config_entry_id` and `DeviceEntry.config_subentry_id` (HA 2026.10+):** Never read `device.config_entries`, `device.config_entries_subentries`, or `device.primary_config_entry` (deprecated and log runtime warnings in 2026.10; raise in Core). Use `dr.async_get_device_and_config_entry_for_domain()` when resolving a device and its owning config entry for `DOMAIN`.
+- **Use `via_device_id`, not `via_device` (HA 2026.8+):** `DeviceInfo["via_device"]` and `ATTR_VIA_DEVICE` are deprecated because identifiers are only unique per config entry. Resolve the parent device ID with `dr.async_get_device_id_by_identifier(hass, entry.entry_id, (DOMAIN, parent_id))` or `parent_device.id` and pass `via_device_id` (or check `"via_device_id" in DeviceInfo.__annotations__` when supporting older runtimes, as in `mobility_entity.py`).
+- **Config-entry-scoped device lookups (HA 2026.8+):** `DeviceRegistry.async_get_device()` is deprecated. Use `dev_reg.async_get_device_by_identifier(entry.entry_id, (DOMAIN, ...))` or `dev_reg.async_get_device_by_connection(entry.entry_id, (CONNECTION_NETWORK_MAC, mac))`. Inside an entity, prefer `self.device_entry`.
+- **Read-only registry collections (HA 2026.9+):** `dev_reg.devices` and `dev_reg.child_devices` are read-only collections (iterate directly; never call `.get()`, `.values()`, `.keys()`, or `device_id in dev_reg.devices`). Never access `dev_reg.deleted_devices`. Use `dr.async_entries_for_config_entry(dev_reg, entry.entry_id)` for entry-scoped iteration.
+- **No `default_*` keys in `DeviceInfo` (HA 2026.9+):** `default_manufacturer`, `default_model`, and `default_name` are deprecated and removed from `DeviceInfo` typing; use `manufacturer`, `model`, and `name`.
+- **Reading device area (HA 2026.9+):** `DeviceEntry.suggested_area` was removed in 2026.9; read `DeviceEntry.area_id` instead (`DeviceInfo["suggested_area"]` remains valid when creating devices).
+- **Entity attachment requirement (HA 2026.8+):** An entity may only attach `device_info` if it belongs to a config entry and has a `unique_id`.
 
 ### Integration Manifest
 
 **Key fields in `manifest.json`:**
 
 - `integration_type: "hub"` — Gateway to multiple devices
-- `iot_class: "local_polling"` — Local polling with WebSocket for Protect
-- `dependencies: ["ffmpeg", "stream"]` — Required for camera support
-- `ssdp` — Discovery matchers for UniFi Dream Machine variants
+- `iot_class: "local_polling"` — Local polling with WebSocket/webhook push where available
+- `dependencies: ["ffmpeg", "media_source", "stream", "wake_on_lan", "webhook", "websocket_api"]`
+- `after_dependencies: ["http", "frontend", "lovelace"]` — Ensures custom card static paths and Lovelace resources register cleanly
+- `requirements: ["segno==1.6.6"]` — QR code generation for WiFi/vouchers
 
-The API client package is vendored in-repo under `custom_components/unifi_insights/api`; do not re-add `unifi-official-api` to `manifest.json` requirements.
+The UniFi API client package is vendored in-repo under `custom_components/unifi_insights/api`; do not re-add `unifi-official-api` to `manifest.json` requirements.
 
 ### Config Flow
 
-The integration supports two connection modes:
+The integration supports three connection modes:
 
-- **Local** — Host URL + API key (+ optional verify_ssl)
-- **Remote** — Console ID + API key
+- **Local** (`local`) — Host URL + API key (+ optional `verify_ssl`, optional UniFi Access token/port/webhook)
+- **Remote** (`remote`) — Console ID + API key (via UniFi Site Manager API + optional Mobility discovery)
+- **Carrier Fabric** (`carrier_fabric`) — Organization ID + API key
 
-**Unique ID:** Based on API key
+**Unique ID:** Resolved deterministically from stable console identity (`resolve_console_identity` gateway/Cloud Key MAC or Protect NVR MAC for `local`, cloud `console_id` for `remote`, and `carrier_<org_id>` or `carrier_key_<sha256[:16]>` for `carrier_fabric`) — never use raw IP addresses, mutable hostnames, or raw API keys.
 
-**Flows:** User setup, reauth, reconfigure
+**Flows:** User setup, discovery, reauth, reconfigure, and options flow.
 
 ### Entity Base Classes
 
-Two base classes in `entity.py`:
+Primary base classes in `entity.py` (plus domain-specific bases in `access_entity.py`, `innerspace_entity.py`, `mobility_entity.py`, `carrier_fabric_entity.py`):
 
-- **`UnifiInsightsEntity`** — Network devices; availability via `is_device_online` helper
-- **`UnifiProtectEntity`** — Protect devices; availability via `state == CONNECTED`
+- **`UnifiInsightsEntity`** — Network devices; availability gated on `coordinator.device_available` and `is_device_online(device_data)`
+- **`UnifiProtectEntity`** — Protect devices; availability gated on `coordinator.protect_available` and `state == "CONNECTED"`
 
-Both handle camelCase/snake_case field mapping via `get_field()`.
+## Home Assistant Patterns (2026.10+ Standards)
 
-## Home Assistant Patterns
+**Config flow (`config_flow.py`):**
 
-**Config flow:**
-
-- Implemented in `config_flow.py`
-- Support user setup, reauth, reconfigure
-- Always set unique_id for entries
-- Validates connectivity by fetching sites
+- Support user setup, reauth, reconfigure, and options flow
+- Set `unique_id` and call `self._abort_if_unique_id_configured()` in setup/discovery flows (and `self._abort_if_unique_id_mismatch()` in reauth/reconfigure flows)
+- Type schemas with `probatio` under `if TYPE_CHECKING: import probatio as vol` (`else: import voluptuous as vol`)
+- Do **not** use `FlowHandler.show_advanced_options` or `context["show_advanced_options"]` (deprecated in 2026.5); use form sections for advanced settings
+- Do **not** combine a config entry update listener with reloading flow helpers (`async_update_reload_and_abort`, `_abort_if_unique_id_configured(reload_on_update=True)`) — deprecated in 2026.6 and raises an error in 2026.12
+- Use modern selectors (`SelectSelector`, `NumberSelector`, `TextSelector` with `pattern`, `DeviceClassSelector`, `StateClassSelector`, `UnitOfMeasurementSelector`) and always provide `data_description` in `strings.json`
 
 See `.github/instructions/config_flow.instructions.md` for comprehensive patterns.
 
-**Service actions:**
+**Service actions (`services.py` & `services.yaml`):**
 
-- Defined in `services.yaml` with full descriptions
-- Implemented in `services.py`
-- Includes: refresh data, restart device, Protect controls (recording/HDR/video mode, mic, light, PTZ, chime), Network actions (authorize guest, voucher CRUD)
-- Use `_get_protect_coordinator`/`_get_first_coordinator` helpers
-- Raise `HomeAssistantError` with user-facing messages
+- Register service actions in `async_setup` (not `async_setup_entry`) so they are available and validatable even when no config entry is loaded (Quality Scale: `action-setup`)
+- Route every action to the owning console with `_get_coordinator_for_network_resource` or `_get_coordinator_for_protect_resource`; never pick the first entry blindly
+- Do **not** pass `hass` to service extraction helpers (`async_extract_config_entry_ids(service_call)`, `async_extract_entity_ids(service_call)`, `async_extract_entities(entities, service_call)`, `@verify_domain_control(DOMAIN)`) — passing `hass` was removed in HA 2026.10
+- Do **not** use `device` filters inside `target:` selectors in `services.yaml` (removed in HA 2026.11)
+- Raise `ServiceValidationError` for invalid user input and `HomeAssistantError` for device/API failures, using `translation_domain=DOMAIN` and `translation_key=...` with matching entries under `exceptions` in `strings.json` (Quality Scale: `action-exceptions`, `exception-translations`)
 
 See `.github/instructions/service_actions.instructions.md` for service patterns.
 
-**Coordinator:**
+**Coordinator (`coordinators/`):**
 
 - Entities → Coordinator → API Client (never skip layers)
-- Raise `ConfigEntryAuthFailed` (triggers reauth) or `UpdateFailed` (retry)
+- Raise `ConfigEntryAuthFailed` (triggers reauth) or `UpdateFailed` (retry; `DataUpdateCoordinator` automatically logs once when unavailable and once when restored, satisfying `log-when-unavailable`)
 - Use `async_config_entry_first_refresh()` for first update
 
 See `.github/instructions/coordinator.instructions.md` for details.
 
-**Entities:**
+**Entities & Lifecycle Hooks (HA 2026.10 / 2026.11):**
 
-- Inherit from platform base + `UnifiInsightsEntity` or `UnifiProtectEntity`
+- Inherit from the custom base class first, then the platform entity class (`class MySensor(UnifiInsightsEntity, SensorEntity):`)
 - Read from `coordinator.data`, never call API directly
-- Use `EntityDescription` for static metadata
+- Use `EntityDescription` for static metadata (`has_entity_name = True`, `translation_key`, `device_class`, `state_class`, `entity_category`, `entity_registry_enabled_default`)
+- **Lifecycle hooks (HA 2026.10+):**
+  - Use `async_added_to_hass` for normal subscriptions/listeners and register cleanup via `self.async_on_remove(...)` (Quality Scale: `entity-event-setup`)
+  - Use `async_prepare_to_add_to_hass` (new in 2026.10) only when work must happen before registry processing; never override `add_to_platform_start`, `add_to_platform_finish`, or `add_to_platform_abort`
+  - **In-place `entity_id` changes (HA 2026.11+):** Any custom entity class that implements `async_prepare_to_add_to_hass`, `async_added_to_hass`, or `async_will_remove_from_hass` must also implement `@callback def async_entity_id_changed(self, old_entity_id: str) -> None:` (calling `super().async_entity_id_changed(old_entity_id)`) to opt in to in-place `entity_id` updates
+  - Never read `RestoreStateData.last_states` directly (removed in 2026.11); use `RestoreEntity.async_get_last_state()` or `RestoreStateData.async_get_stored_state(entity_id)`
 
 See `.github/instructions/entities.instructions.md` for entity patterns.
 
-**Repairs:**
+**Frontend & Custom Lovelace Cards (`frontend/` & `frontend.py`):**
 
-- Implemented in `repairs.py`
-- Use `async_create_issue()` with severity levels
-- Implement `RepairsFlow` for guided user fixes
+- Six card bundles (`topology-card.js`, `site-health-card.js`, `internet-activity-card.js`, `performance-card.js`, `protect-status-card.js`, `timeline-card.js`) are compiled from `frontend/src/` into `custom_components/unifi_insights/frontend/` and served by `frontend.py` via `hass.http.async_register_static_paths` with content-digest cache busting (`?v=<version>-<hash>`)
+- **HA 2026 UI/UX conventions:**
+  - Build self-contained Lit components using `--ha-*` CSS custom properties/tokens; avoid deprecated `--mdc-*` or `--switch-*` tokens (HA 2026.4–2026.8 migrated components to Web Awesome, using short size values `xs`, `s`, `m`, `l`, `xl`)
+  - Implement `getGridOptions()` for Sections view compatibility (`columns` as multiples of 3: `3`, `6`, `9`, `12`, or `"full"`, plus `rows`, `min_rows`, `min_columns`)
+  - Use `hass.formatEntityName(stateObj, config.name)` when formatting entity display names
+  - Support `prefers-reduced-motion`, ARIA attributes, and keyboard accessibility (`tabindex`, focus states, axe-core checks)
+
+**Repairs (`repairs.py`):**
+
+- Use `ir.async_create_issue()` with `translation_key` and `ir.IssueSeverity`
+- Implement `RepairsFlow` for fixable issues and delete issues on resolution
 
 See `.github/instructions/repairs.instructions.md` for comprehensive patterns.
 
 **Entity availability:**
 
-- Set `_attr_available = False` when device is unreachable
-- Update availability based on coordinator success/failure
-- Don't raise exceptions from `@property` methods
+- Gate availability on both coordinator health (`device_available` / `protect_available` / `last_update_success`) and device state (`is_device_online` / `state == "CONNECTED"`)
+- Never raise exceptions from `@property` methods; return `None` when value is unknown
 
-**State updates:**
+**Diagnostics (`diagnostics.py`):**
 
-- Use `self.async_write_ha_state()` for immediate updates
-- Let coordinator handle periodic updates
-- Minimize API calls (batch requests when possible)
-
-**Setup failure handling:**
-
-- `ConfigEntryNotReady` — Device offline/timeout, auto-retry, don't log manually
-- `ConfigEntryAuthFailed` — Expired credentials, triggers reauth flow
-
-**Diagnostics:**
-
-- **CRITICAL:** Use `async_redact_data()` to remove sensitive data
-- Redact: Passwords, API keys, tokens, location data, personal information
+- **CRITICAL:** Always use the three-pass redaction pipeline (`TO_REDACT`, `CLIENT_TO_REDACT`/`WIFI_TO_REDACT`, and `_anonymize_macs()`) via `async_redact_data()`
 
 ## Validation and Testing
 
 **Before committing, run:**
 
 ```bash
-pre-commit run --all-files   # Full validation
-script/lint                   # Auto-format and fix linting
-pytest                        # Run unit tests (95% total coverage enforced locally)
-cd frontend && npm ci          # Topology card: install (Node 22)
+pre-commit run --all-files   # Full validation (ruff, codespell, yamllint, ./script/mypy)
+./script/lint                # Auto-format and fix linting
+./script/mypy                # Full strict mypy check with HA venv
+pytest                       # Run unit tests (95% total coverage enforced locally)
+cd frontend && npm ci        # Dashboard cards: install dependencies
 npm run lint && npm run typecheck && npm test -- --coverage
-npm run build                  # Rebuild custom_components/unifi_insights/frontend/topology-card.js — commit it
+npm run build && npm run size # Rebuild custom_components/unifi_insights/frontend/*.js — commit them
 ```
 
 **Generate code that passes these checks on first run.** As an AI agent, you should produce higher quality code than manual development:
@@ -465,10 +488,8 @@ See `.github/instructions/tests.instructions.md` for comprehensive testing patte
 
 **Translation strategy:**
 
-- Use placeholders in code — functionality works without translations
-- Update `strings.json` only when asked or at major feature completion
-- NEVER update other language files automatically
-- Priority: Business logic first, translations later
+- Keep `strings.json` in sync with `custom_components/unifi_insights/translations/en.json` for user-facing entities, config flow steps, repair issues, service actions, and `exceptions`
+- NEVER update non-English language files in `translations/` automatically
 
 ## UniFi-Specific Considerations
 
@@ -477,15 +498,15 @@ See `.github/instructions/tests.instructions.md` for comprehensive testing patte
   - `https://developer.ui.com/llms.txt` — root index: which APIs exist and their current versions
   - `https://developer.ui.com/{service}/{version}/llms.txt` — full endpoint list for one service
   - `https://developer.ui.com/{service}/{version}/openapi.json` — request/response schemas
-  - `https://developer.ui.com/network/v10.4.57/ai-gettingstarted.md` — agent-oriented onboarding for the Network API
-  - Current versions as of 2026-09-16: Network `v10.4.57`, Protect `v7.3.53`, Site Manager `v1.0.0`. Resolve versions from the root index rather than hardcoding them.
+  - `https://developer.ui.com/network/v10.6.106/ai-gettingstarted.md` — agent-oriented onboarding for the Network API
+  - Current versions as of 2026-10-16: Network `v10.6.106`, Protect `v7.3.70`, Mobility `v1.0.0`, InnerSpace `v1.3.23`, Site Manager `v1.0.0`, Carrier Fabric `v1.0.0`. Always resolve versions from the root index (`llms.txt`) rather than hardcoding them.
 - **API Rate Limiting:** Be mindful of UniFi controller API rate limits when setting polling intervals
 - **Device Discovery:** Handle dynamic device discovery as UniFi networks can change
 - **Connection Resilience:** UniFi controllers may restart or become temporarily unavailable
-- **Multiple Sites:** Support for multi-site UniFi deployments where applicable
-- **Protect Integration:** Camera entities should handle UniFi Protect separately from network devices
-- **camelCase Tolerance:** UniFi API uses camelCase; use `get_field()` for field access
-- **Data Transforms:** Extend `data_transforms.py` when adding new API fields
+- **Multiple Sites & Consoles:** Support multi-site and multi-console UniFi deployments; always scope device and coordinator lookups to the owning config entry/console
+- **Protect Integration:** Protect entities are handled separately from network devices via `UnifiProtectCoordinator` and `UnifiProtectEntity`
+- **camelCase Tolerance:** UniFi API uses camelCase; use `get_field()` and `first_not_none()` for field access
+- **Data Transforms:** Extend `data_transforms.py` (or `innerspace_transforms.py`) when adding new API fields
 
 ## Tool Parallelization
 
@@ -509,10 +530,12 @@ See `.github/instructions/tests.instructions.md` for comprehensive testing patte
 
 - [UniFi Developer Portal](https://developer.ui.com/) — Official UniFi API documentation and developer resources
 - [UniFi API root index (`llms.txt`)](https://developer.ui.com/llms.txt) — machine-readable list of APIs and versions; the HTML pages are JS-rendered and unreadable to agents
-- [UniFi Network AI onboarding](https://developer.ui.com/network/v10.4.57/ai-gettingstarted.md) — agent-oriented Network API primer
-- [UniFi Protect OpenAPI spec](https://developer.ui.com/protect/v7.3.53/openapi.json) — authoritative sensor/camera schemas
+- [UniFi Network OpenAPI spec](https://developer.ui.com/network/v10.6.106/openapi.json) — authoritative Network schemas
+- [UniFi Protect OpenAPI spec](https://developer.ui.com/protect/v7.3.70/openapi.json) — authoritative sensor/camera/security schemas
 - [Home Assistant Developer Docs](https://developers.home-assistant.io/) — Primary reference
+- [Home Assistant Developer Blog](https://developers.home-assistant.io/blog) — Latest deprecations, entity lifecycle hooks, device registry rules, and frontend component updates
 - [Integration Quality Scale Rules](https://developers.home-assistant.io/docs/core/integration-quality-scale/rules)
+- [Integration Quality Scale Checklist](https://developers.home-assistant.io/docs/core/integration-quality-scale/checklist)
 - [Architecture Docs](https://developers.home-assistant.io/docs/architecture_index)
 - [Ruff Rules](https://docs.astral.sh/ruff/rules/) — Linter documentation
 - [pytest Documentation](https://docs.pytest.org/) — Testing framework

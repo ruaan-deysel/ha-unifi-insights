@@ -1,59 +1,53 @@
 ---
-applyTo: "custom_components/unifi_insights/__init__.py, custom_components/unifi_insights/coordinators/**/*.py"
+applyTo: "custom_components/unifi_insights/__init__.py, custom_components/unifi_insights/probe.py, custom_components/unifi_insights/coordinators/**/*.py, custom_components/unifi_insights/api/**/*.py"
 ---
 
 # API and Coordinator Instructions
 
-**Applies to:** Integration setup and coordinator files that interact with the API
+**Applies to:** Integration setup, capability probing, coordinators, and vendored API clients
 
 ## Architecture (CRITICAL)
 
 **Entities → Coordinator → API Client** — Never skip layers
 
-- **Entities:** Read `coordinator.data` only, never call API
-- **Coordinator:** Calls API, transforms data, handles errors/timing
-- **API Client:** The vendored package in `custom_components/unifi_insights/api` handles communication
+- **Entities:** Read `coordinator.data` only; never call API clients directly in state properties
+- **Coordinators:** Call API clients, normalize data via `data_transforms.py`, handle errors and polling/WebSocket lifecycle
+- **API Clients:** Vendored under `custom_components/unifi_insights/api/` (`network`, `protect`, `access`, `innerspace`, `site_manager`, `mobility`, `carrier_fabric`)
 
-## Vendored API package
+## Vendored API Package
 
-This integration vendors the upstream `unifi-official-api` project under `custom_components/unifi_insights/api`. It is not declared as a runtime dependency in `manifest.json`.
+This integration vendors the `unifi-official-api` package locally under `custom_components/unifi_insights/api/`. It is not declared as an external PyPI dependency in `manifest.json`.
 
 **Rules:**
 
-- NEVER create a custom HTTP client — reuse or extend the vendored package
-- Reuse `network_client` and `protect_client` methods
-- Never duplicate API endpoint paths — reference `const.py`
-- Always consult the [UniFi Developer Portal](https://developer.ui.com/) for official API documentation, endpoint specifications, and latest developer features
-- Fetch the **machine-readable** refs rather than the HTML docs — the portal is JavaScript-rendered and a plain fetch yields an empty app shell. Use [`llms.txt`](https://developer.ui.com/llms.txt) for the API/version index and `https://developer.ui.com/{service}/{version}/openapi.json` for request/response schemas. When adding or changing a model field, verify it against that spec
+- NEVER create ad-hoc `aiohttp` calls outside `custom_components/unifi_insights/api/` — reuse or extend the vendored client modules
+- Inject Home Assistant's shared `aiohttp.ClientSession` via `async_get_clientsession(hass, verify_ssl=...)` (Platinum `inject-websession`)
+- All client operations must be async (Platinum `async-dependency`)
+- Always consult the [UniFi Developer Portal](https://developer.ui.com/) machine-readable specs before adding or modifying API endpoints or models:
+  - `https://developer.ui.com/llms.txt` — root index of APIs and versions (as of 2026-10: Network `v10.6.106`, Protect `v7.3.70`, Mobility `v1.0.0`, InnerSpace `v1.3.23`, Site Manager `v1.0.0`, Carrier Fabric `v1.0.0`)
+  - `https://developer.ui.com/{service}/{version}/llms.txt` — endpoint list for a service
+  - `https://developer.ui.com/{service}/{version}/openapi.json` — authoritative OpenAPI request/response schemas
 
-## Client Setup
+## Client Setup & Capability Probing
 
-In `__init__.py`:
+In `__init__.py` and `probe.py`:
 
-- Network client: Created for both local and remote modes
-- Protect client: Created for both local and remote modes
-- Validates connectivity by fetching sites (Network) and cameras (Protect)
-
-## Session management
-
-- The library manages its own sessions
-- Don't create `aiohttp.ClientSession` manually for API calls
-- Let the vendored package handle authentication and retries
+- Clients are instantiated with Home Assistant's shared session (`async_get_clientsession`)
+- Optional UniFi applications (Protect, Access, InnerSpace, Site Manager, Mobility) are probed gracefully via `probe.py` so consoles running only a subset of applications set up cleanly without failing the config entry
 
 ## Data Transforms
 
-- Use `data_transforms.py` for mapping API responses to internal schema
-- Normalize status values (e.g., `online` → `connected`)
-- Handle camelCase → snake_case conversion
-- Extend transforms when adding new API fields
+- Use `data_transforms.py` (`get_field`, `first_not_none`, model-to-dict helpers) for mapping API responses to internal coordinator dictionaries
+- Use `first_not_none()` whenever a valid value can be `0`, `0.0`, `False`, or `""`
+- Handle camelCase / snake_case tolerance consistently
 
 ## Exception Hierarchy
 
-Map library exceptions to HA exceptions:
+Map vendored API exceptions (`custom_components/unifi_insights/api/`) to Home Assistant exceptions:
 
-| Library Exception     | HA Exception            | When                   |
-| --------------------- | ----------------------- | ---------------------- |
-| `AuthenticationError` | `ConfigEntryAuthFailed` | Bad credentials        |
-| `TimeoutError`        | `ConfigEntryNotReady`   | Controller unreachable |
-| `ApiError`            | `UpdateFailed`          | Transient API failure  |
-| Any API error         | `HomeAssistantError`    | In service calls       |
+| Vendored API Exception                                                          | Home Assistant Exception                                             | Context                                                     |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `UniFiAuthenticationError`                                                      | `ConfigEntryAuthFailed`                                              | Setup (`__init__.py`) or Coordinator (`_async_update_data`) |
+| `UniFiConnectionError`, `UniFiTimeoutError`                                     | `ConfigEntryNotReady`                                                | Setup (`__init__.py`) when controller is unreachable        |
+| `UniFiConnectionError`, `UniFiTimeoutError`, `UniFiResponseError`, `UniFiError` | `UpdateFailed`                                                       | Coordinator refresh (`_async_update_data`)                  |
+| `UniFiResponseError`, `UniFiError`                                              | `HomeAssistantError` (with `translation_domain` & `translation_key`) | Service actions (`services.py`) and entity action methods   |

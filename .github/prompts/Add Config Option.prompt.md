@@ -1,20 +1,19 @@
 ---
 agent: "agent"
 tools: ["search/codebase", "edit", "search"]
-description: "Add a new configuration option to the UniFi Insights config flow"
+description: "Add a new configuration option to the UniFi Insights config or options flow"
 ---
 
 # Add Config Option
 
-Your goal is to add a new configuration option to the UniFi Insights integration's config or options flow.
+Your goal is to add a new configuration option to the UniFi Insights integration's config flow or options flow following Home Assistant 2026.10+ standards.
 
 If not provided, ask for:
 
 - Option name and purpose
-- Data type (string, boolean, number, select)
+- Data type and selector (`TextSelector`, `BooleanSelector`, `NumberSelector`, `SelectSelector`, `DeviceClassSelector`, `StateClassSelector`, `UnitOfMeasurementSelector`, etc.)
 - Default value
-- Whether it belongs in initial setup or options flow
-- Validation requirements
+- Whether it belongs in initial setup (`local` / `remote` / `carrier_fabric`), `reconfigure`, or `options` flow
 
 ## Implementation Steps
 
@@ -23,37 +22,36 @@ If not provided, ask for:
 **File:** `custom_components/unifi_insights/const.py`
 
 ```python
-CONF_NEW_OPTION = "new_option"
-DEFAULT_NEW_OPTION = "default_value"
+CONF_NEW_OPTION: Final = "new_option"
+DEFAULT_NEW_OPTION: Final = "default_value"
 ```
 
-### 2. Update config flow
+### 2. Update `config_flow.py`
 
 **File:** `custom_components/unifi_insights/config_flow.py`
 
-Add the field to the appropriate step's schema and handle the value.
+- Keep `probatio` typing compatibility (`if TYPE_CHECKING: import probatio as vol`).
+- Never use deprecated `FlowHandler.show_advanced_options` (use collapsible flow `section(...)` if grouping advanced settings).
+- Do not combine config entry update listeners with `reload_on_update=True` flow helpers (causes double reloads, deprecated in HA 2026.6 / error in HA 2026.12).
+- Never raise `ConfigEntryNotReady` or `ConfigEntryAuthFailed` inside config flow steps.
 
 ### 3. Add translations
 
-**File:** `custom_components/unifi_insights/strings.json`
+**Files:** `custom_components/unifi_insights/strings.json` and `custom_components/unifi_insights/translations/en.json`
 
-Add under the appropriate `config.step` section:
+Add under the relevant `config.step.<step_id>` or `options.step.<step_id>` section:
 
 ```json
 "data": {
   "new_option": "Option label"
 },
 "data_description": {
-  "new_option": "Description of what this option controls"
+  "new_option": "Description of what this option controls."
 }
 ```
 
-### 4. Use the option
+### 4. Wire up and test
 
-Update the integration setup or coordinator to read and use the new option from `entry.data` or `entry.options`.
-
-### 5. Validation
-
-- Run `pre-commit run --all-files`
-- Test the flow in HA UI
-- Verify reconfigure flow includes the option if applicable
+- Read the option from `entry.options` / `entry.data` in `__init__.py` or the relevant coordinator
+- Add 100% branch coverage tests in `tests/test_config_flow.py`
+- Run `./script/lint`, `./script/mypy`, and `pytest tests/test_config_flow.py`

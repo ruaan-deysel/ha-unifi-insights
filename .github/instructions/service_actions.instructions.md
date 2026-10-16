@@ -4,62 +4,58 @@ applyTo: "custom_components/unifi_insights/services.py, custom_components/unifi_
 
 # Service Action Instructions
 
-**Applies to:** Service definitions and implementations
+**Applies to:** Service action definitions and implementations
 
 ## Terminology
 
 - **Developer/Code:** "service action" (function names, comments)
 - **User-facing:** "action" (UI, translations)
-- **Legacy:** `services.yaml`, `hass.services.async_register()`, `ServiceCall` class
+- **Files:** `services.py` and `services.yaml`
 
-## Implementation File
+## Registration & Lifecycle (IQS `action-setup`)
 
-All service actions are implemented in `services.py` (1,166 lines).
+- Register all service actions in `async_setup(hass, config)` (via `async_setup_services(hass)`), NOT in `async_setup_entry`.
+- Service actions remain registered across config entry reloads and validate active config entries when invoked.
 
-## Existing Services
+## Multi-Console Routing Helpers
 
-- **Refresh data** — Force coordinator refresh
-- **Restart device** — Restart a network device
-- **Protect controls** — Recording mode, HDR, video mode, mic volume, light mode/level, PTZ move/patrol, chime settings
-- **Network actions** — Authorize guest, voucher CRUD, client block
+Service actions must run against the console that owns the target resource, never blindly against the first config entry:
 
-## Helper Functions
+- `_get_coordinator_for_network_resource(hass, *, site_id=, device_id=, client_id=)` — resolves the coordinator owning a Network site, device, or client
+- `_get_coordinator_for_protect_resource(hass, *, resource_type=, resource_id=, secondary_resource_type=, secondary_resource_id=, console_id=)` — resolves the coordinator owning a Protect camera, light, chime, or viewer
 
-Service actions must run against the console that owns the target, never
-against whichever entry happens to be first. Two resolvers do that:
+Both raise `ServiceValidationError` when the target is unknown or ambiguous across multiple configured consoles. Actions without a routable target (`trigger_alarm`, `create_liveview`) accept an optional `console_id` parameter (entry title or entry ID), required only when multiple consoles are configured.
 
-- `_get_coordinator_for_network_resource(hass, *, site_id=, device_id=, client_id=)`
-  — the coordinator owning a Network site/device/client
-- `_get_coordinator_for_protect_resource(hass, *, resource_type=, resource_id=,
-secondary_resource_type=, secondary_resource_id=, console_id=)` — the
-  coordinator owning a Protect camera/light/chime/viewer
+## Error Handling & Exception Translations (IQS `action-exceptions` & `exception-translations`)
 
-Both raise `ServiceValidationError` when the target is unknown or ambiguous
-across consoles. An action carrying no routable target (`trigger_alarm`,
-`create_liveview`) takes an optional `console_id` field — the entry title or
-entry ID — which is only required when more than one console is configured.
+- Raise `ServiceValidationError` for invalid user parameters, missing targets, or unsupported device capabilities:
+  ```python
+  raise ServiceValidationError(
+      translation_domain=DOMAIN,
+      translation_key="invalid_target",
+      translation_placeholders={"target": target_id},
+  )
+  ```
+- Raise `HomeAssistantError` (with `translation_domain=DOMAIN`, `translation_key=...`) when an API call or device operation fails, using fixed translated wording or safe identifier placeholders rather than raw exception strings:
+  ```python
+  raise HomeAssistantError(
+      translation_domain=DOMAIN,
+      translation_key="action_failed",
+      translation_placeholders={"device_id": device_id},
+  ) from err
+  ```
+- Define all `translation_key` entries under the top-level `"exceptions"` key in `strings.json` and `translations/en.json`.
+- Never expose raw stack traces or untranslated API exception strings (`str(err)`) in user-facing error placeholders.
 
-## Error Handling
+## HA 2026.10–2026.11 Service Helper Changes
 
-- Raise `HomeAssistantError` with user-facing messages for device/API failures
-- Raise `ServiceValidationError` for invalid user input
-- Never expose raw API errors to users
-
-## Schema Definition (services.yaml)
-
-```yaml
-action_name:
-  fields:
-    parameter_name:
-      required: true
-      selector:
-        text:
-```
+- **No `hass` argument in service helpers (HA 2026.10+):** `homeassistant.helpers.service` functions (`verify_domain_control`, `extract_entity_ids`, `async_extract_entities`, `async_extract_entity_ids`, `async_extract_config_entry_ids`) no longer accept `hass` as the first parameter (`ServiceCall` already holds `call.hass`).
+- **Target selector `device` filter removed (HA 2026.11+):** Never put a `device` filter inside a `target:` selector in `services.yaml` (only `integration`, `domain`, and `supported_features` are valid under `target.device` / `target.entity`).
 
 ## Adding a New Service Action
 
-1. Define schema in `services.yaml`
-2. Add handler function in `services.py`
-3. Register in the service setup function
-4. Add translations in `strings.json` under `services`
-5. Update tests if requested
+1. Define the schema in `services.yaml`
+2. Implement the async handler in `services.py` using `probatio`/`voluptuous` validation and multi-console routing helpers
+3. Register the action in `async_setup_services(hass)`
+4. Add action name, description, and field translations under `"services"` and error translations under `"exceptions"` in `strings.json` and `translations/en.json`
+5. Add unit tests covering success, validation errors (`ServiceValidationError`), and API errors (`HomeAssistantError`) in `tests/test_services.py`

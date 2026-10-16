@@ -6,15 +6,14 @@ description: "Add a new service action to the UniFi Insights integration"
 
 # Add Service Action
 
-Your goal is to add a new **service action** to the UniFi Insights integration that users can call from automations, scripts, or the UI.
+Your goal is to add a new **service action** to the UniFi Insights integration following Home Assistant 2026.10+ and Integration Quality Scale (`action-setup`, `action-exceptions`, `exception-translations`) rules.
 
 If not provided, ask for:
 
-- Service action name and purpose
-- Parameters required (with types and validation)
-- What the service action does (API call, state change, etc.)
-- Whether it targets a specific device/entity or is integration-wide
-- Which API client it uses (network_client, protect_client, or both)
+- Service action name (`snake_case`) and purpose
+- Parameters required (types, defaults, selectors)
+- Target resource type (Network site/device/client, Protect camera/light/chime/viewer, or console-wide)
+- Which API client method it calls
 
 ## Implementation Steps
 
@@ -31,40 +30,45 @@ action_name:
         text:
 ```
 
-### 2. Add handler in `services.py`
+- **CRITICAL (HA 2026.11):** Never add a `device:` filter inside a `target:` selector block.
+
+### 2. Add handler and register in `services.py`
 
 **File:** `custom_components/unifi_insights/services.py`
 
-- Route to the owning console with `_get_coordinator_for_network_resource`
-  or `_get_coordinator_for_protect_resource`; never pick the first entry
-- If the action has no routable target, accept an optional `console_id`
-- Raise `HomeAssistantError` for device/API failures
-- Raise `ServiceValidationError` for invalid user input
+- Register all service actions inside `async_setup_services(hass)` called from `async_setup` (Bronze `action-setup`).
+- Route resource targets using `_get_coordinator_for_network_resource(...)` or `_get_coordinator_for_protect_resource(...)`. For console-wide actions without a resource target, accept an optional `console_id` parameter (required when multiple config entries exist) and route to the matching entry — never blindly pick the first config entry.
+- If using `homeassistant.helpers.service` extraction helpers (`async_extract_entities`, `extract_entity_ids`, `async_extract_config_entry_ids`), do **not** pass `hass` as the first argument (removed in HA 2026.10).
+- Raise `ServiceValidationError(translation_domain=DOMAIN, translation_key="...", translation_placeholders={...})` for invalid input or unknown targets.
+- Raise `HomeAssistantError(translation_domain=DOMAIN, translation_key="...", translation_placeholders={...}) from err` for API/device failures.
 
-### 3. Register the service
+### 3. Add translations (`services` and `exceptions`)
 
-Add registration in the service setup function within `services.py`.
+**Files:** `custom_components/unifi_insights/strings.json` and `custom_components/unifi_insights/translations/en.json`
 
-### 4. Add translations
-
-**File:** `custom_components/unifi_insights/strings.json`
-
-Add under the `services` section:
+Add action labels under `"services"` and any new error keys under `"exceptions"`:
 
 ```json
-"action_name": {
-  "name": "Action display name",
-  "description": "What this action does",
-  "fields": {
-    "parameter_name": {
-      "name": "Parameter display name",
-      "description": "What this parameter controls"
+"services": {
+  "action_name": {
+    "name": "Action display name",
+    "description": "What this action does.",
+    "fields": {
+      "parameter_name": {
+        "name": "Parameter display name",
+        "description": "What this parameter controls."
+      }
     }
+  }
+},
+"exceptions": {
+  "action_failed": {
+    "message": "Failed to execute action on {device_id}."
   }
 }
 ```
 
-### 5. Validation
+### 4. Add tests and validate
 
-- Run `pre-commit run --all-files`
-- Verify the service appears in HA Developer Tools → Services
+- Add unit tests in `tests/test_services.py` covering success, `ServiceValidationError`, and `HomeAssistantError`
+- Run `./script/lint`, `./script/mypy`, and `pytest tests/test_services.py`

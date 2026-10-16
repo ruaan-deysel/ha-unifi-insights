@@ -6,23 +6,21 @@ description: "Add a new sensor entity to the UniFi Insights integration"
 
 # Add New Sensor
 
-Your goal is to add a new sensor to the UniFi Insights integration.
+Your goal is to add a new sensor entity to the UniFi Insights integration (`sensor.py`, `carrier_fabric_sensor.py`, `site_internet_activity_sensor.py`, or `voucher_sensor.py`).
 
 If not provided, ask for:
 
-- What the sensor measures (CPU temp, bandwidth, client count, etc.)
-- Data source (network device field, Protect device field, computed value)
-- Unit of measurement
-- Device class and state class
-- Whether it should be enabled by default or diagnostic-only
+- What the sensor measures (CPU temp, bandwidth, PoE power, SFP optical power, ISP latency, ONU RX power, etc.)
+- Data source (Network, Protect, Access, InnerSpace, Site Manager, Mobility, or Carrier Fabric coordinator)
+- Unit of measurement (`native_unit_of_measurement` and optional `suggested_unit_of_measurement`)
+- `SensorDeviceClass`, `SensorStateClass`, `suggested_display_precision`, and `EntityCategory`
+- Whether it should be enabled by default (`entity_registry_enabled_default`)
 
 ## Implementation Steps
 
 ### 1. Add entity description
 
-**File:** `custom_components/unifi_insights/sensor.py`
-
-Add to the appropriate description list:
+Add to the appropriate description tuple in `custom_components/unifi_insights/sensor.py` (or specialized sensor module):
 
 ```python
 UnifiInsightsSensorEntityDescription(
@@ -32,59 +30,40 @@ UnifiInsightsSensorEntityDescription(
     device_class=SensorDeviceClass.DATA_RATE,
     state_class=SensorStateClass.MEASUREMENT,
     suggested_display_precision=2,
+    entity_category=EntityCategory.DIAGNOSTIC,
     entity_registry_enabled_default=True,
-    value_fn=lambda data: data.get("fieldName"),
+    value_fn=lambda data: get_field(data, "fieldName", "field_name"),
 )
 ```
 
-### 2. Add to entity creation
+### 2. Preserve falsy zero values
 
-Ensure the sensor description is included in the entity creation loop within `async_setup_entry`.
+Always use `get_field()` or `first_not_none()` instead of `data.get("a") or data.get("b")` so `0` or `0.0` measurements do not evaluate as `None`.
 
-### 3. Check data availability
+### 3. Add translations and icons
 
-Verify the data field exists:
-
-- For network devices: Check coordinator data under `devices`
-- For Protect devices: Check coordinator data under `protect`
-- May need to extend `data_transforms.py` if field needs normalization
-
-### 4. Add translation
-
-**File:** `custom_components/unifi_insights/strings.json`
-
-```json
-"entity": {
-  "sensor": {
-    "sensor_key": {
-      "name": "Sensor display name"
+- **Files:** `custom_components/unifi_insights/strings.json` and `custom_components/unifi_insights/translations/en.json`:
+  ```json
+  "entity": {
+    "sensor": {
+      "sensor_key": {
+        "name": "Sensor display name"
+      }
     }
   }
-}
-```
-
-### 5. Add icon
-
-**File:** `custom_components/unifi_insights/icons.json`
-
-```json
-"entity": {
-  "sensor": {
-    "sensor_key": {
-      "default": "mdi:icon-name"
+  ```
+- **File:** `custom_components/unifi_insights/icons.json` (supports `default`, `state`, and numeric `range` keys in HA 2026.9+):
+  ```json
+  "entity": {
+    "sensor": {
+      "sensor_key": {
+        "default": "mdi:icon-name"
+      }
     }
   }
-}
-```
+  ```
 
-### 6. Patterns to follow
+### 4. Add tests and validate
 
-- Network sensors: Per-port metrics only for ports with state UP
-- Diagnostic sensors: Set `entity_registry_enabled_default = False`
-- Use `get_field()` for camelCase/snake_case field tolerance
-- Protect sensors: Inherit from `UnifiProtectEntity`
-
-### 7. Validation
-
-- Run `pre-commit run --all-files`
-- Run `pytest tests/test_sensor.py` if tests exist for sensors
+- Add unit tests in `tests/test_sensor.py` (testing value extraction, `0` value handling, and unavailability)
+- Run `./script/lint`, `./script/mypy`, and `pytest tests/test_sensor.py`

@@ -50,7 +50,7 @@ class TopologyNode(TypedDict):
 
 
 class TopologyEdge(TypedDict):
-    """A child -> parent link."""
+    """A child -> parent link. A ``gateway`` node is never a ``source``."""
 
     source: str
     target: str

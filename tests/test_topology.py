@@ -494,6 +494,124 @@ def test_gateway_with_unknown_upstream_is_root() -> None:
     assert not [e for e in snapshot["edges"] if e["source"] == "dev:uuid-gw"]
 
 
+def test_gateway_with_in_site_uplink_is_root() -> None:
+    """A gateway whose uplink names an in-site switch never gets a parent edge."""
+    data = _data(
+        {
+            "uuid-gw": _device(
+                "uuid-gw", "Gateway", mac=GW_MAC, legacy_type="ucg", uplink_mac=CORE_MAC
+            ),
+            "uuid-core": _device("uuid-core", "Core", mac=CORE_MAC, legacy_type="usw"),
+        }
+    )
+    snapshot = _build(data)
+
+    assert not [e for e in snapshot["edges"] if e["source"] == "dev:uuid-gw"]
+    assert {"node_id": "dev:uuid-core", "reason": "no_uplink_data"} in snapshot[
+        "unresolved"
+    ]
+    assert not [u for u in snapshot["unresolved"] if u["node_id"] == "dev:uuid-gw"]
+
+
+def test_mutual_gateway_switch_uplink_keeps_gateway_root() -> None:
+    """Gateway and switch naming each other over one link: switch -> gateway."""
+    data = _data(
+        {
+            "uuid-gw": _device(
+                "uuid-gw",
+                "Gateway",
+                mac=GW_MAC,
+                legacy_type="ucg",
+                uplink_mac=CORE_MAC,
+                remote_port=9,
+                speed=10000,
+            ),
+            "uuid-core": _device(
+                "uuid-core",
+                "Living Room Switch",
+                mac=CORE_MAC,
+                legacy_type="usw",
+                uplink_mac=GW_MAC,
+                remote_port=5,
+                speed=10000,
+            ),
+            "uuid-ap": _device(
+                "uuid-ap",
+                "AP",
+                mac="02:00:00:00:00:08",
+                legacy_type="uap",
+                uplink_mac=CORE_MAC,
+                remote_port=3,
+            ),
+        },
+        {"cli-tv": _client("cli-tv", "TV", uplink="uuid-core")},
+    )
+    snapshot = _build(data)
+
+    assert snapshot["status"] == "ok"
+    assert snapshot["unresolved"] == []
+    device_edges = [e for e in snapshot["edges"] if e["source"].startswith("dev:")]
+    assert len(device_edges) == 2
+    core_edge = _edge(snapshot, "dev:uuid-core")
+    assert core_edge["target"] == "dev:uuid-gw"
+    assert core_edge["parent_port"] == 5
+    assert core_edge["speed_mbps"] == 10000
+    assert _edge(snapshot, "dev:uuid-ap")["target"] == "dev:uuid-core"
+    assert _edge(snapshot, "cli:cli-tv")["target"] == "dev:uuid-core"
+
+
+def test_multiple_gateways_are_all_roots() -> None:
+    """Gateways naming each other (or the same switch) are each their own root."""
+    second_gw_mac = "02:00:00:00:00:09"
+    data = _data(
+        {
+            "uuid-gw": _device(
+                "uuid-gw", "Gateway", mac=GW_MAC, legacy_type="udm", uplink_mac=CORE_MAC
+            ),
+            "uuid-gw2": _device(
+                "uuid-gw2",
+                "Gateway 2",
+                mac=second_gw_mac,
+                legacy_type="uxg",
+                uplink_mac=GW_MAC,
+            ),
+            "uuid-core": _device(
+                "uuid-core",
+                "Core",
+                mac=CORE_MAC,
+                legacy_type="usw",
+                uplink_mac=GW_MAC,
+            ),
+        }
+    )
+    snapshot = _build(data)
+
+    assert snapshot["status"] == "ok"
+    assert snapshot["unresolved"] == []
+    sources = {edge["source"] for edge in snapshot["edges"]}
+    assert sources == {"dev:uuid-core"}
+
+
+def test_gateway_self_uplink_is_root() -> None:
+    """A gateway that names itself as uplink has no edge and is not unresolved."""
+    snapshot = _build(
+        _data(
+            {
+                "uuid-gw": _device(
+                    "uuid-gw",
+                    "Gateway",
+                    mac=GW_MAC,
+                    legacy_type="ucg",
+                    uplink_mac=GW_MAC,
+                )
+            }
+        )
+    )
+
+    assert snapshot["edges"] == []
+    assert snapshot["unresolved"] == []
+
+
 def test_self_edge_is_skipped() -> None:
     """A device that claims itself as parent gets no edge."""
     snapshot = _build(

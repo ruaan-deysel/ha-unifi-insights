@@ -178,20 +178,24 @@ def _device_edge(
     """
     Return the device's edge to its parent, an unresolved reason, or None.
 
-    None means "no edge and nothing wrong": a gateway (the root) or a
-    self-reference. A gateway whose uplink names a device outside the site is
-    still the root: the legacy uplink can come from LLDP
-    (``uplink_source: lldp_uplink``), so an upstream ISP router that speaks
-    LLDP would otherwise leave the gateway permanently unresolved.
+    None means "no edge and nothing wrong": a gateway or a self-reference.
+    Gateways are always roots, so their uplink data is ignored for parentage.
+    A gateway's legacy uplink can come from LLDP
+    (``uplink_source: lldp_uplink``) and often names an upstream ISP router
+    or a LAN-side switch; the switch case can even be mutual over one link
+    (gateway names switch, switch names gateway), which would otherwise put
+    the switch above the gateway.
     """
+    if device_kind(device) == "gateway":
+        return None
     topology = device.get("topology")
     block = topology if isinstance(topology, dict) else {}
     parent_mac = normalize_mac(block.get("uplink_mac"))
     if parent_mac is None:
-        return None if device_kind(device) == "gateway" else "no_uplink_data"
+        return "no_uplink_data"
     parent_id = mac_index.get(parent_mac)
     if parent_id is None:
-        return None if device_kind(device) == "gateway" else "parent_not_found"
+        return "parent_not_found"
     if parent_id == node_id:
         return None
 

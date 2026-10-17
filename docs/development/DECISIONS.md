@@ -51,7 +51,7 @@ Diagnostics pass through `TO_REDACT`, then `CLIENT_TO_REDACT` / `WIFI_TO_REDACT`
 
 ### Flat Home Assistant module layout (proposed)
 
-Consolidate 57 root modules into 33 by moving every base entity into `entity.py`, every platform entity into its standard platform module, pure helpers into `data_transforms.py`, dashboard builders into `dashboard_snapshots.py`, and topology helpers into `topology.py`. Keep exactly two subpackages: `coordinators/` and the vendored `api/`. Tracked in [#330](https://github.com/tinkerologie/ha-unifi-insights/issues/330). [ADR-007](./adr/007-flat-home-assistant-module-layout.md)
+Consolidate 57 root modules into 33 by moving every base entity into `entity.py`, every platform entity into its standard platform module, pure helpers into `data_transforms.py`, dashboard builders into `dashboard_snapshots.py`, and topology helpers into `topology.py`. Keep exactly two subpackages, `coordinators/` and the vendored `api/`, until `api/` moves back upstream; then `coordinators/` is the only one (201 to 48 Python files). No module goes over about 2,000 lines: when one grows past that, deepen it rather than split it, and land the file moves after #337 to #339. Tracked in [#341](https://github.com/tinkerologie/ha-unifi-insights/issues/341), part of [#343](https://github.com/tinkerologie/ha-unifi-insights/issues/343). [ADR-007](./adr/007-flat-home-assistant-module-layout.md)
 
 ---
 
